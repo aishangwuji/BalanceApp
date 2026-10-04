@@ -1,9 +1,15 @@
 ---
 covered_paths:
   - BalanceApp/entry/src/main/ets/services/BalanceService.ets
+  - BalanceApp/entry/src/main/ets/services/ProviderRegistry.ets
+  - BalanceApp/entry/src/main/ets/services/ChatService.ets
+  - BalanceApp/entry/src/main/ets/models/ChatModels.ets
   - BalanceApp/entry/src/main/ets/pages/Index.ets
-  - BalanceApp/entry/src/main/module.json5
-last_verified_commit: uncommitted (no git repo yet)
+  - BalanceApp/entry/src/main/ets/pages/ChatView.ets
+  - BalanceApp/entry/src/main/ets/pages/Settings.ets
+  - BalanceApp/entry/src/main/ets/pages/Assets.ets
+  - BalanceApp/entry/src/main/resources/base/profile/main_pages.json
+last_verified_commit: uncommitted (working tree 2026-10-05)
 ---
 
 # BalanceApp systemmap（初始）
@@ -32,4 +38,20 @@ last_verified_commit: uncommitted (no git repo yet)
 - 产物：签名 HAP 位于 `entry/build/default/outputs/default/`（-signed）。
 - 2026-10-04 dashboard 对齐验证：DeepSeek 真 Key 查询 258ms 回 200，Hero ¥4.89 与卡片
   ¥4.8900/总额/已用/进度条一致；修复过 ForEach 复用旧快照致卡片常显查询中
- （数据指纹 key + refreshView 重建数组，详见 Index.ets cardVersionKey/refreshView）。
+  （数据指纹 key + refreshView 重建数组，详见 Index.ets cardVersionKey/refreshView）。
+
+## 对话与导航架构（2026-10-05 改造）
+
+- 页面结构（main_pages.json）：`pages/Index`（壳，仅渲染 ChatView）→ `pages/Settings`
+  （设置）→ `pages/Assets`（资产监控，由原 Index dashboard 迁出）。底部 Tabs 已移除，
+  应用主界面即对话。
+- 设置页 Settings.ets：仅入口占位——语言 / 外观 / 字体大小 / 个性化（点击 toast
+  「该功能暂未实现」）+ 「资产监控」入口（router.pushUrl → pages/Assets）。
+- 对话导航：ChatView 顶部左侧三横杠打开历史抽屉；抽屉底部「设置」行 → Settings。
+- 思考模式（ChatService.ets）：`ProviderDefinition.supportsThinking`（当前仅 deepseek=true）
+  控制是否下发 `thinking:{type:enabled/disabled}` 与 `reasoning_effort`；思考开启时按官方
+  规范不下发 `temperature`；非支持厂商不传非标准字段。`reasoning_content` 仅本地展示，
+  多轮历史按无 tools 场景只回传 role/content（符合官方“无需回传”）。
+- 数据模型：CharacterCard 移除 `tags`；ChatMessage 移除 `usage`，ChatUsage 接口删除
+  （token 统计功能整体下线）。角色卡不再内置预设，DEFAULT_CHARACTERS=[]，无角色时用
+  EMPTY_CHARACTER 兜底。
