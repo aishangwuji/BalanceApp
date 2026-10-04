@@ -772,7 +772,7 @@ struct Index {
 
       if (rec.info !== undefined) {
         Row() {
-          Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).available.toFixed(4)}`)
+          Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).available.toFixed(2)}`)
             .fontSize(22)
             .fontWeight(FontWeight.Bold)
           Text(` ${(rec.info as BalanceInfo).currency}`)
