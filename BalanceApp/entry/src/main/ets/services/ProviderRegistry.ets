@@ -60,6 +60,12 @@ export interface ProviderDefinition {
    * Reason: ArkTS $r 不支持动态拼接，界面侧用静态映射取图（见 Index.providerIcon）。
    */
   icon: string;
+  /**
+   * 是否支持 OpenAI 格式思考模式（thinking/reasoning_effort）。
+   * Business Rule: 仅对官方明确支持该扩展的厂商下发思考参数，避免对
+   *   未知厂商透传非标准字段导致 400。
+   */
+  supportsThinking?: boolean;
 }
 
 /** 统一余额模型 —— 对齐智额 `models/balance_info.dart`。 */
@@ -104,6 +110,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     brandColor: '#4D6BFE',
     icon: 'deepseek',
     websiteUrl: 'https://platform.deepseek.com',
+    supportsThinking: true,
   },
   {
     id: 'siliconflow_cn',
@@ -202,6 +209,21 @@ export const PROVIDERS: ProviderDefinition[] = [
     brandColor: '#1A1A1A',
     icon: 'kimi',
     websiteUrl: 'https://platform.kimi.com',
+  },
+  {
+    id: 'mimo',
+    name: '小米 MiMo',
+    baseUrl: 'https://api.xiaomimimo.com',
+    category: ProviderCategory.CnOfficial,
+    balanceType: BalanceQueryType.Bearer,
+    balanceConfig: {
+      endpoint: '/v1/models',
+      availableField: '',
+      defaultCurrency: 'CNY',
+    },
+    brandColor: '#FF6900',
+    icon: 'mimo',
+    websiteUrl: 'https://mimo.mi.com',
   },
 ];
 
