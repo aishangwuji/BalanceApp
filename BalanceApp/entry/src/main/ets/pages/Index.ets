@@ -15,7 +15,7 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import {
   PROVIDERS, ProviderDefinition, ProviderCategory, BalanceInfo,
-  findProvider, usagePercentage, currencySymbol, categoryLabel,
+  findProvider, currencySymbol, categoryLabel,
 } from '../services/ProviderRegistry';
 import { fetchProviderBalance, ProviderBalanceResult } from '../services/BalanceService';
 
@@ -54,20 +54,6 @@ function formatToday(): string {
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-function hostOf(url: string): string {
-  let h: string = url;
-  if (h.startsWith('https://')) {
-    h = h.slice(8);
-  } else if (h.startsWith('http://')) {
-    h = h.slice(7);
-  }
-  const idx: number = h.indexOf('/');
-  if (idx >= 0) {
-    h = h.slice(0, idx);
-  }
-  return h;
-}
-
 @Entry
 @Component
 struct Index {
@@ -80,7 +66,6 @@ struct Index {
   @State globalSession: number = 0;
   @State refreshingAll: boolean = false;
   @State heroGroups: CurrencyGroup[] = [];
-  @State heroWithInfo: number = 0;
   private prefs: preferences.Preferences | undefined = undefined;
 
   // ── 持久化 ──
@@ -406,15 +391,6 @@ struct Index {
   /** Reason: @Builder 内只允许 UI 组件语法，取值逻辑收敛到普通方法供表达式调用。 */
   private updateHero(): void {
     this.heroGroups = this.currencyGroups();
-    let n: number = 0;
-    let i: number = 0;
-    while (i < this.records.length) {
-      if (this.records[i].info !== undefined) {
-        n += 1;
-      }
-      i += 1;
-    }
-    this.heroWithInfo = n;
   }
 
   private cardName(rec: ProviderRecord): string {
@@ -423,14 +399,6 @@ struct Index {
       return rec.defId;
     }
     return (def as ProviderDefinition).name;
-  }
-
-  private cardHost(rec: ProviderRecord): string {
-    const def: ProviderDefinition | undefined = findProvider(rec.defId);
-    if (def === undefined) {
-      return '';
-    }
-    return hostOf((def as ProviderDefinition).baseUrl);
   }
 
   /** Reason: $r 须字面量，注册表 closed-set，此处静态映射；未知 id 兜底 novita 图（不可达）。 */
@@ -521,12 +489,6 @@ struct Index {
               ForEach(this.records, (rec: ProviderRecord) => {
                 this.ProviderCard(rec)
               }, (rec: ProviderRecord) => this.cardVersionKey(rec))
-              Text('Key 仅保存于本机首选项，不打印明文日志；点卡片刷新按钮更新单家。')
-                .fontSize(12)
-                .fontColor('#999999')
-                .width('100%')
-                .margin({ top: 8, bottom: 24 })
-                .textAlign(TextAlign.Center)
             }
             .width('100%')
           }
@@ -539,12 +501,20 @@ struct Index {
       .height('100%')
       .alignItems(HorizontalAlign.Center)
 
-      // 添加服务商弹窗
+      // 添加服务商弹窗（底部上滑 + 点空白处收回）
       if (this.showAddSheet) {
         Column() {
           Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.showAddSheet = false;
+            })
+            .layoutWeight(1)
+            .onClick(() => {
+              this.showAddSheet = false;
+            })
           Column() {
-            Text(`添加服务商（${PROVIDERS.length} 个可用）`)
+            Text('添加服务商')
               .fontSize(18)
               .fontWeight(FontWeight.Bold)
               .margin({ top: 16, bottom: 8 })
@@ -573,10 +543,12 @@ struct Index {
           .height('70%')
           .backgroundColor('#FFFFFF')
           .borderRadius({ topLeft: 24, topRight: 24 })
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
         }
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.4)')
+        .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
       }
 
       // Key 输入弹窗（添加/更新共用）
@@ -642,19 +614,9 @@ struct Index {
   @Builder
   HeroCard() {
     Column() {
-      Row() {
-        Text('💰')
-          .fontSize(20)
-        Text('总资产')
-          .fontSize(16)
-          .fontColor('#666666')
-          .margin({ left: 8 })
-      }
-      .width('100%')
-      .margin({ bottom: 4 })
-      Text(`共 ${this.records.length} 个服务商 · ${this.heroWithInfo} 家有数据`)
-        .fontSize(13)
-        .fontColor('#999999')
+      Text('总资产')
+        .fontSize(16)
+        .fontColor('#666666')
         .width('100%')
         .margin({ bottom: 12 })
       if (this.heroGroups.length === 0) {
@@ -671,29 +633,23 @@ struct Index {
           .width('100%')
           .margin({ bottom: 8 })
         ForEach(this.heroGroups, (g: CurrencyGroup) => {
-          Row() {
-            Text(`可用 ${currencySymbol(g.currency)}${g.available.toFixed(2)} ${g.currency}`)
-              .fontSize(15)
-              .fontWeight(FontWeight.Medium)
-            Blank()
-            Text(`总额 ${currencySymbol(g.currency)}${g.total.toFixed(2)}`)
-              .fontSize(13)
-              .fontColor('#888888')
-          }
-          .width('100%')
-          .margin({ bottom: 4 })
+          Text(`可用 ${currencySymbol(g.currency)}${g.available.toFixed(2)} ${g.currency}`)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .width('100%')
+            .margin({ bottom: 4 })
         }, (g: CurrencyGroup) => g.currency)
       } else {
-        Text(`${currencySymbol(this.heroGroups[0].currency)}${this.heroGroups[0].available.toFixed(2)}`)
-          .fontSize(34)
-          .fontWeight(FontWeight.Bolder)
-          .fontColor('#0A84FF')
-          .width('100%')
-        Text(`总额 ${currencySymbol(this.heroGroups[0].currency)}${this.heroGroups[0].total.toFixed(2)} · 已用 ${currencySymbol(this.heroGroups[0].currency)}${this.heroGroups[0].used.toFixed(2)} ${this.heroGroups[0].currency}`)
-          .fontSize(13)
-          .fontColor('#666666')
-          .width('100%')
-          .margin({ top: 4 })
+        Row() {
+          Text(`${currencySymbol(this.heroGroups[0].currency)}${this.heroGroups[0].available.toFixed(2)}`)
+            .fontSize(34)
+            .fontWeight(FontWeight.Bolder)
+            .fontColor('#0A84FF')
+          Text(` ${this.heroGroups[0].currency}`)
+            .fontSize(14)
+            .fontColor('#666666')
+        }
+        .width('100%')
       }
       // 各家分布（对齐智额 providerBalances）
       ForEach(this.records, (rec: ProviderRecord) => {
@@ -746,9 +702,11 @@ struct Index {
           Text(this.cardName(rec))
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-          Text(rec.updatedAt.length > 0 ? `${this.cardHost(rec)} · ${rec.updatedAt}` : this.cardHost(rec))
-            .fontSize(12)
-            .fontColor('#999999')
+          if (rec.updatedAt.length > 0) {
+            Text(rec.updatedAt)
+              .fontSize(12)
+              .fontColor('#999999')
+          }
         }
         .margin({ left: 12 })
         .layoutWeight(1)
@@ -772,15 +730,7 @@ struct Index {
             .fontColor('#888888')
         }
         .width('100%')
-        .margin({ bottom: 4 })
-        Text(`总额 ${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).total.toFixed(2)} · 已用 ${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).used.toFixed(2)}（${usagePercentage(rec.info as BalanceInfo).toFixed(1)}%）`)
-          .fontSize(13)
-          .fontColor('#666666')
-          .width('100%')
-          .margin({ bottom: 6 })
-        Progress({ value: usagePercentage(rec.info as BalanceInfo) > 100 ? 100 : usagePercentage(rec.info as BalanceInfo), total: 100, type: ProgressType.Linear })
-          .width('100%')
-          .margin({ bottom: 10 })
+        .margin({ bottom: 10 })
       } else if (rec.error !== undefined) {
         Text(rec.error as string)
           .fontSize(14)
@@ -852,9 +802,6 @@ struct Index {
               Text(p.name)
                 .fontSize(15)
                 .fontWeight(FontWeight.Medium)
-              Text(hostOf(p.baseUrl))
-                .fontSize(12)
-                .fontColor('#999999')
             }
             .margin({ left: 12 })
             .layoutWeight(1)

@@ -187,7 +187,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   },
   {
     id: 'kimi',
-    name: 'Kimi（月之暗面）',
+    name: 'Kimi',
     baseUrl: 'https://api.moonshot.cn',
     category: ProviderCategory.CnOfficial,
     balanceType: BalanceQueryType.Bearer,
