@@ -1,6 +1,20 @@
 {
   app: {
-    signingConfigs: [],
+    signingConfigs: [
+      {
+        name: 'default',
+        type: 'HarmonyOS',
+        material: {
+          certpath: 'C:\\Users\\15216\\.ohos\\config\\default_BalanceApp_MctWBlMJuLGpJNswMtfrTVhzNxsdMqgPrA0M4xFM=.cer',
+          keyAlias: 'debugKey',
+          keyPassword: '0000001bc1ba24b14abef598e7d99ce1a4bc0eddf95c2c0b888681037c5a51a6039d9f878caddab82874bf',
+          profile: 'C:\\Users\\15216\\.ohos\\config\\default_BalanceApp_MctWBlMJuLGpJNswMtfrTVhzNxsdMqgPrA0M4xFM=.p7b',
+          signAlg: 'SHA256withECDSA',
+          storeFile: 'C:\\Users\\15216\\.ohos\\config\\default_BalanceApp_MctWBlMJuLGpJNswMtfrTVhzNxsdMqgPrA0M4xFM=.p12',
+          storePassword: '0000001bc1ba24b14abef598e7d99ce1a4bc0eddf95c2c0b888681037c5a51a6039d9f878caddab82874bf',
+        },
+      },
+    ],
     products: [
       {
         name: 'default',
