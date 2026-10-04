@@ -63,6 +63,7 @@ struct Index {
   @State editTargetId: string = '';
   @State editKeyText: string = '';
   @State showKeyInDialog: boolean = false;
+  @State actionTargetId: string = '';
   @State globalSession: number = 0;
   @State refreshingAll: boolean = false;
   @State heroGroups: CurrencyGroup[] = [];
@@ -551,6 +552,55 @@ struct Index {
         .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
       }
 
+      // 卡片长按操作菜单（自绘底部面板 + 点空白收回）
+      if (this.actionTargetId !== '') {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.closeCardActions();
+            })
+          Column() {
+            Text(this.actionTargetName())
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 16, bottom: 4 })
+            Column() {
+              this.ActionRow('刷', '刷新余额', '重新查询该服务商的最新余额', '#0A84FF', false, () => {
+                const id: string = this.actionTargetId;
+                this.closeCardActions();
+                this.refreshOne(id);
+              })
+              this.ActionRow('键', '更换 Key', '更新本地保存的 API Key', '#30A46C', false, () => {
+                const id: string = this.actionTargetId;
+                this.closeCardActions();
+                this.onPickProvider(id);
+              })
+              this.ActionRow('删', '移除服务商', '删除卡片与本地保存的 Key', '#E5484D', true, () => {
+                const id: string = this.actionTargetId;
+                this.closeCardActions();
+                this.removeProvider(id);
+              })
+            }
+            .width('92%')
+            Button('取消')
+              .width('92%')
+              .margin({ top: 8, bottom: 16 })
+              .onClick(() => {
+                this.closeCardActions();
+              })
+          }
+          .width('100%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius({ topLeft: 24, topRight: 24 })
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.4)')
+        .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
+      }
+
       // Key 输入弹窗（添加/更新共用）
       if (this.editTargetId !== '') {
         Column() {
@@ -766,34 +816,56 @@ struct Index {
     )
   }
 
-  /** 长按卡片操作菜单：刷新 / 换Key / 移除三选一（点遮罩自动收回）。 */
+  /** 长按卡片操作菜单：自绘底部面板（系统 ActionSheet 样式太素）。 */
   private showCardActions(id: string): void {
-    const def: ProviderDefinition | undefined = findProvider(id);
-    const name: string = def === undefined ? id : (def as ProviderDefinition).name;
-    this.getUIContext().showActionSheet({
-      title: name,
-      message: '选择要对该服务商执行的操作',
-      sheets: [
-        {
-          title: '刷新余额',
-          action: () => {
-            this.refreshOne(id);
-          },
-        },
-        {
-          title: '更换 Key',
-          action: () => {
-            this.onPickProvider(id);
-          },
-        },
-        {
-          title: '移除服务商',
-          action: () => {
-            this.removeProvider(id);
-          },
-        },
-      ],
-    });
+    this.actionTargetId = id;
+  }
+
+  private closeCardActions(): void {
+    this.actionTargetId = '';
+  }
+
+  private actionTargetName(): string {
+    const def: ProviderDefinition | undefined = findProvider(this.actionTargetId);
+    if (def === undefined) {
+      return '';
+    }
+    return (def as ProviderDefinition).name;
+  }
+
+  @Builder
+  ActionRow(badge: string, title: string, desc: string, color: string, isLast: boolean, onTap: () => void) {
+    Row() {
+      Text(badge)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .width(40)
+        .height(40)
+        .textAlign(TextAlign.Center)
+        .backgroundColor(color)
+        .borderRadius(12)
+      Column() {
+        Text(title)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+        Text(desc)
+          .fontSize(12)
+          .fontColor('#999999')
+      }
+      .margin({ left: 12 })
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      Text('›')
+        .fontSize(20)
+        .fontColor('#CCCCCC')
+    }
+    .width('100%')
+    .padding(10)
+    .margin({ bottom: isLast ? 0 : 6 })
+    .backgroundColor('#F7F7F8')
+    .borderRadius(12)
+    .onClick(onTap)
   }
 
   @Builder
