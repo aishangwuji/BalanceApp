@@ -738,40 +738,12 @@ struct Index {
           .width('100%')
           .margin({ bottom: 10 })
       } else if (!rec.loading) {
-        Text('尚未查询，点击刷新获取余额')
+        Text('尚未查询，点击卡片刷新获取余额')
           .fontSize(14)
           .fontColor('#AAAAAA')
           .width('100%')
           .margin({ bottom: 10 })
       }
-
-      Row() {
-        Button('刷新')
-          .fontSize(13)
-          .height(34)
-          .layoutWeight(1)
-          .enabled(!rec.loading)
-          .onClick(() => {
-            this.refreshOne(rec.defId);
-          })
-        Button('换Key')
-          .fontSize(13)
-          .height(34)
-          .layoutWeight(1)
-          .margin({ left: 8 })
-          .onClick(() => {
-            this.onPickProvider(rec.defId);
-          })
-        Button('移除')
-          .fontSize(13)
-          .height(34)
-          .layoutWeight(1)
-          .margin({ left: 8 })
-          .onClick(() => {
-            this.removeProvider(rec.defId);
-          })
-      }
-      .width('100%')
     }
     .width('92%')
     .padding(14)
@@ -780,6 +752,48 @@ struct Index {
     .border({ width: 1, color: '#EEEEEE' })
     .borderRadius(16)
     .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetX: 0, offsetY: 2 })
+    // Business Rule: 单击=刷新（只读无副作用），长按=操作菜单（刷新/换Key/移除三选一）。
+    .onClick(() => {
+      if (!rec.loading) {
+        this.refreshOne(rec.defId);
+      }
+    })
+    .gesture(
+      LongPressGesture({ repeat: false })
+        .onAction(() => {
+          this.showCardActions(rec.defId);
+        })
+    )
+  }
+
+  /** 长按卡片操作菜单：刷新 / 换Key / 移除三选一（点遮罩自动收回）。 */
+  private showCardActions(id: string): void {
+    const def: ProviderDefinition | undefined = findProvider(id);
+    const name: string = def === undefined ? id : (def as ProviderDefinition).name;
+    this.getUIContext().showActionSheet({
+      title: name,
+      message: '选择要对该服务商执行的操作',
+      sheets: [
+        {
+          title: '刷新余额',
+          action: () => {
+            this.refreshOne(id);
+          },
+        },
+        {
+          title: '更换 Key',
+          action: () => {
+            this.onPickProvider(id);
+          },
+        },
+        {
+          title: '移除服务商',
+          action: () => {
+            this.removeProvider(id);
+          },
+        },
+      ],
+    });
   }
 
   @Builder
