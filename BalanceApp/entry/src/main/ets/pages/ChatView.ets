@@ -400,6 +400,50 @@ export struct ChatView {
     }
   }
 
+  private isCjkChar(ch: string): boolean {
+    if (ch.length === 0) {
+      return false;
+    }
+    const code: number = ch.charCodeAt(0);
+    return code >= 0x4e00 && code <= 0x9fff;
+  }
+
+  /**
+   * 从文本中扫描 `@名字` 补齐 @（兼容手输，不依赖选择器）。
+   * Reason: 手输 @ 若不识别会落到默认发言人，内容虽合理但名字对不上造成混淆；
+   *   要求名字后紧跟非中文或结尾，避免短名误吞长名（如“姚”吞“姚瑶”）。
+   */
+  private extractMentions(sess: ChatSession, text: string): string[] {
+    const out: string[] = [];
+    let i: number = 0;
+    while (i < sess.participantIds.length) {
+      const pid: string = sess.participantIds[i];
+      const pname: string = this.characterName(pid);
+      if (pname.length > 0) {
+        const marker: string = `@${pname}`;
+        let from: number = 0;
+        let hit: boolean = false;
+        while (from <= text.length - marker.length) {
+          const idx: number = text.indexOf(marker, from);
+          if (idx < 0) {
+            break;
+          }
+          const after: number = idx + marker.length;
+          if (after >= text.length || !this.isCjkChar(text.charAt(after))) {
+            hit = true;
+            break;
+          }
+          from = idx + 1;
+        }
+        if (hit && !out.includes(pid)) {
+          out.push(pid);
+        }
+      }
+      i += 1;
+    }
+    return out;
+  }
+
   private mentionText(msg: ChatMessage): string {
     let out: string = '';
     let i: number = 0;
@@ -1035,7 +1079,7 @@ export struct ChatView {
       sess.title = text.length > 14 ? `${text.substring(0, 14)}...` : text;
     }
 
-    // 新消息挂在当前激活分支的叶节点之下；@ 以输入框标记为准校对后落库。
+    // 新消息挂在当前激活分支的叶节点之下；@ 以选择器+文本扫描双通道校对后落库。
     const parentId: string = this.currentLeafId(sess);
     const userMsg: ChatMessage = this.buildMessage('user', text, parentId);
     let mi: number = 0;
@@ -1046,6 +1090,16 @@ export struct ChatView {
         userMsg.mentionedIds.push(mid);
       }
       mi += 1;
+    }
+    if (sess.sceneMode === 'group') {
+      const scanned: string[] = this.extractMentions(sess, text);
+      let si: number = 0;
+      while (si < scanned.length) {
+        if (!userMsg.mentionedIds.includes(scanned[si])) {
+          userMsg.mentionedIds.push(scanned[si]);
+        }
+        si += 1;
+      }
     }
     this.pendingMentions = [];
     this.attach(sess, userMsg);
