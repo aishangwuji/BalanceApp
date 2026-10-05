@@ -2,10 +2,15 @@
  * ChatService.ets
  *
  * 流式与非流式对话引擎 —— 采用系统 @kit.NetworkKit 实现 OpenAI 兼容格式通信。
- * 支持：
- * 1. requestInStream + SSE 逐块解析（打字机流式输出、推理思维链 reasoning_content 解析）；
- * 2. usage 统计抓取（prompt_tokens, completion_tokens）；
- * 3. 任务主动中断（用户点击停止生成）。
+ * 对齐 Kimi《流式输出》《多轮对话（messages 记忆）》两节规范，按本项目实际裁剪落地：
+ * 1. 流式：requestInStream + SSE 逐块解析（content 追加、reasoning_content 追加折叠、
+ *    [DONE] 为完成判据、不以 finish_reason 判完）；role 仅首块、usage 终块 choices 为空
+ *    均已容错。tool_calls 本项目未声明 tools，故有意忽略其增量（n 恒为 1，不下发 n）。
+ * 2. 记忆：/chat/completions 无状态，每轮回传 system + 历史 user/assistant（按时间序）；
+ *    system 常驻、历史截断取新（条数+字符双预算，见 buildApiMessages）。
+ * 3. 中断：返回取消函数 destroy 旧连接（用户点停止即丢弃后续块）。
+ * 4. token 用量：ChatUsage 已下线，故不下发 stream_options.include_usage，
+ *    终块 usage 到达即忽略，不做 UI 统计。
  *
  * 严格遵守 ArkTS 规范：无 any/unknown，无解构，捕获异常转为 Error 类型。
  */
@@ -20,6 +25,12 @@ const DOMAIN = 0x0000;
 const TAG = 'ChatService';
 const CONNECT_TIMEOUT = 15000;
 const READ_TIMEOUT = 90000;
+/**
+ * 历史截断预算（对齐 Kimi make_messages 取新 20 条 + 本项目群聊设计 6000 字预算）。
+ * Business Rule: system 常驻不计入预算；历史超限从旧到新丢弃，保证请求稳定。
+ */
+const MAX_HISTORY_MESSAGES = 20;
+const MAX_HISTORY_CHARS = 12000;
 
 export interface StreamCallbacks {
   onToken: (token: string, reasoningChunk?: string) => void;
@@ -60,52 +71,14 @@ export class ChatService {
     const req: http.HttpRequest = http.createHttp();
     let isAborted: boolean = false;
     let textBuffer: string = '';
+    let sawDone: boolean = false;
     const decoder: util.TextDecoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
 
-    // 多轮拼接：DeepSeek /chat/completions 无状态，须每轮回传完整历史。
-    // Reason: 按官方规范，未携带 tools 时历史 reasoning_content 无需回传（传了也被忽略），
-    //   故此处仅回传 role/content；思考内容仅本地展示。
-    const formattedMessages: Record<string, string>[] = [];
-    if (options.systemPrompt && options.systemPrompt.trim().length > 0) {
-      const sysMsg: Record<string, string> = {
-        'role': 'system',
-        'content': options.systemPrompt.trim()
-      };
-      formattedMessages.push(sysMsg);
-    }
+    // 多轮拼接：/chat/completions 无状态，须每轮回传 system + 历史（见 buildApiMessages）。
+    const formattedMessages: Record<string, string>[] =
+      ChatService.buildApiMessages(options.messages, options.systemPrompt);
 
-    let i: number = 0;
-    while (i < options.messages.length) {
-      const m: ChatMessage = options.messages[i];
-      if (m.role === 'user' || m.role === 'assistant') {
-        const item: Record<string, string> = {
-          'role': m.role,
-          'content': m.content
-        };
-        formattedMessages.push(item);
-      }
-      i += 1;
-    }
-
-    // 思考模式：仅对支持该扩展的供应商下发 thinking/reasoning_effort；
-    // 思考模式下官方不支持 temperature，此时不下发，避免误导与无效参数。
-    const thinkingOn: boolean = options.enableThinking === true && def.supportsThinking === true;
-    const payloadObj: Record<string, ESObject> = {
-      'model': options.model,
-      'messages': formattedMessages as ESObject,
-      'stream': true
-    };
-    if (thinkingOn) {
-      const thinkingCfg: Record<string, string> = { 'type': 'enabled' };
-      payloadObj['thinking'] = thinkingCfg as ESObject;
-      payloadObj['reasoning_effort'] = options.reasoningEffort !== undefined ? options.reasoningEffort : 'high';
-    } else {
-      if (def.supportsThinking === true) {
-        const thinkingOff: Record<string, string> = { 'type': 'disabled' };
-        payloadObj['thinking'] = thinkingOff as ESObject;
-      }
-      payloadObj['temperature'] = options.temperature !== undefined ? options.temperature : 0.7;
-    }
+    const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, true);
     const bodyStr: string = JSON.stringify(payloadObj);
 
     // 绑定流式数据接收
@@ -131,7 +104,9 @@ export class ChatService {
             continue;
           }
           const dataStr: string = rawLine.substring(5).trim();
+          // 完成判据只认 data:[DONE]（不对 finish_reason 做完成判断；中断走 err 回调）。
           if (dataStr === '[DONE]') {
+            sawDone = true;
             continue;
           }
 
@@ -140,7 +115,10 @@ export class ChatService {
             if (parsedChunk !== null && typeof parsedChunk === 'object') {
               const rootRec: Record<string, ESObject> = parsedChunk as Record<string, ESObject>;
 
-              // 解析 delta content / reasoning_content
+              // 终块 usage 形如 {choices:[], usage:{...}}：choices 为空即跳过，
+              // 本项目 token 统计已下线，不读取 usage。
+              // 解析 delta content / reasoning_content（均为追加式增量，不可覆盖）；
+              // role 仅首块出现，此处忽略；delta.tool_calls 本项目无 tools，有意忽略。
               const choices: ESObject = rootRec['choices'];
               if (Array.isArray(choices) && choices.length > 0) {
                 const choiceItem: ESObject = choices[0];
@@ -170,6 +148,10 @@ export class ChatService {
 
     req.on('dataEnd', () => {
       if (!isAborted) {
+        if (!sawDone) {
+          // 未收到 [DONE] 即关流：按不完整对待，仅打日志，仍以已收 token 落库（调用方已做 keep-partial）。
+          hilog.warn(DOMAIN, TAG, 'Stream ended without [DONE], keep partial content');
+        }
         callbacks.onComplete();
       }
       try {
@@ -226,34 +208,10 @@ export class ChatService {
     const req: http.HttpRequest = http.createHttp();
 
     try {
-      const formattedMessages: Record<string, string>[] = [];
-      if (options.systemPrompt && options.systemPrompt.trim().length > 0) {
-        const sysMsg: Record<string, string> = {
-          'role': 'system',
-          'content': options.systemPrompt.trim()
-        };
-        formattedMessages.push(sysMsg);
-      }
+      const formattedMessages: Record<string, string>[] =
+        ChatService.buildApiMessages(options.messages, options.systemPrompt);
 
-      let i: number = 0;
-      while (i < options.messages.length) {
-        const m: ChatMessage = options.messages[i];
-        if (m.role === 'user' || m.role === 'assistant') {
-          const item: Record<string, string> = {
-            'role': m.role,
-            'content': m.content
-          };
-          formattedMessages.push(item);
-        }
-        i += 1;
-      }
-
-      const payloadObj: Record<string, ESObject> = {
-        'model': options.model,
-        'messages': formattedMessages as ESObject,
-        'stream': false,
-        'temperature': options.temperature !== undefined ? options.temperature : 0.7
-      };
+      const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, false);
 
       const resp: http.HttpResponse = await req.request(endpointUrl, {
         method: http.RequestMethod.POST,
@@ -296,6 +254,144 @@ export class ChatService {
     } finally {
       req.destroy();
     }
+  }
+
+  /**
+   * 组装 API 用 messages：system 常驻首位 + 历史按时间序取新截断。
+   * Business Rule: 对齐 Kimi make_messages（system 必带、超 n 仅保留最新 n 条），
+   *   再叠加字符预算从旧到新丢弃；调用方传分支路径即可，此处统一收口流式/非流式。
+   * Reason: 长会话无截断会撑爆上下文窗口导致 400/变慢；多会话隔离与持久化由
+   *   ChatStorageService 按 session 存全量承担，此处只裁剪本次请求。
+   */
+  private static buildApiMessages(messages: ChatMessage[], systemPrompt?: string): Record<string, string>[] {
+    const out: Record<string, string>[] = [];
+    if (systemPrompt !== undefined && systemPrompt.trim().length > 0) {
+      const sysMsg: Record<string, string> = {
+        'role': 'system',
+        'content': systemPrompt.trim()
+      };
+      out.push(sysMsg);
+    }
+    // 先过滤 user/assistant 并拼出待选（含 Preserved Thinking 回传）。
+    const candidates: Record<string, string>[] = [];
+    let i: number = 0;
+    while (i < messages.length) {
+      const m: ChatMessage = messages[i];
+      i += 1;
+      if (m.role !== 'user' && m.role !== 'assistant') {
+        continue;
+      }
+      if (m.content.length === 0 && !(m.reasoningContent && m.reasoningContent.length > 0)) {
+        continue;
+      }
+      const item: Record<string, string> = {
+        'role': m.role,
+        'content': m.content
+      };
+      // 保留式思考（Preserved Thinking）：Kimi/小米 MiMo 回传 reasoning_content 保多轮思维连贯；
+      // DeepSeek 等无 tools 场景传了也被忽略，统一回传无害。
+      if (m.role === 'assistant' && m.reasoningContent && m.reasoningContent.length > 0) {
+        item['reasoning_content'] = m.reasoningContent;
+      }
+      candidates.push(item);
+    }
+    // 条数截断：仅保留最新 MAX_HISTORY_MESSAGES 条。
+    let start: number = 0;
+    if (candidates.length > MAX_HISTORY_MESSAGES) {
+      start = candidates.length - MAX_HISTORY_MESSAGES;
+    }
+    // 字符截断：从新到旧累加，超预算即丢弃更旧的。
+    const kept: Record<string, string>[] = [];
+    let used: number = 0;
+    let j: number = candidates.length - 1;
+    while (j >= start) {
+      const c: Record<string, string> = candidates[j];
+      let rcLen: number = 0;
+      if ('reasoning_content' in c && typeof c['reasoning_content'] === 'string') {
+        rcLen = (c['reasoning_content'] as string).length;
+      }
+      const total: number = c['content'].length + c['role'].length + 8 + rcLen;
+      if (kept.length > 0 && used + total > MAX_HISTORY_CHARS) {
+        break;
+      }
+      kept.unshift(c);
+      used += total;
+      j -= 1;
+    }
+    let k: number = 0;
+    while (k < kept.length) {
+      out.push(kept[k]);
+      k += 1;
+    }
+    return out;
+  }
+
+  /**
+   * 针对不同供应商（DeepSeek / 小米 MiMo / Kimi）规范构建差异化请求体
+   */
+  private static buildPayload(
+    options: ChatRequestOptions,
+    def: ProviderDefinition,
+    formattedMessages: Record<string, string>[],
+    isStream: boolean
+  ): Record<string, ESObject> {
+    const payloadObj: Record<string, ESObject> = {
+      'model': options.model,
+      'messages': formattedMessages as ESObject,
+      'stream': isStream
+      // 有意不下发：n（Kimi k3/k2.6/k2.7 固定为 1，传>1 直接 400）、
+      // stream_options.include_usage（token 统计已下线）、tools（本项目无工具调用）。
+    };
+
+    const thinkingOn: boolean = options.enableThinking === true && def.supportsThinking === true;
+    const modelLower: string = options.model.toLowerCase();
+
+    // 1. Kimi (Moonshot) 模型分支
+    if (options.providerId === 'kimi') {
+      if (modelLower.startsWith('kimi-k3')) {
+        // K3 始终推理，不传 thinking 参数，支持顶层 reasoning_effort ("low" / "high" / "max"，默认 "max")
+        payloadObj['reasoning_effort'] = options.reasoningEffort !== undefined ? options.reasoningEffort : 'max';
+      } else if (modelLower.includes('kimi-k2.7')) {
+        // k2.7-code 始终思考，不传 thinking 参数，不传 temperature
+      } else if (modelLower.startsWith('kimi-k2.6')) {
+        // k2.6 通过 thinking.type 控制开关，不传 temperature
+        const thinkingCfg: Record<string, string> = {
+          'type': thinkingOn ? 'enabled' : 'disabled'
+        };
+        payloadObj['thinking'] = thinkingCfg as ESObject;
+      } else {
+        // 普通 moonshot 模型
+        payloadObj['temperature'] = options.temperature !== undefined ? options.temperature : 0.7;
+      }
+      return payloadObj;
+    }
+
+    // 2. 小米 MiMo 分支：支持 thinking.type "enabled"/"disabled"，思考模式下不传 temperature 与 reasoning_effort
+    if (options.providerId === 'mimo') {
+      const thinkingCfg: Record<string, string> = {
+        'type': thinkingOn ? 'enabled' : 'disabled'
+      };
+      payloadObj['thinking'] = thinkingCfg as ESObject;
+      if (!thinkingOn) {
+        payloadObj['temperature'] = options.temperature !== undefined ? options.temperature : 0.7;
+      }
+      return payloadObj;
+    }
+
+    // 3. DeepSeek 及其他通用服务商分支
+    if (thinkingOn) {
+      const thinkingCfg: Record<string, string> = { 'type': 'enabled' };
+      payloadObj['thinking'] = thinkingCfg as ESObject;
+      payloadObj['reasoning_effort'] = options.reasoningEffort !== undefined ? options.reasoningEffort : 'high';
+    } else {
+      if (def.supportsThinking === true) {
+        const thinkingOff: Record<string, string> = { 'type': 'disabled' };
+        payloadObj['thinking'] = thinkingOff as ESObject;
+      }
+      payloadObj['temperature'] = options.temperature !== undefined ? options.temperature : 0.7;
+    }
+
+    return payloadObj;
   }
 }
 
