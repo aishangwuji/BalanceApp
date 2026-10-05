@@ -43,6 +43,33 @@ export class ModelService {
       i += 1;
     }
 
+    if (providerId === 'mimo') {
+      return ModelService.toModelInfos([
+        'mimo-v2.6-flash',
+        'mimo-v2.6-pro',
+        'mimo-v2.6-pro-ultraspeed',
+        'mimo-v2.5-pro',
+        'mimo-v2.5'
+      ]);
+    }
+    if (providerId === 'deepseek') {
+      return ModelService.toModelInfos([
+        'deepseek-chat',
+        'deepseek-reasoner'
+      ]);
+    }
+    if (providerId === 'kimi') {
+      return ModelService.toModelInfos([
+        'kimi-k3',
+        'kimi-k2.7-code',
+        'kimi-k2.7-code-highspeed',
+        'kimi-k2.6',
+        'moonshot-v1-8k',
+        'moonshot-v1-32k',
+        'moonshot-v1-128k'
+      ]);
+    }
+
     return [];
   }
 

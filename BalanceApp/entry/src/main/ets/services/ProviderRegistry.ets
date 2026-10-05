@@ -209,6 +209,7 @@ export const PROVIDERS: ProviderDefinition[] = [
     brandColor: '#1A1A1A',
     icon: 'kimi',
     websiteUrl: 'https://platform.kimi.com',
+    supportsThinking: true,
   },
   {
     id: 'mimo',
@@ -224,8 +225,63 @@ export const PROVIDERS: ProviderDefinition[] = [
     brandColor: '#FF6900',
     icon: 'mimo',
     websiteUrl: 'https://mimo.mi.com',
+    supportsThinking: true,
   },
 ];
+
+export const MIMO_THINKING_MODELS: string[] = [
+  'mimo-v2.6-flash',
+  'mimo-v2.6-pro',
+  'mimo-v2.6-pro-ultraspeed',
+  'mimo-v2.5-pro',
+  'mimo-v2.5'
+];
+
+export const KIMI_THINKING_MODELS: string[] = [
+  'kimi-k3',
+  'kimi-k2.7-code',
+  'kimi-k2.7-code-highspeed',
+  'kimi-k2.6'
+];
+
+/**
+ * 判断指定服务商及模型是否支持深度思考模式
+ */
+export function isThinkingSupported(providerId: string, modelId?: string): boolean {
+  if (providerId === 'deepseek') {
+    return true;
+  }
+  if (providerId === 'mimo') {
+    if (!modelId || modelId.length === 0 || modelId === '选择模型') {
+      return true;
+    }
+    const lower: string = modelId.toLowerCase().trim();
+    let i: number = 0;
+    while (i < MIMO_THINKING_MODELS.length) {
+      if (lower === MIMO_THINKING_MODELS[i] || lower.includes(MIMO_THINKING_MODELS[i])) {
+        return true;
+      }
+      i += 1;
+    }
+    return lower.includes('mimo-v2.6') || lower.includes('mimo-v2.5');
+  }
+  if (providerId === 'kimi') {
+    if (!modelId || modelId.length === 0 || modelId === '选择模型') {
+      return true;
+    }
+    const lower: string = modelId.toLowerCase().trim();
+    let i: number = 0;
+    while (i < KIMI_THINKING_MODELS.length) {
+      if (lower === KIMI_THINKING_MODELS[i] || lower.includes(KIMI_THINKING_MODELS[i])) {
+        return true;
+      }
+      i += 1;
+    }
+    return lower.includes('k3') || lower.includes('k2.7') || lower.includes('k2.6');
+  }
+  const def: ProviderDefinition | undefined = findProvider(providerId);
+  return def !== undefined && def.supportsThinking === true;
+}
 
 export function findProvider(id: string): ProviderDefinition | undefined {
   let i: number = 0;
