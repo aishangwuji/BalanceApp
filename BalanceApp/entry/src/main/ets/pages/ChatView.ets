@@ -64,6 +64,8 @@ export struct ChatView {
   @State editMsgText: string = '';
   // 角色卡长按操作
   @State charActionId: string = '';
+  // 新会话角色多选（选2个以上自动进入群聊）
+  @State pendingParticipants: string[] = [];
   // 历史会话长按操作（重命名/删除）
   @State sessActionId: string = '';
   @State showRenameDialog: boolean = false;
@@ -87,6 +89,8 @@ export struct ChatView {
   private userTookOver: boolean = false;
   private lastAnchorOffset: number = -1;
   private anchorCaptured: boolean = false;
+  // 当前流式生成的完成回调（停止时唤醒等待链，避免挂起）
+  private resolveCurrent: (() => void) | undefined = undefined;
 
   async aboutToAppear(): Promise<void> {
     try {
@@ -302,6 +306,55 @@ export struct ChatView {
       i += 1;
     }
     return EMPTY_CHARACTER;
+  }
+
+  private characterById(id: string): CharacterCard | undefined {
+    let i: number = 0;
+    while (i < this.characters.length) {
+      if (this.characters[i].id === id) {
+        return this.characters[i];
+      }
+      i += 1;
+    }
+    return undefined;
+  }
+
+  private characterName(id: string): string {
+    const c: CharacterCard | undefined = this.characterById(id);
+    return c !== undefined ? c.name : '';
+  }
+
+  private mentionText(msg: ChatMessage): string {
+    let out: string = '';
+    let i: number = 0;
+    while (i < msg.mentionedIds.length) {
+      const n: string = this.characterName(msg.mentionedIds[i]);
+      if (n.length > 0) {
+        if (out.length > 0) {
+          out += ' ';
+        }
+        out += `@${n}`;
+      }
+      i += 1;
+    }
+    return out;
+  }
+
+  /** 群聊默认发言人：激活分支最后一位参与者，否则首位参与者，否则 ''。 */
+  private defaultSpeaker(sess: ChatSession): string {
+    const path: ChatMessage[] = this.activePath();
+    let i: number = path.length - 1;
+    while (i >= 0) {
+      const m: ChatMessage = path[i];
+      if (m.role === 'assistant' && m.speakerId.length > 0 && sess.participantIds.includes(m.speakerId)) {
+        return m.speakerId;
+      }
+      i -= 1;
+    }
+    if (sess.participantIds.length > 0 && this.characterById(sess.participantIds[0]) !== undefined) {
+      return sess.participantIds[0];
+    }
+    return '';
   }
 
   private currentProviderSupportsThinking(): boolean {
@@ -550,27 +603,76 @@ export struct ChatView {
 
   // ── 角色卡选择与编辑 ──
 
-  private async selectCharacter(char: CharacterCard): Promise<void> {
+  private togglePendingParticipant(id: string): void {
+    const next: string[] = [];
+    let found: boolean = false;
+    let i: number = 0;
+    while (i < this.pendingParticipants.length) {
+      if (this.pendingParticipants[i] === id) {
+        found = true;
+      } else {
+        next.push(this.pendingParticipants[i]);
+      }
+      i += 1;
+    }
+    if (!found) {
+      next.push(id);
+    }
+    this.pendingParticipants = next;
+  }
+
+  private isPendingParticipant(id: string): boolean {
+    return this.pendingParticipants.includes(id);
+  }
+
+  /** 确认建联：单选绑定角色（含开场白），多选进入群聊（空白开场，由用户先发言）。 */
+  private async confirmParticipants(): Promise<void> {
+    if (this.pendingParticipants.length === 0) {
+      return;
+    }
     const cur: ChatSession | undefined = this.getCurrentSession();
     if (!cur) {
       this.showCharacterSheet = false;
       return;
     }
-    // Business Rule: 角色只能绑定一次（新会话时）；会话中存在初始回答/已绑定则锁定，不可更改。
-    if (cur.characterId.length > 0) {
+    // Business Rule: 角色只能绑定一次；会话已有绑定则锁定，不可更改。
+    if (cur.characterId.length > 0 || cur.participantIds.length > 0) {
       this.showCharacterSheet = false;
+      this.pendingParticipants = [];
       this.toast('该会话已绑定角色，无法更改');
       return;
     }
-    this.currentCharacterId = char.id;
-    cur.characterId = char.id;
-    if (cur.messages.length === 0 && char.firstMessage.trim().length > 0) {
-      const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
-      this.attach(cur, welcomeMsg);
+    const ids: string[] = [];
+    let i: number = 0;
+    while (i < this.pendingParticipants.length) {
+      if (this.characterById(this.pendingParticipants[i]) !== undefined) {
+        ids.push(this.pendingParticipants[i]);
+      }
+      i += 1;
     }
-    this.rebuildSessionReference();
+    if (ids.length === 0) {
+      return;
+    }
+    cur.participantIds = ids;
+    if (ids.length >= 2) {
+      cur.sceneMode = 'group';
+      cur.characterId = '';
+      this.currentCharacterId = '';
+    } else {
+      cur.sceneMode = 'single';
+      cur.characterId = ids[0];
+      this.currentCharacterId = ids[0];
+      const c: CharacterCard | undefined = this.characterById(ids[0]);
+      if (c !== undefined && cur.messages.length === 0 && c.firstMessage.trim().length > 0) {
+        const welcomeMsg: ChatMessage = this.buildMessage('assistant', c.firstMessage, '');
+        this.attach(cur, welcomeMsg);
+      }
+    }
+    this.pendingParticipants = [];
     this.showCharacterSheet = false;
+    this.rebuildSessionReference();
     await this.saveState();
+    this.scrollToBottom();
   }
 
   private openCharEdit(char?: CharacterCard): void {
@@ -635,6 +737,16 @@ export struct ChatView {
       };
       nextChars.unshift(created);
       this.currentCharacterId = created.id;
+      // 新建角色自动加入本次建联选择，方便直接开始对话。
+      if (!this.pendingParticipants.includes(created.id)) {
+        const withNew: string[] = [created.id];
+        let pi: number = 0;
+        while (pi < this.pendingParticipants.length) {
+          withNew.push(this.pendingParticipants[pi]);
+          pi += 1;
+        }
+        this.pendingParticipants = withNew;
+      }
     }
 
     this.characters = nextChars;
@@ -839,63 +951,156 @@ export struct ChatView {
     sess.updatedAt = Date.now();
     this.rebuildSessionReference();
     this.scrollToBottom();
-    this.generateReply(sess, userMsg);
+
+    if (sess.sceneMode === 'group' && sess.participantIds.length > 0) {
+      await this.sendGroup(sess, userMsg);
+      return;
+    }
+    this.generateReply(sess, userMsg, this.getCurrentCharacter());
   }
 
-  /** 为某个 user 节点挂 assistant 占位并流式生成；历史取该分支根->user 的路径。 */
-  private generateReply(sess: ChatSession, userMsg: ChatMessage): void {
-    const assistantMsg: ChatMessage = this.buildMessage('assistant', '', userMsg.id);
-    assistantMsg.status = 'streaming';
-    this.attach(sess, assistantMsg);
-    sess.updatedAt = Date.now();
-    this.rebuildSessionReference();
-    this.isGenerating = true;
-    // 新一轮生成：重置锚定，先跟随到底，再由锚定逻辑把首行推顶。
-    this.userTookOver = false;
-    this.showJumpBottom = false;
-    this.anchorCaptured = false;
-    this.scrollToBottom();
-
-    // Reason: 历史仅取该分支路径（historyTo 沿 parent 链），编辑/切分支后互不污染。
-    const history: ChatMessage[] = this.historyTo(sess, userMsg.id);
-    const char: CharacterCard = this.getCurrentCharacter();
-    const callbacks: StreamCallbacks = {
-      onToken: (token: string, reasoningChunk?: string) => {
-        if (reasoningChunk && reasoningChunk.length > 0) {
-          assistantMsg.reasoningContent = (assistantMsg.reasoningContent || '') + reasoningChunk;
-        }
-        if (token && token.length > 0) {
-          assistantMsg.content += token;
-        }
-        this.rebuildSessionReference();
-        // 顶部锚定：把回答首行推到容器顶部即停住，而非持续跟底。
-        this.scheduleAnchor();
-      },
-      onComplete: () => {
-        assistantMsg.status = 'success';
-        this.isGenerating = false;
-        this.rebuildSessionReference();
-        this.saveState();
-      },
-      onError: (errMsg: string) => {
-        assistantMsg.status = 'error';
-        assistantMsg.errorMessage = errMsg;
-        this.isGenerating = false;
-        this.rebuildSessionReference();
-        this.saveState();
+  /** 群聊确定性路由：@ 优先，否则规则回退；按序链式生成。 */
+  private async sendGroup(sess: ChatSession, userMsg: ChatMessage): Promise<void> {
+    const valid: string[] = [];
+    let i: number = 0;
+    while (i < sess.participantIds.length) {
+      if (this.characterById(sess.participantIds[i]) !== undefined) {
+        valid.push(sess.participantIds[i]);
       }
-    };
+      i += 1;
+    }
+    if (valid.length === 0) {
+      this.noticeText = '该群聊暂无有效角色，请重新选择';
+      return;
+    }
+    // @ 优先：仅保留仍在群内的被 @ 角色，保持原序去重。
+    const mentioned: string[] = [];
+    let m: number = 0;
+    while (m < userMsg.mentionedIds.length) {
+      const id: string = userMsg.mentionedIds[m];
+      if (valid.includes(id) && !mentioned.includes(id)) {
+        mentioned.push(id);
+      }
+      m += 1;
+    }
+    let first: string = this.defaultSpeaker(sess);
+    if (first.length === 0 || !valid.includes(first)) {
+      first = valid[0];
+    }
+    const speakers: string[] = mentioned.length > 0 ? mentioned : [first];
+    const targets: string[] = [];
+    let s: number = 0;
+    while (s < speakers.length) {
+      if (speakers[s].length > 0 && this.characterById(speakers[s]) !== undefined) {
+        targets.push(speakers[s]);
+      }
+      s += 1;
+    }
+    if (targets.length === 0) {
+      // 全体沉默：插入提示节点，不调用生成。
+      const tip: ChatMessage = this.buildMessage('assistant', '（大家沉默了……）', userMsg.id);
+      this.attach(sess, tip);
+      sess.updatedAt = Date.now();
+      this.rebuildSessionReference();
+      this.saveState();
+      return;
+    }
+    // 链式顺序生成：后者挂在前者之下，可看到同轮先发言者的内容；出错即停，避免刷屏。
+    let parent: ChatMessage = userMsg;
+    let t: number = 0;
+    while (t < targets.length) {
+      const sp: CharacterCard | undefined = this.characterById(targets[t]);
+      if (sp === undefined) {
+        t += 1;
+        continue;
+      }
+      await this.generateReply(sess, parent, sp);
+      const child: ChatMessage | undefined = this.findMessage(sess, parent.activeChildId);
+      if (child === undefined || child.status === 'error') {
+        break;
+      }
+      parent = child;
+      t += 1;
+    }
+  }
 
-    this.abortStreaming = ChatService.streamChat({
-      providerId: this.currentProviderId,
-      apiKey: this.currentApiKey,
-      model: this.currentModelId,
-      temperature: char.temperature,
-      messages: history,
-      systemPrompt: char.systemPrompt,
-      enableThinking: this.enableThinking,
-      reasoningEffort: 'high'
-    }, callbacks);
+  /** 为 parentMsg 挂 assistant 占位并流式生成；历史取根->parentMsg 的分支路径。 */
+  private generateReply(sess: ChatSession, parentMsg: ChatMessage, speaker: CharacterCard): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      const assistantMsg: ChatMessage = this.buildMessage('assistant', '', parentMsg.id);
+      assistantMsg.status = 'streaming';
+      assistantMsg.speakerId = speaker.id;
+      this.attach(sess, assistantMsg);
+      sess.updatedAt = Date.now();
+      this.rebuildSessionReference();
+      this.isGenerating = true;
+      // 新一轮生成：重置锚定，先跟随到底，再由锚定逻辑把首行推顶。
+      this.userTookOver = false;
+      this.showJumpBottom = false;
+      this.anchorCaptured = false;
+      this.scrollToBottom();
+
+      const finish = (): void => {
+        this.resolveCurrent = undefined;
+        resolve();
+      };
+      this.resolveCurrent = finish;
+
+      // Reason: 历史仅取该分支路径（historyTo 沿 parent 链），编辑/切分支后互不污染。
+      const history: ChatMessage[] = this.historyTo(sess, parentMsg.id);
+      const callbacks: StreamCallbacks = {
+        onToken: (token: string, reasoningChunk?: string) => {
+          if (reasoningChunk && reasoningChunk.length > 0) {
+            assistantMsg.reasoningContent = (assistantMsg.reasoningContent || '') + reasoningChunk;
+          }
+          if (token && token.length > 0) {
+            assistantMsg.content += token;
+          }
+          this.rebuildSessionReference();
+          // 顶部锚定：把回答首行推到容器顶部即停住，而非持续跟底。
+          this.scheduleAnchor();
+        },
+        onComplete: () => {
+          assistantMsg.status = 'success';
+          this.isGenerating = false;
+          this.rebuildSessionReference();
+          this.saveState();
+          finish();
+        },
+        onError: (errMsg: string) => {
+          assistantMsg.status = 'error';
+          assistantMsg.errorMessage = errMsg;
+          this.isGenerating = false;
+          this.rebuildSessionReference();
+          this.saveState();
+          finish();
+        }
+      };
+
+      this.abortStreaming = ChatService.streamChat({
+        providerId: this.currentProviderId,
+        apiKey: this.currentApiKey,
+        model: this.currentModelId,
+        temperature: speaker.temperature,
+        messages: history,
+        systemPrompt: this.systemPromptFor(speaker),
+        enableThinking: this.enableThinking,
+        reasoningEffort: 'high'
+      }, callbacks);
+    });
+  }
+
+  /** 群聊/单聊统一的系统设定：拼入发言角色的私有知识（要求不得外泄）。 */
+  private systemPromptFor(speaker: CharacterCard): string {
+    const base: string = speaker.systemPrompt.trim();
+    const know: string = speaker.knowledge.trim();
+    if (know.length === 0) {
+      return speaker.systemPrompt;
+    }
+    if (base.length === 0) {
+      return `私有记忆（仅你知道，绝不得向他人透露）：\n${know}`;
+    }
+    return `${speaker.systemPrompt}\n\n私有记忆（仅你知道，绝不得向他人透露）：\n${know}`;
   }
 
   // ── 消息编辑 / 重新生成 / 分支切换 ──
@@ -955,6 +1160,11 @@ export struct ChatView {
       return;
     }
     const userMsg: ChatMessage = this.buildMessage('user', newText, original.parentId);
+    let oi: number = 0;
+    while (oi < original.mentionedIds.length) {
+      userMsg.mentionedIds.push(original.mentionedIds[oi]);
+      oi += 1;
+    }
     this.attach(sess, userMsg);
     sess.updatedAt = Date.now();
     this.showEditDialog = false;
@@ -962,7 +1172,11 @@ export struct ChatView {
     this.editMsgText = '';
     this.rebuildSessionReference();
     this.scrollToBottom();
-    this.generateReply(sess, userMsg);
+    if (sess.sceneMode === 'group' && sess.participantIds.length > 0) {
+      await this.sendGroup(sess, userMsg);
+      return;
+    }
+    this.generateReply(sess, userMsg, this.getCurrentCharacter());
   }
 
   /** 长按 assistant 点「重新生成」：同一 user 下新建助手兄弟分支。 */
@@ -980,7 +1194,12 @@ export struct ChatView {
     if (userMsg === undefined) {
       return;
     }
-    this.generateReply(sess, userMsg);
+    let speaker: CharacterCard = this.getCurrentCharacter();
+    const bySpeaker: CharacterCard | undefined = this.characterById(assistantMsg.speakerId);
+    if (bySpeaker !== undefined) {
+      speaker = bySpeaker;
+    }
+    this.generateReply(sess, userMsg, speaker);
   }
 
   private switchBranch(msg: ChatMessage, delta: number): void {
@@ -1029,6 +1248,11 @@ export struct ChatView {
       }
       this.rebuildSessionReference();
       this.saveState();
+      if (this.resolveCurrent !== undefined) {
+        const done: () => void = this.resolveCurrent;
+        this.resolveCurrent = undefined;
+        done();
+      }
     }
   }
 
@@ -1303,6 +1527,7 @@ export struct ChatView {
                   .onClick(async () => {
                     await this.createNewSession();
                     this.showDrawer = false;
+                    this.pendingParticipants = [];
                     this.showCharacterSheet = true;
                   })
               }
@@ -1549,9 +1774,16 @@ export struct ChatView {
 
           Column() {
             Row() {
-              Text('角色卡设定')
-                .fontSize(17)
-                .fontWeight(FontWeight.Bold)
+              Column() {
+                Text('选择角色')
+                  .fontSize(17)
+                  .fontWeight(FontWeight.Bold)
+                Text('可多选；选2个以上进入群聊')
+                  .fontSize(11)
+                  .fontColor('#999999')
+                  .margin({ top: 2 })
+              }
+              .alignItems(HorizontalAlign.Start)
               Blank()
               Button('+ 新建角色')
                 .fontSize(12)
@@ -1585,8 +1817,8 @@ export struct ChatView {
                     Column() {
                       Text(char.name)
                         .fontSize(15)
-                        .fontWeight(char.id === this.currentCharacterId ? FontWeight.Bold : FontWeight.Normal)
-                        .fontColor(char.id === this.currentCharacterId ? '#4D6BFE' : '#222222')
+                        .fontWeight(this.isPendingParticipant(char.id) ? FontWeight.Bold : FontWeight.Normal)
+                        .fontColor(this.isPendingParticipant(char.id) ? '#4D6BFE' : '#222222')
                       Text(char.description)
                         .fontSize(12)
                         .fontColor('#777777')
@@ -1597,17 +1829,27 @@ export struct ChatView {
                     .alignItems(HorizontalAlign.Start)
                     .layoutWeight(1)
 
-                    Text('›')
-                      .fontSize(20)
-                      .fontColor('#CCCCCC')
-                      .margin({ left: 8 })
+                    if (this.isPendingParticipant(char.id)) {
+                      Text('已选')
+                        .fontSize(12)
+                        .fontColor('#FFFFFF')
+                        .backgroundColor('#4D6BFE')
+                        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+                        .borderRadius(12)
+                        .margin({ left: 8 })
+                    } else {
+                      Text('›')
+                        .fontSize(20)
+                        .fontColor('#CCCCCC')
+                        .margin({ left: 8 })
+                    }
                   }
                   .width('100%')
                   .padding(14)
                   .borderRadius(12)
-                  .backgroundColor(char.id === this.currentCharacterId ? '#F4F7FF' : '#F9FAFB')
+                  .backgroundColor(this.isPendingParticipant(char.id) ? '#F4F7FF' : '#F9FAFB')
                   .onClick(() => {
-                    this.selectCharacter(char);
+                    this.togglePendingParticipant(char.id);
                   })
                   .gesture(LongPressGesture({ repeat: false }).onAction(() => {
                     this.openCharActions(char.id);
@@ -1621,9 +1863,18 @@ export struct ChatView {
             .scrollBar(BarState.Off)
             }
 
+            Button(this.pendingParticipants.length > 0 ? `开始对话（${this.pendingParticipants.length}）` : '开始对话')
+              .width('92%')
+              .backgroundColor('#4D6BFE')
+              .fontColor('#FFFFFF')
+              .margin({ top: 10 })
+              .enabled(this.pendingParticipants.length > 0)
+              .onClick(() => {
+                this.confirmParticipants();
+              })
             Button('关闭')
               .width('92%')
-              .margin({ top: 10, bottom: 20 })
+              .margin({ top: 8, bottom: 20 })
               .onClick(() => {
                 this.showCharacterSheet = false;
               })
@@ -2041,6 +2292,13 @@ export struct ChatView {
             .padding({ left: 14, right: 14, top: 10, bottom: 10 })
             .backgroundColor('#4D6BFE')
             .borderRadius({ topLeft: 16, topRight: 4, bottomLeft: 16, bottomRight: 16 })
+          // @ 对象
+          if (msg.mentionedIds.length > 0) {
+            Text(this.mentionText(msg))
+              .fontSize(11)
+              .fontColor('#999999')
+              .margin({ top: 4 })
+          }
           // 分支切换（编辑后的多个版本）
           if (this.branchCount(msg) > 1) {
             Row() {
@@ -2091,6 +2349,15 @@ export struct ChatView {
             .borderWidth(1)
             .borderColor('#E5E7EB')
             .margin({ bottom: 8 })
+          }
+
+          // 发言人（群聊多角色时显示）
+          if (msg.speakerId.length > 0) {
+            Text(this.characterName(msg.speakerId))
+              .fontSize(12)
+              .fontColor('#4D6BFE')
+              .fontWeight(FontWeight.Medium)
+              .margin({ bottom: 4 })
           }
 
           // 正文回复
