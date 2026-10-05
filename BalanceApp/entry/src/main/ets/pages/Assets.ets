@@ -12,6 +12,7 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import {
   PROVIDERS, ProviderDefinition, ProviderCategory, BalanceInfo,
   findProvider, currencySymbol, categoryLabel,
@@ -66,6 +67,14 @@ struct Assets {
   @State globalSession: number = 0;
   @State refreshingAll: boolean = false;
   @State heroGroups: CurrencyGroup[] = [];
+  // 智能路由（Jev）配置：独立于余额服务商；Key 仅本地存储。
+  @State jevEnabled: boolean = false;
+  @State jevKeyMasked: string = '';
+  @State showJevKeyInput: boolean = false;
+  @State jevKeyText: string = '';
+  @State showJevKey: boolean = false;
+  // 添加服务商：0=未添加，1=已添加
+  @State addTab: number = 0;
   private prefs: preferences.Preferences | undefined = undefined;
 
   private goBack(): void {
@@ -117,6 +126,7 @@ struct Assets {
       this.records = loaded;
       this.updateHero();
       hilog.info(DOMAIN, TAG, 'Loaded %{public}d providers from prefs', this.records.length);
+      await this.loadJev();
     } catch (err) {
       const msg: string = err instanceof Error ? err.message : 'unknown';
       hilog.error(DOMAIN, TAG, 'Load prefs failed: %{public}s', msg);
@@ -151,6 +161,92 @@ struct Assets {
     } catch (err) {
       const msg: string = err instanceof Error ? err.message : 'unknown';
       hilog.error(DOMAIN, TAG, 'Save prefs failed: %{public}s', msg);
+    }
+  }
+
+  // ── 智能路由（Jev）配置 ──
+  // Business Rule: Jev 只做无 @ 时的发言路由决策（判断模型，不生成对话）；
+  //   Key 获取渠道为 TypeSafe 官网或 OpenRouter；Key 本地存储、不打日志。
+
+  private async loadJev(): Promise<void> {
+    if (this.prefs === undefined) {
+      return;
+    }
+    try {
+      const curPrefs: preferences.Preferences = this.prefs as preferences.Preferences;
+      const kv: preferences.ValueType = await curPrefs.get('key_jev', '');
+      if (typeof kv === 'string' && (kv as string).trim().length > 0) {
+        this.jevKeyMasked = maskKey(kv as string);
+      } else {
+        this.jevKeyMasked = '';
+      }
+      const ev: preferences.ValueType = await curPrefs.get('jev_enabled', '0');
+      this.jevEnabled = ev === '1' || ev === 1 || ev === true;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'loadJev failed: %{public}s', String(err));
+    }
+  }
+
+  private async saveJevEnabled(on: boolean): Promise<void> {
+    this.jevEnabled = on;
+    try {
+      if (this.prefs === undefined) {
+        const uiCtx = this.getUIContext();
+        const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
+        this.prefs = await preferences.getPreferences(hostCtx, { name: PREFS_NAME });
+      }
+      const curPrefs: preferences.Preferences = this.prefs as preferences.Preferences;
+      await curPrefs.put('jev_enabled', on ? '1' : '0');
+      await curPrefs.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'saveJevEnabled failed: %{public}s', String(err));
+    }
+  }
+
+  private async confirmJevKey(): Promise<void> {
+    const key: string = this.jevKeyText.trim();
+    if (key.length < 4) {
+      return;
+    }
+    try {
+      if (this.prefs === undefined) {
+        const uiCtx = this.getUIContext();
+        const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
+        this.prefs = await preferences.getPreferences(hostCtx, { name: PREFS_NAME });
+      }
+      const curPrefs: preferences.Preferences = this.prefs as preferences.Preferences;
+      await curPrefs.put('key_jev', key);
+      await curPrefs.flush();
+      this.jevKeyMasked = maskKey(key);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'saveJevKey failed: %{public}s', String(err));
+    }
+    this.jevKeyText = '';
+    this.showJevKeyInput = false;
+  }
+
+  private async deleteJevKey(): Promise<void> {
+    try {
+      if (this.prefs !== undefined) {
+        const curPrefs: preferences.Preferences = this.prefs as preferences.Preferences;
+        await curPrefs.delete('key_jev');
+        await curPrefs.flush();
+      }
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'deleteJevKey failed: %{public}s', String(err));
+    }
+    this.jevKeyMasked = '';
+    this.jevKeyText = '';
+    this.showJevKeyInput = false;
+  }
+
+  private copyJevSite(): void {
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(
+        pasteboard.MIMETYPE_TEXT_PLAIN, 'https://console.typesafe.ai');
+      pasteboard.getSystemPasteboard().setDataSync(data);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'copyJevSite failed: %{public}s', String(err));
     }
   }
 
@@ -273,6 +369,7 @@ struct Assets {
 
   private openAddSheet(): void {
     this.addQuery = '';
+    this.addTab = 0;
     this.showAddSheet = true;
   }
 
@@ -379,6 +476,16 @@ struct Assets {
     while (i < PROVIDERS.length) {
       const p: ProviderDefinition = PROVIDERS[i];
       if (p.category === cat) {
+        // addTab: 0=未添加，1=已添加。
+        const added: boolean = this.recordIndex(p.id) >= 0;
+        if (this.addTab === 0 && added) {
+          i += 1;
+          continue;
+        }
+        if (this.addTab === 1 && !added) {
+          i += 1;
+          continue;
+        }
         if (q.length === 0 || p.name.toLowerCase().includes(q) || p.id.toLowerCase().includes(q)) {
           out.push(p);
         }
@@ -497,6 +604,7 @@ struct Assets {
           if (this.records.length === 0) {
             // 空态引导（对齐智额 OnboardingSheet）
             Column() {
+              this.JevCard()
               Text('暂无服务商')
                 .fontSize(20)
                 .fontWeight(FontWeight.Bold)
@@ -516,6 +624,7 @@ struct Assets {
           } else {
             Scroll() {
               Column() {
+                this.JevCard()
                 this.HeroCard()
                 // Reason: key 携带数据版本号，数据变化即重建条目，杜绝 ForEach 复用旧快照。
                 ForEach(this.records, (rec: ProviderRecord) => {
@@ -560,6 +669,30 @@ struct Assets {
               .onChange((v: string) => {
                 this.addQuery = v;
               })
+            // 已添加 / 未添加分段选择
+            Row() {
+              Text('未添加')
+                .fontSize(13)
+                .fontColor(this.addTab === 0 ? '#FFFFFF' : '#333333')
+                .padding({ left: 16, right: 16, top: 6, bottom: 6 })
+                .backgroundColor(this.addTab === 0 ? '#4D6BFE' : '#F1F3F5')
+                .borderRadius(16)
+                .margin({ right: 8 })
+                .onClick(() => {
+                  this.addTab = 0;
+                })
+              Text('已添加')
+                .fontSize(13)
+                .fontColor(this.addTab === 1 ? '#FFFFFF' : '#333333')
+                .padding({ left: 16, right: 16, top: 6, bottom: 6 })
+                .backgroundColor(this.addTab === 1 ? '#4D6BFE' : '#F1F3F5')
+                .borderRadius(16)
+                .onClick(() => {
+                  this.addTab = 1;
+                })
+            }
+            .width('92%')
+            .margin({ bottom: 8 })
             Scroll() {
               Column() {
                 this.ProviderGroup(ProviderCategory.CnOfficial)
@@ -694,6 +827,109 @@ struct Assets {
     }
     .width('100%')
     .height('100%')
+  }
+
+  @Builder
+  JevCard() {
+    Column() {
+      Row() {
+        Text('智能路由')
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+        Text('Jev 判断模型')
+          .fontSize(11)
+          .fontColor('#7C3AED')
+          .backgroundColor('#F3E8FF')
+          .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+          .borderRadius(10)
+          .margin({ left: 8 })
+        Blank()
+        Toggle({ type: ToggleType.Switch, isOn: this.jevEnabled })
+          .onChange((on: boolean) => {
+            this.saveJevEnabled(on);
+          })
+      }
+      .width('100%')
+      Text('无 @ 时由 Jev 决定谁发言；只做判断、不生成对话（本期仅保存配置）')
+        .fontSize(12)
+        .fontColor('#888888')
+        .width('100%')
+        .margin({ top: 6 })
+      if (this.jevKeyMasked.length > 0 && !this.showJevKeyInput) {
+        Row() {
+          Text(`Key ${this.jevKeyMasked}`)
+            .fontSize(13)
+            .fontColor('#333333')
+            .layoutWeight(1)
+          Button('更换')
+            .fontSize(12)
+            .height(28)
+            .margin({ right: 6 })
+            .onClick(() => {
+              this.jevKeyText = '';
+              this.showJevKeyInput = true;
+            })
+          Button('删除')
+            .fontSize(12)
+            .height(28)
+            .backgroundColor('#FEE2E2')
+            .fontColor('#EF4444')
+            .onClick(() => {
+              this.deleteJevKey();
+            })
+        }
+        .width('100%')
+        .margin({ top: 8 })
+      } else {
+        Row() {
+          TextInput({ placeholder: '粘贴 Jev API Key', text: this.jevKeyText })
+            .type(this.showJevKey ? InputType.Normal : InputType.Password)
+            .layoutWeight(1)
+            .height(36)
+            .fontSize(13)
+            .onChange((v: string) => {
+              this.jevKeyText = v;
+            })
+          Button(this.showJevKey ? '隐藏' : '显示')
+            .fontSize(12)
+            .height(32)
+            .margin({ left: 6, right: 6 })
+            .onClick(() => {
+              this.showJevKey = !this.showJevKey;
+            })
+          Button('保存')
+            .fontSize(12)
+            .height(32)
+            .enabled(this.jevKeyText.trim().length >= 4)
+            .onClick(() => {
+              this.confirmJevKey();
+            })
+        }
+        .width('100%')
+        .margin({ top: 8 })
+      }
+      Row() {
+        Text('Key 仅在 TypeSafe 官网或 OpenRouter 获取')
+          .fontSize(11)
+          .fontColor('#AAAAAA')
+          .layoutWeight(1)
+        Text('复制官网链接')
+          .fontSize(11)
+          .fontColor('#4D6BFE')
+          .onClick(() => {
+            this.copyJevSite();
+          })
+      }
+      .width('100%')
+      .margin({ top: 6 })
+    }
+    .width('92%')
+    .padding(14)
+    .margin({ top: 4, bottom: 12 })
+    .backgroundColor('#FFFFFF')
+    .border({ width: 1, color: '#EEEEEE' })
+    .borderRadius(16)
+    .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetX: 0, offsetY: 2 })
   }
 
   @Builder

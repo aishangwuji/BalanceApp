@@ -22,9 +22,21 @@ last_verified_commit: uncommitted (working tree 2026-10-05)
 - 建联：新会话角色卡多选 + 开始对话确认；单选绑定单聊（含开场白），多选自动群聊（空白开场）。
 - 路由：`sendGroup` 确定性路由（@ 优先 → 规则回退上轮发言人/首位成员 → 全体沉默插提示）；
   按序链式生成（后者挂前者之下），出错即停；`generateReply` 改为 Promise 以支持等待链。
-- 显示：助手气泡头显发言人名，用户气泡显 @ 对象；@ 按钮仅群聊展示，成员弹窗多选，
-  chips 回显，发送时按输入框 `@Name` 标记校对落库。
+- 显示：助手气泡头显发言人名，用户气泡显 @ 对象；@ 按钮仅群聊展示，成员小弹窗多选
+  （居中轻量卡片，✓ 即切），chips 回显，发送时按输入框 `@Name` 标记校对落库。
 - 私有知识拼入对应发言角色的 systemPrompt（标注不得外泄）。
+
+## 对话与资产体验第二批（2026-10-05，已落地）
+
+- 删除二次确认：新增可复用 `components/ConfirmDialog.ets`（show/title/message/confirmText/danger +
+  onConfirm/onCancel；函数类型不可 @Prop，用普通成员）；会话删除与角色卡删除统一接入。
+- 移除右上角「清空对话」按钮及 `clearSessionMessages`。
+- 角色管理：历史抽屉底部加「角色管理」入口；角色卡面板分 select（新会话多选建联，无新建按钮）
+  /manage（新建+点行编辑+长按菜单）两态；`characterSheetMode` 控制。
+- 深度思考开关移至输入框下方左侧（仅支持厂商展示）。
+- 资产页：新增 Jev 智能路由配置卡（开关 + Key 配置/更换/删除 + 官网链接复制；
+  `key_jev`/`jev_enabled` 存 balance_prefs；本期仅存配置，路由生效待 Phase 2）；
+  添加服务商弹窗加「未添加/已添加」分段过滤。
 
 # BalanceApp systemmap（初始）
 
