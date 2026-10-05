@@ -17,8 +17,9 @@ import {
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
-import { PROVIDERS, ProviderDefinition, findProvider } from '../services/ProviderRegistry';
+import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ThinkingButton } from '../components/ThinkingButton';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatView';
@@ -46,6 +47,8 @@ export struct ChatView {
   @State isGenerating: boolean = false;
   @State showJumpBottom: boolean = false;
   @State noticeText: string = '';
+  @StorageProp('auto_collapse_thinking') autoCollapseThinking: boolean = true;
+  @StorageProp('app_font_scale') appFontScale: number = 1.0;
   // 思考过程折叠（reasonVersion 变化强制 ForEach 按 key 刷新对应条目）
   @State reasonVersion: number = 0;
   private collapsedReasons: string[] = [];
@@ -94,7 +97,6 @@ export struct ChatView {
   @State editingCharId: string = '';
   @State editingCharName: string = '';
   @State editingCharPrompt: string = '';
-  @State editingCharKnowledge: string = '';
   @State editingCharFirstMsg: string = '';
   @State editingCharTemp: number = 0.7;
 
@@ -145,6 +147,9 @@ export struct ChatView {
         // 创建初始默认会话
         await this.createNewSession();
       }
+
+      // 历史会话思考过程初始化默认折叠
+      this.initCollapsedReasons();
 
       // 加载当前 Provider Key、已配置服务商列表并拉取可用模型
       await this.reloadApiKey();
@@ -363,8 +368,12 @@ export struct ChatView {
   }
 
   private isGroupChat(): boolean {
+    // [群聊下线已注释]
+    /*
     const sess: ChatSession | undefined = this.getCurrentSession();
     return sess !== undefined && sess.sceneMode === 'group' && sess.participantIds.length > 0;
+    */
+    return false;
   }
 
   private toggleMention(id: string): void {
@@ -491,8 +500,7 @@ export struct ChatView {
   }
 
   private currentProviderSupportsThinking(): boolean {
-    const def: ProviderDefinition | undefined = findProvider(this.currentProviderId);
-    return def !== undefined && def.supportsThinking === true;
+    return isThinkingSupported(this.currentProviderId, this.currentModelId);
   }
 
 
@@ -622,16 +630,40 @@ export struct ChatView {
     }
   }
 
-  private onChatScrollStop(): void {
-    if (!this.anchorCaptured) {
+  private handleScrollIndex(start: number, end: number): void {
+    const totalCount: number = this.activePath().length;
+    if (totalCount <= 1) {
+      if (this.showJumpBottom) {
+        this.showJumpBottom = false;
+      }
       return;
     }
-    try {
-      const off: number = this.scroller.currentOffset().yOffset;
-      if (Math.abs(off - this.lastAnchorOffset) > 8) {
-        // 用户接管滚动：暂停自动锚定，露出“回到底部”。
-        this.userTookOver = true;
+
+    // end 是当前屏幕中可见的最末一条消息的索引
+    const isAtBottom: boolean = end >= totalCount - 1;
+
+    if (isAtBottom) {
+      // 当前视口已显示最后一条消息（处于最底部）：立即隐藏按钮
+      if (this.showJumpBottom) {
+        this.showJumpBottom = false;
+      }
+      if (this.userTookOver) {
+        this.userTookOver = false;
+      }
+    } else {
+      // 最后一条消息已被滚出视口下方（用户往上翻阅历史）：显示“回到底部”
+      if (!this.showJumpBottom) {
         this.showJumpBottom = true;
+      }
+      this.userTookOver = true;
+    }
+  }
+
+  private onChatScrollStop(): void {
+    try {
+      if (this.scroller.isAtEnd()) {
+        this.showJumpBottom = false;
+        this.userTookOver = false;
       }
     } catch (_e) {
     }
@@ -713,6 +745,7 @@ export struct ChatView {
       await this.refreshModelList();
     }
     this.showDrawer = false;
+    this.initCollapsedReasons();
     await ChatStorageService.saveActiveSessionId(sessionId);
     this.scrollToBottom();
   }
@@ -798,20 +831,23 @@ export struct ChatView {
       identityId = this.pendingIdentityId;
     }
     cur.userIdentityId = identityId;
+    // [群聊下线已注释] 始终进入单聊模式
+    /*
     if (ids.length >= 2) {
       cur.sceneMode = 'group';
       cur.characterId = '';
       this.currentCharacterId = '';
     } else {
-      cur.sceneMode = 'single';
-      cur.characterId = ids[0];
-      this.currentCharacterId = ids[0];
-      const c: CharacterCard | undefined = this.characterById(ids[0]);
-      if (c !== undefined && cur.messages.length === 0 && c.firstMessage.trim().length > 0) {
-        const welcomeMsg: ChatMessage = this.buildMessage('assistant', c.firstMessage, '');
-        this.attach(cur, welcomeMsg);
-      }
+    */
+    cur.sceneMode = 'single';
+    cur.characterId = ids[0];
+    this.currentCharacterId = ids[0];
+    const c: CharacterCard | undefined = this.characterById(ids[0]);
+    if (c !== undefined && cur.messages.length === 0 && c.firstMessage.trim().length > 0) {
+      const welcomeMsg: ChatMessage = this.buildMessage('assistant', c.firstMessage, '');
+      this.attach(cur, welcomeMsg);
     }
+    // }
     this.pendingParticipants = [];
     this.pendingIdentityId = '';
     this.showCharacterSheet = false;
@@ -825,14 +861,12 @@ export struct ChatView {
       this.editingCharId = char.id;
       this.editingCharName = char.name;
       this.editingCharPrompt = char.systemPrompt;
-      this.editingCharKnowledge = char.knowledge;
       this.editingCharFirstMsg = char.firstMessage;
       this.editingCharTemp = char.temperature;
     } else {
       this.editingCharId = '';
       this.editingCharName = '';
       this.editingCharPrompt = '你是一个人工智能助手。';
-      this.editingCharKnowledge = '';
       this.editingCharFirstMsg = '你好！有什么我可以为你效劳的？';
       this.editingCharTemp = 0.7;
     }
@@ -844,7 +878,7 @@ export struct ChatView {
       return;
     }
     const nextChars: CharacterCard[] = [];
-    let isNew: boolean = this.editingCharId.length === 0;
+    const isNew: boolean = this.editingCharId.length === 0;
 
     let i: number = 0;
     while (i < this.characters.length) {
@@ -858,7 +892,6 @@ export struct ChatView {
           systemPrompt: this.editingCharPrompt.trim(),
           firstMessage: this.editingCharFirstMsg.trim(),
           temperature: this.editingCharTemp,
-          knowledge: this.editingCharKnowledge.trim(),
           createdAt: c.createdAt
         };
         nextChars.push(updated);
@@ -877,7 +910,6 @@ export struct ChatView {
         systemPrompt: this.editingCharPrompt.trim(),
         firstMessage: this.editingCharFirstMsg.trim(),
         temperature: this.editingCharTemp,
-        knowledge: this.editingCharKnowledge.trim(),
         createdAt: Date.now()
       };
       nextChars.unshift(created);
@@ -1241,77 +1273,29 @@ export struct ChatView {
     this.rebuildSessionReference();
     this.scrollToBottom();
 
+    // [群聊下线已注释] 无群聊模式，一律走单聊生成
+    /*
     if (sess.sceneMode === 'group' && sess.participantIds.length > 0) {
-      await this.sendGroup(sess, userMsg);
+      this.isGenerating = true;
+      try {
+        await this.sendGroup(sess, userMsg);
+      } catch (err) {
+        hilog.error(DOMAIN, TAG, 'sendGroup failed: %{public}s', String(err));
+      } finally {
+        this.isGenerating = false;
+        this.rebuildSessionReference();
+      }
       return;
     }
+    */
     this.generateReply(sess, userMsg, this.getCurrentCharacter());
   }
 
-  /** 群聊确定性路由：@ 优先，否则规则回退；按序链式生成。 */
+  /* [群聊下线已注释]
   private async sendGroup(sess: ChatSession, userMsg: ChatMessage): Promise<void> {
-    const valid: string[] = [];
-    let i: number = 0;
-    while (i < sess.participantIds.length) {
-      if (this.characterById(sess.participantIds[i]) !== undefined) {
-        valid.push(sess.participantIds[i]);
-      }
-      i += 1;
-    }
-    if (valid.length === 0) {
-      this.noticeText = '该群聊暂无有效角色，请重新选择';
-      return;
-    }
-    // @ 优先：仅保留仍在群内的被 @ 角色，保持原序去重。
-    const mentioned: string[] = [];
-    let m: number = 0;
-    while (m < userMsg.mentionedIds.length) {
-      const id: string = userMsg.mentionedIds[m];
-      if (valid.includes(id) && !mentioned.includes(id)) {
-        mentioned.push(id);
-      }
-      m += 1;
-    }
-    let first: string = this.defaultSpeaker(sess);
-    if (first.length === 0 || !valid.includes(first)) {
-      first = valid[0];
-    }
-    const speakers: string[] = mentioned.length > 0 ? mentioned : [first];
-    const targets: string[] = [];
-    let s: number = 0;
-    while (s < speakers.length) {
-      if (speakers[s].length > 0 && this.characterById(speakers[s]) !== undefined) {
-        targets.push(speakers[s]);
-      }
-      s += 1;
-    }
-    if (targets.length === 0) {
-      // 全体沉默：插入提示节点，不调用生成。
-      const tip: ChatMessage = this.buildMessage('assistant', '（大家沉默了……）', userMsg.id);
-      this.attach(sess, tip);
-      sess.updatedAt = Date.now();
-      this.rebuildSessionReference();
-      this.saveState();
-      return;
-    }
-    // 链式顺序生成：后者挂在前者之下，可看到同轮先发言者的内容；出错即停，避免刷屏。
-    let parent: ChatMessage = userMsg;
-    let t: number = 0;
-    while (t < targets.length) {
-      const sp: CharacterCard | undefined = this.characterById(targets[t]);
-      if (sp === undefined) {
-        t += 1;
-        continue;
-      }
-      await this.generateReply(sess, parent, sp);
-      const child: ChatMessage | undefined = this.findMessage(sess, parent.activeChildId);
-      if (child === undefined || child.status === 'error') {
-        break;
-      }
-      parent = child;
-      t += 1;
-    }
+    // 群聊路由与链式生成代码已下线
   }
+  */
 
   /** 为 parentMsg 挂 assistant 占位并流式生成；历史取根->parentMsg 的分支路径。 */
   private generateReply(sess: ChatSession, parentMsg: ChatMessage, speaker: CharacterCard): Promise<void> {
@@ -1336,39 +1320,61 @@ export struct ChatView {
       this.resolveCurrent = finish;
 
       // Reason: 历史仅取该分支路径（historyTo 沿 parent 链），编辑/切分支后互不污染。
-      const history: ChatMessage[] = this.historyTo(sess, parentMsg.id);
-      // 用户身份名前缀：让生成模型分清说话人（拷贝后改写，不污染存储）。
+      const rawHistory: ChatMessage[] = this.historyTo(sess, parentMsg.id);
       const personaName: string = this.currentIdentityName();
-      if (personaName.length > 0) {
-        let hi: number = 0;
-        while (hi < history.length) {
-          const h: ChatMessage = history[hi];
-          if (h.role === 'user' && h.content.length > 0) {
-            const tagged: ChatMessage = {
-              id: h.id,
-              role: h.role,
-              content: `${personaName}：${h.content}`,
-              reasoningContent: h.reasoningContent,
-              createdAt: h.createdAt,
-              status: h.status,
-              errorMessage: h.errorMessage,
-              parentId: h.parentId,
-              childIds: [],
-              activeChildId: h.activeChildId,
-              speakerId: h.speakerId,
-              mentionedIds: [],
-            };
-            history[hi] = tagged;
-          }
-          hi += 1;
+      const history: ChatMessage[] = [];
+
+      let hi: number = 0;
+      while (hi < rawHistory.length) {
+        const h: ChatMessage = rawHistory[hi];
+        let content: string = h.content;
+        if (h.role === 'user' && personaName.length > 0 && content.length > 0) {
+          content = `${personaName}：${content}`;
         }
+        const tagged: ChatMessage = {
+          id: h.id,
+          role: h.role,
+          content: content,
+          reasoningContent: h.reasoningContent,
+          createdAt: h.createdAt,
+          status: h.status,
+          errorMessage: h.errorMessage,
+          parentId: h.parentId,
+          childIds: [],
+          activeChildId: h.activeChildId,
+          speakerId: h.speakerId,
+          mentionedIds: [],
+        };
+        history.push(tagged);
+        hi += 1;
       }
+
+      const thinkingStartTime: number = Date.now();
+      let thinkingEndTime: number = 0;
+
       const callbacks: StreamCallbacks = {
         onToken: (token: string, reasoningChunk?: string) => {
           if (reasoningChunk && reasoningChunk.length > 0) {
             assistantMsg.reasoningContent = (assistantMsg.reasoningContent || '') + reasoningChunk;
+            // 思考生成中：确保不处于折叠状态，保持展开
+            const cIdx: number = this.collapsedReasons.indexOf(assistantMsg.id);
+            if (cIdx >= 0) {
+              this.collapsedReasons.splice(cIdx, 1);
+            }
           }
           if (token && token.length > 0) {
+            if (thinkingEndTime === 0 && assistantMsg.reasoningContent && assistantMsg.reasoningContent.length > 0) {
+              thinkingEndTime = Date.now();
+              const elapsedSec: number = Math.max(1, Math.round((thinkingEndTime - thinkingStartTime) / 1000));
+              assistantMsg.thinkingDuration = elapsedSec;
+              // 思考完毕，正文开始：自动折叠为已思考
+              if (this.autoCollapseThinking) {
+                if (!this.collapsedReasons.includes(assistantMsg.id)) {
+                  this.collapsedReasons.push(assistantMsg.id);
+                  this.reasonVersion += 1;
+                }
+              }
+            }
             assistantMsg.content += token;
           }
           this.rebuildSessionReference();
@@ -1378,6 +1384,18 @@ export struct ChatView {
         onComplete: () => {
           assistantMsg.status = 'success';
           this.isGenerating = false;
+          if (assistantMsg.reasoningContent && assistantMsg.reasoningContent.length > 0) {
+            if (!assistantMsg.thinkingDuration) {
+              const dur: number = Math.max(1, Math.round(((thinkingEndTime > 0 ? thinkingEndTime : Date.now()) - thinkingStartTime) / 1000));
+              assistantMsg.thinkingDuration = dur;
+            }
+            if (this.autoCollapseThinking) {
+              if (!this.collapsedReasons.includes(assistantMsg.id)) {
+                this.collapsedReasons.push(assistantMsg.id);
+              }
+            }
+          }
+          this.reasonVersion += 1;
           this.rebuildSessionReference();
           this.saveState();
           finish();
@@ -1398,35 +1416,32 @@ export struct ChatView {
         model: this.currentModelId,
         temperature: speaker.temperature,
         messages: history,
-        systemPrompt: this.systemPromptFor(speaker),
+        systemPrompt: this.systemPromptFor(sess, speaker),
         enableThinking: this.enableThinking,
         reasoningEffort: 'high'
       }, callbacks);
     });
   }
 
-  /** 群聊/单聊统一的系统设定：拼入发言角色的私有知识 + 用户剧中身份（要求不得外泄）。 */
-  private systemPromptFor(speaker: CharacterCard): string {
+  /**
+   * 构建单聊系统提示词：以角色自身人设设定为主体，融入用户剧中身份。
+   */
+  private systemPromptFor(sess: ChatSession, speaker: CharacterCard): string {
     const base: string = speaker.systemPrompt.trim();
-    const know: string = speaker.knowledge.trim();
-    let prompt: string = speaker.systemPrompt;
-    if (know.length > 0) {
-      if (base.length === 0) {
-        prompt = `私有记忆（仅你知道，绝不得向他人透露）：\n${know}`;
-      } else {
-        prompt = `${speaker.systemPrompt}\n\n私有记忆（仅你知道，绝不得向他人透露）：\n${know}`;
-      }
-    }
-    // 用户身份：让所有发言者知道在和剧中谁对话。
-    const sess: ChatSession | undefined = this.getCurrentSession();
-    if (sess !== undefined && sess.userIdentityId.length > 0) {
+
+    let userPersonaBlock: string = '';
+    if (sess.userIdentityId.length > 0) {
       const idn: UserIdentityCard | undefined = this.identityById(sess.userIdentityId);
       if (idn !== undefined) {
-        const who: string = idn.persona.trim().length > 0 ?
-          `与你对话的用户在剧中身份是「${idn.name}」：${idn.persona.trim()}` :
-          `与你对话的用户在剧中身份是「${idn.name}」`;
-        prompt = prompt.length > 0 ? `${prompt}\n\n${who}` : who;
+        userPersonaBlock = idn.persona.trim().length > 0 ?
+          `【与你对话的用户在剧中身份】：「${idn.name}」—— ${idn.persona.trim()}` :
+          `【与你对话的用户在剧中身份】：「${idn.name}」`;
       }
+    }
+
+    let prompt: string = base;
+    if (userPersonaBlock.length > 0) {
+      prompt = prompt.length > 0 ? `${prompt}\n\n${userPersonaBlock}` : userPersonaBlock;
     }
     return prompt;
   }
@@ -1500,10 +1515,12 @@ export struct ChatView {
     this.editMsgText = '';
     this.rebuildSessionReference();
     this.scrollToBottom();
+    /* [群聊下线已注释]
     if (sess.sceneMode === 'group' && sess.participantIds.length > 0) {
       await this.sendGroup(sess, userMsg);
       return;
     }
+    */
     this.generateReply(sess, userMsg, this.getCurrentCharacter());
   }
 
@@ -1598,14 +1615,88 @@ export struct ChatView {
     return this.collapsedReasons.includes(id);
   }
 
+  private isMsgThinkingStreaming(msg: ChatMessage): boolean {
+    return msg.status === 'streaming' && (!msg.content || msg.content.length === 0);
+  }
+
+  private reasonDisplayTitle(msg: ChatMessage): string {
+    if (this.isMsgThinkingStreaming(msg)) {
+      return '正在思考...';
+    }
+    const sec: number = msg.thinkingDuration && msg.thinkingDuration > 0 ? msg.thinkingDuration : 1;
+    return `已思考（用时 ${sec} 秒）`;
+  }
+
   private toggleReason(id: string): void {
     const idx: number = this.collapsedReasons.indexOf(id);
-    if (idx >= 0) {
-      this.collapsedReasons.splice(idx, 1);
-    } else {
-      this.collapsedReasons.push(id);
+    try {
+      this.getUIContext().animateTo({ duration: 250, curve: Curve.FastOutSlowIn }, () => {
+        if (idx >= 0) {
+          this.collapsedReasons.splice(idx, 1);
+        } else {
+          this.collapsedReasons.push(id);
+        }
+        this.reasonVersion += 1;
+      });
+    } catch (_e) {
+      if (idx >= 0) {
+        this.collapsedReasons.splice(idx, 1);
+      } else {
+        this.collapsedReasons.push(id);
+      }
+      this.reasonVersion += 1;
     }
+
+    try {
+      this.lastAnchorOffset = this.scroller.currentOffset().yOffset;
+    } catch (_e) {
+    }
+  }
+
+  private onThinkingAreaChange(msgId: string, oldH: number, newH: number): void {
+    if (oldH === 0 && newH === 0) {
+      return;
+    }
+    const delta: number = newH - oldH;
+    if (Math.abs(delta) < 1) {
+      return;
+    }
+    this.handleScrollAnchorOnHeightChange(msgId, delta);
+  }
+
+  private handleScrollAnchorOnHeightChange(msgId: string, delta: number): void {
+    // 虚拟列表高度改变，通知重新计算
     this.reasonVersion += 1;
+
+    // 流式生成中保持顶部锚定
+    if (this.isGenerating && !this.userTookOver) {
+      this.scheduleAnchor();
+      return;
+    }
+
+    // 浏览模式下平滑同步滚动锚点，防止视口异常跳变
+    try {
+      const currentOffset: number = this.scroller.currentOffset().yOffset;
+      this.lastAnchorOffset = currentOffset;
+    } catch (_e) {
+    }
+  }
+
+  private initCollapsedReasons(): void {
+    const cur: ChatSession | undefined = this.getCurrentSession();
+    if (!cur) {
+      return;
+    }
+    let i: number = 0;
+    while (i < cur.messages.length) {
+      const m: ChatMessage = cur.messages[i];
+      if (m.reasoningContent && m.reasoningContent.length > 0) {
+        if (!this.collapsedReasons.includes(m.id)) {
+          this.collapsedReasons.push(m.id);
+        }
+      }
+      i += 1;
+    }
   }
 
   private actionIsUser(): boolean {
@@ -1709,12 +1800,15 @@ export struct ChatView {
               this.MessageBubble(msg)
             }
             .margin({ top: 10, bottom: 10 })
-          }, (msg: ChatMessage) => `${msg.id}_${msg.content.length}_${msg.status}_${msg.reasoningContent || ''}_${this.reasonVersion}`)
+          }, (msg: ChatMessage) => `${msg.id}_${msg.content.length}_${msg.status}_${msg.reasoningContent ? msg.reasoningContent.length : 0}_${this.isReasonCollapsed(msg.id) ? 'c' : 'e'}_${this.reasonVersion}`)
         }
         .width('100%')
         .layoutWeight(1)
         .padding({ left: 14, right: 14 })
         .scrollBar(BarState.Off)
+        .onScrollIndex((start: number, end: number) => {
+          this.handleScrollIndex(start, end);
+        })
         .onScrollStop(() => {
           this.onChatScrollStop();
         })
@@ -1815,28 +1909,15 @@ export struct ChatView {
           }
           .width('96%')
 
-          // 深度思考开关：输入框下方左侧（仅支持思考模式的厂商展示）。
-          if (this.currentProviderSupportsThinking()) {
-            Row() {
-              Row() {
-                Text('深度思考')
-                  .fontSize(13)
-                  .fontColor(this.enableThinking ? '#4D6BFE' : '#666666')
-                  .fontWeight(this.enableThinking ? FontWeight.Medium : FontWeight.Normal)
-              }
-              .padding({ left: 14, right: 14, top: 6, bottom: 6 })
-              .backgroundColor(this.enableThinking ? '#EEF2FF' : '#F3F4F6')
-              .borderRadius(16)
-              .borderWidth(1)
-              .borderColor(this.enableThinking ? '#C7D2FE' : '#00000000')
-              .onClick(() => {
-                this.enableThinking = !this.enableThinking;
-              })
+          // 深度思考开关：复用通用 ThinkingButton 组件（支持 DeepSeek、小米 MiMo、Kimi 等）
+          ThinkingButton({
+            isEnabled: this.enableThinking,
+            providerId: this.currentProviderId,
+            modelId: this.currentModelId,
+            onToggle: (val: boolean) => {
+              this.enableThinking = val;
             }
-            .width('96%')
-            .justifyContent(FlexAlign.Start)
-            .margin({ top: 8 })
-          }
+          })
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)
@@ -1846,20 +1927,29 @@ export struct ChatView {
       .height('100%')
       .backgroundColor('#FFFFFF')
 
-      // ── 0. 回到底部浮动按钮（用户接管滚动时出现） ──
+      // ── 0. 回到底部浮动按钮（视口离开底部时优雅浮现） ──
       if (this.showJumpBottom) {
-        Button('回到底部')
-          .fontSize(12)
-          .height(34)
-          .borderRadius(17)
-          .backgroundColor('#FFFFFF')
-          .fontColor('#4D6BFE')
-          .border({ width: 1, color: '#E5E7EB' })
-          .shadow({ radius: 8, color: 'rgba(0,0,0,0.12)', offsetX: 0, offsetY: 2 })
-          .position({ right: 16, bottom: 150 })
-          .onClick(() => {
-            this.jumpToBottom();
-          })
+        Row() {
+          Text('↓')
+            .fontSize(13)
+            .fontColor('#4D6BFE')
+            .fontWeight(FontWeight.Bold)
+            .margin({ right: 4 })
+          Text('回到底部')
+            .fontSize(12)
+            .fontColor('#4D6BFE')
+            .fontWeight(FontWeight.Medium)
+        }
+        .padding({ left: 12, right: 14, top: 7, bottom: 7 })
+        .borderRadius(18)
+        .backgroundColor('#FFFFFF')
+        .border({ width: 1, color: '#E0E7FF' })
+        .shadow({ radius: 10, color: 'rgba(77,107,254,0.15)', offsetX: 0, offsetY: 3 })
+        .position({ right: 16, bottom: 135 })
+        .transition(TransitionEffect.opacity(0).combine(TransitionEffect.translate({ y: 16 })).animation({ duration: 200, curve: Curve.FastOutSlowIn }))
+        .onClick(() => {
+          this.jumpToBottom();
+        })
       }
 
       // ── 1. 侧边历史会话抽屉 ──
@@ -2057,6 +2147,9 @@ export struct ChatView {
                         }
                         await this.reloadApiKey();
                         await this.refreshModelList();
+                        if (isThinkingSupported(this.currentProviderId, this.currentModelId)) {
+                          this.enableThinking = true;
+                        }
                       })
                   }, (p: ProviderDefinition) => p.id)
                 }
@@ -2094,6 +2187,17 @@ export struct ChatView {
                         .fontColor(m.id === this.currentModelId ? '#4D6BFE' : '#222222')
                         .fontWeight(m.id === this.currentModelId ? FontWeight.Bold : FontWeight.Normal)
                         .layoutWeight(1)
+
+                      if (isThinkingSupported(this.currentProviderId, m.id)) {
+                        Text('深度思考')
+                          .fontSize(10)
+                          .fontColor('#4D6BFE')
+                          .backgroundColor('#EEF2FF')
+                          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                          .borderRadius(8)
+                          .margin({ right: 8 })
+                      }
+
                       if (m.id === this.currentModelId) {
                         Text('已选')
                           .fontSize(12)
@@ -2109,6 +2213,9 @@ export struct ChatView {
                       const cur: ChatSession | undefined = this.getCurrentSession();
                       if (cur) {
                         cur.modelId = m.id;
+                      }
+                      if (isThinkingSupported(this.currentProviderId, m.id)) {
+                        this.enableThinking = true;
                       }
                       this.saveState();
                       this.showModelPicker = false;
@@ -2422,23 +2529,10 @@ export struct ChatView {
                   .margin({ bottom: 4 })
                 TextArea({ placeholder: '设定角色的语气、行为模式、知识范畴...', text: this.editingCharPrompt })
                   .width('92%')
-                  .height(100)
+                  .height(110)
                   .margin({ bottom: 12 })
                   .onChange((v: string) => {
                     this.editingCharPrompt = v;
-                  })
-
-                Text('私有知识')
-                  .fontSize(12)
-                  .fontColor('#666666')
-                  .width('92%')
-                  .margin({ bottom: 4 })
-                TextArea({ placeholder: '该角色知道、他人默认不知道的事实（群聊时注入）...', text: this.editingCharKnowledge })
-                  .width('92%')
-                  .height(80)
-                  .margin({ bottom: 12 })
-                  .onChange((v: string) => {
-                    this.editingCharKnowledge = v;
                   })
 
                 Text('初次问候语')
@@ -2903,35 +2997,36 @@ export struct ChatView {
     .onClick(onTap)
   }
 
-  // ── 消息气泡子组件 ──
+  // ── 消息气泡子组件（高度对齐 DeepSeek 官方设计） ──
   @Builder
   MessageBubble(msg: ChatMessage) {
     if (msg.role === 'user') {
       Row() {
         Blank()
         Column() {
-          // 用户剧中身份名（与左侧发言人对称）
+          // 用户剧中身份名
           if (this.currentIdentityName().length > 0) {
             Text(this.currentIdentityName())
               .fontSize(11)
-              .fontColor('#999999')
+              .fontColor('#9CA3AF')
               .margin({ bottom: 4 })
           }
+          // 用户气泡：DeepSeek 风格淡蓝紫色圆润胶囊气泡 (#EEF2FF) + 深灰蓝文本
           Text(msg.content)
-            .fontSize(15)
-            .fontColor('#FFFFFF')
-            .lineHeight(22)
-            .padding({ left: 14, right: 14, top: 10, bottom: 10 })
-            .backgroundColor('#4D6BFE')
-            .borderRadius({ topLeft: 16, topRight: 4, bottomLeft: 16, bottomRight: 16 })
+            .fontSize(15 * this.appFontScale)
+            .fontColor('#1F2937')
+            .lineHeight(22 * this.appFontScale)
+            .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+            .backgroundColor('#EEF2FF')
+            .borderRadius(18)
           // @ 对象
           if (msg.mentionedIds.length > 0) {
             Text(this.mentionText(msg))
               .fontSize(11)
-              .fontColor('#999999')
+              .fontColor('#9CA3AF')
               .margin({ top: 4 })
           }
-          // 分支切换（编辑后的多个版本）
+          // 分支切换
           if (this.branchCount(msg) > 1) {
             Row() {
               Blank()
@@ -2942,6 +3037,7 @@ export struct ChatView {
           }
         }
         .alignItems(HorizontalAlign.End)
+        .constraintSize({ maxWidth: '82%' })
         .gesture(LongPressGesture({ repeat: false }).onAction(() => {
           this.openMsgActions(msg.id);
         }))
@@ -2950,58 +3046,89 @@ export struct ChatView {
     } else {
       Row() {
         Column() {
-          // 深度思考过程（可折叠；不设固定宽度，由父气泡包裹，避免边框溢出）
+          // 深度思考折叠条（纯净 DeepSeek 风格：灰字「已思考（用时 X 秒）」+ 旋转小三角 + 展开左侧竖线装饰）
           if (msg.reasoningContent && msg.reasoningContent.length > 0) {
             Column() {
+              // 标题栏：负责状态展示和点击切换
               Row() {
-                Text('思考过程')
-                  .fontSize(11)
+                if (this.isMsgThinkingStreaming(msg)) {
+                  LoadingProgress()
+                    .width(14)
+                    .height(14)
+                    .color('#6B7280')
+                    .margin({ right: 6 })
+                }
+                Text(this.reasonDisplayTitle(msg))
+                  .fontSize(13)
                   .fontColor('#6B7280')
-                  .fontWeight(FontWeight.Bold)
-                Blank()
-                Text(this.isReasonCollapsed(msg.id) ? '展开' : '收起')
-                  .fontSize(11)
-                  .fontColor('#4D6BFE')
+                  .fontWeight(FontWeight.Normal)
+
+                // 箭头旋转动效（折叠 0 度指向右，展开 90 度指向下）
+                Text('›')
+                  .fontSize(16)
+                  .fontColor('#9CA3AF')
+                  .fontWeight(FontWeight.Medium)
+                  .margin({ left: 4 })
+                  .rotate({ angle: this.isReasonCollapsed(msg.id) ? 0 : 90 })
+                  .animation({ duration: 250, curve: Curve.FastOutSlowIn })
               }
-              .width('100%')
-              .margin({ bottom: this.isReasonCollapsed(msg.id) ? 0 : 4 })
+              .alignItems(VerticalAlign.Center)
+              .padding({ top: 4, bottom: 6 })
               .onClick(() => {
                 this.toggleReason(msg.id);
               })
-              if (!this.isReasonCollapsed(msg.id)) {
-                Text(msg.reasoningContent)
-                  .fontSize(12)
-                  .fontColor('#4B5563')
-                  .lineHeight(18)
+
+              // 内容区：带高度过渡动画与左侧装饰线，使用 onAreaChange 监听尺寸变化
+              Row() {
+                Column()
+                  .width(2)
+                  .backgroundColor('#E5E7EB')
+                  .borderRadius(1)
+                  .margin({ right: 10, top: 4, bottom: 4 })
+
+                Scroll() {
+                  Text(msg.reasoningContent)
+                    .fontSize(13 * this.appFontScale)
+                    .fontColor('#6B7280')
+                    .lineHeight(20 * this.appFontScale)
+                    .width('100%')
+                }
+                .scrollBar(BarState.Auto)
+                .constraintSize({ maxHeight: 380 })
+                .layoutWeight(1)
               }
+              .width('100%')
+              .padding({
+                left: 2,
+                right: 6,
+                top: this.isReasonCollapsed(msg.id) ? 0 : 6,
+                bottom: this.isReasonCollapsed(msg.id) ? 0 : 10
+              })
+              .alignItems(VerticalAlign.Top)
+              .clip(true)
+              .opacity(this.isReasonCollapsed(msg.id) ? 0 : 1)
+              .constraintSize({ maxHeight: this.isReasonCollapsed(msg.id) ? 0 : 450 })
+              .animation({ duration: 250, curve: Curve.FastOutSlowIn })
+              .onAreaChange((oldArea: Area, newArea: Area) => {
+                this.onThinkingAreaChange(msg.id, Number(oldArea.height), Number(newArea.height));
+              })
             }
-            .padding(10)
-            .backgroundColor('#F9FAFB')
-            .borderRadius(8)
-            .borderWidth(1)
-            .borderColor('#E5E7EB')
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
             .margin({ bottom: 8 })
           }
 
-          // 发言人（群聊多角色时显示）
-          if (msg.speakerId.length > 0) {
-            Text(this.characterName(msg.speakerId))
-              .fontSize(12)
-              .fontColor('#4D6BFE')
-              .fontWeight(FontWeight.Medium)
-              .margin({ bottom: 4 })
-          }
-
-          // 正文回复
+          // 正文回复：像 DeepSeek 一样直接排版输出在页面上，字号 15vp，行高舒适
           if (msg.content.length > 0) {
             Text(msg.content)
-              .fontSize(15)
-              .fontColor('#1F2937')
-              .lineHeight(23)
+              .fontSize(15 * this.appFontScale)
+              .fontColor('#111827')
+              .lineHeight(24 * this.appFontScale)
+              .copyOption(CopyOptions.InApp)
           } else if (msg.status === 'streaming') {
             Row() {
               LoadingProgress().width(18).height(18).color('#4D6BFE')
-              Text('  生成中...')
+              Text('  思考中...')
                 .fontSize(13)
                 .fontColor('#6B7280')
             }
@@ -3015,26 +3142,22 @@ export struct ChatView {
               .margin({ top: 6 })
           }
 
-          // 分支切换（重新生成的多个版本）
+          // 分支切换
           if (this.branchCount(msg) > 1) {
             Row() {
               Blank()
               this.BranchSwitcher(msg)
             }
             .width('100%')
-            .margin({ top: 4 })
+            .margin({ top: 6 })
           }
         }
         .alignItems(HorizontalAlign.Start)
-        .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-        .backgroundColor('#F3F4F6')
-        .borderRadius({ topLeft: 4, topRight: 16, bottomLeft: 16, bottomRight: 16 })
-        .constraintSize({ maxWidth: '88%' })
+        .width('100%')
+        .padding({ left: 4, right: 4, top: 4, bottom: 6 })
         .gesture(LongPressGesture({ repeat: false }).onAction(() => {
           this.openMsgActions(msg.id);
         }))
-
-        Blank()
       }
       .width('100%')
     }
