@@ -16,6 +16,7 @@ import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
 import { PROVIDERS, ProviderDefinition, findProvider } from '../services/ProviderRegistry';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatView';
@@ -64,8 +65,11 @@ export struct ChatView {
   @State editMsgText: string = '';
   // 角色卡长按操作
   @State charActionId: string = '';
+  @State showCharDeleteConfirm: boolean = false;
   // 新会话角色多选（选2个以上自动进入群聊）
   @State pendingParticipants: string[] = [];
+  // 角色卡面板模式：select=新会话选择，manage=角色管理
+  @State characterSheetMode: 'select' | 'manage' = 'select';
   // @ 指定发言人（群聊）
   @State pendingMentions: string[] = [];
   @State showMentionPicker: boolean = false;
@@ -813,8 +817,8 @@ export struct ChatView {
       };
       nextChars.unshift(created);
       this.currentCharacterId = created.id;
-      // 新建角色自动加入本次建联选择，方便直接开始对话。
-      if (!this.pendingParticipants.includes(created.id)) {
+      // 选择模式下，新建角色自动加入本次建联选择，方便直接开始对话。
+      if (this.characterSheetMode === 'select' && !this.pendingParticipants.includes(created.id)) {
         const withNew: string[] = [created.id];
         let pi: number = 0;
         while (pi < this.pendingParticipants.length) {
@@ -943,8 +947,19 @@ export struct ChatView {
     }
   }
 
-  private async deleteFromCharActions(): Promise<void> {
+  private askDeleteChar(): void {
+    // 保留 charActionId 作为删除目标；菜单用 showCharDeleteConfirm 隐藏。
+    this.showCharDeleteConfirm = true;
+  }
+
+  private cancelDeleteChar(): void {
+    this.showCharDeleteConfirm = false;
+    this.charActionId = '';
+  }
+
+  private async confirmDeleteChar(): Promise<void> {
     const id: string = this.charActionId;
+    this.showCharDeleteConfirm = false;
     this.charActionId = '';
     if (id.length === 0) {
       return;
@@ -1342,22 +1357,6 @@ export struct ChatView {
     }
   }
 
-  private clearSessionMessages(): void {
-    const cur: ChatSession | undefined = this.getCurrentSession();
-    if (cur) {
-      cur.messages = [];
-      cur.rootIds = [];
-      cur.activeRootId = '';
-      const char: CharacterCard = this.getCurrentCharacter();
-      if (char.firstMessage.trim().length > 0) {
-        const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
-        this.attach(cur, welcomeMsg);
-      }
-      this.rebuildSessionReference();
-      this.saveState();
-    }
-  }
-
   private branchCount(msg: ChatMessage): number {
     const sess: ChatSession | undefined = this.getCurrentSession();
     return sess ? this.siblingsOf(sess, msg).length : 1;
@@ -1459,29 +1458,20 @@ export struct ChatView {
         .width('94%')
         .margin({ top: 12, bottom: 8 })
 
-        // 提示与辅助状态栏
-        Row() {
-          if (this.noticeText.length > 0) {
+        // 提示条（仅有提示时展示）
+        if (this.noticeText.length > 0) {
+          Row() {
             Text(this.noticeText)
-              .fontSize(10)
+              .fontSize(11)
               .fontColor('#EF4444')
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
               .textAlign(TextAlign.Center)
           }
-
-          Blank()
-
-          Text('清空对话')
-            .fontSize(11)
-            .fontColor('#999999')
-            .onClick(() => {
-              this.clearSessionMessages();
-            })
+          .width('94%')
+          .margin({ bottom: 6 })
         }
-        .width('94%')
-        .margin({ bottom: 6 })
 
         Divider().color('#EEEEEE').width('100%')
 
@@ -1509,25 +1499,6 @@ export struct ChatView {
 
         // 底部输入区域
         Column() {
-          // 深度思考开关：参考 DeepSeek 对话窗口，仅对支持思考模式的厂商展示。
-          if (this.currentProviderSupportsThinking()) {
-            Row() {
-              Text('深度思考')
-                .fontSize(13)
-                .fontColor(this.enableThinking ? '#4D6BFE' : '#666666')
-                .fontWeight(this.enableThinking ? FontWeight.Medium : FontWeight.Normal)
-            }
-            .padding({ left: 14, right: 14, top: 6, bottom: 6 })
-            .backgroundColor(this.enableThinking ? '#EEF2FF' : '#F3F4F6')
-            .borderRadius(16)
-            .borderWidth(1)
-            .borderColor(this.enableThinking ? '#C7D2FE' : '#00000000')
-            .margin({ bottom: 8 })
-            .onClick(() => {
-              this.enableThinking = !this.enableThinking;
-            })
-          }
-
           // 已 @ 对象 chips（点移除）
           if (this.pendingMentions.length > 0) {
             Scroll() {
@@ -1616,6 +1587,29 @@ export struct ChatView {
             }
           }
           .width('96%')
+
+          // 深度思考开关：输入框下方左侧（仅支持思考模式的厂商展示）。
+          if (this.currentProviderSupportsThinking()) {
+            Row() {
+              Row() {
+                Text('深度思考')
+                  .fontSize(13)
+                  .fontColor(this.enableThinking ? '#4D6BFE' : '#666666')
+                  .fontWeight(this.enableThinking ? FontWeight.Medium : FontWeight.Normal)
+              }
+              .padding({ left: 14, right: 14, top: 6, bottom: 6 })
+              .backgroundColor(this.enableThinking ? '#EEF2FF' : '#F3F4F6')
+              .borderRadius(16)
+              .borderWidth(1)
+              .borderColor(this.enableThinking ? '#C7D2FE' : '#00000000')
+              .onClick(() => {
+                this.enableThinking = !this.enableThinking;
+              })
+            }
+            .width('96%')
+            .justifyContent(FlexAlign.Start)
+            .margin({ top: 8 })
+          }
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)
@@ -1660,6 +1654,7 @@ export struct ChatView {
                     await this.createNewSession();
                     this.showDrawer = false;
                     this.pendingParticipants = [];
+                    this.characterSheetMode = 'select';
                     this.showCharacterSheet = true;
                   })
               }
@@ -1711,8 +1706,29 @@ export struct ChatView {
               .margin({ top: 10 })
               .scrollBar(BarState.Off)
 
-              // 底部：设置入口（资产监控并入设置页）
+              // 底部：角色管理 + 设置入口
               Divider().color('#EEEEEE').width('100%')
+              Row() {
+                Image($r('app.media.ic_character'))
+                  .width(20)
+                  .height(20)
+                Text('角色管理')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .margin({ left: 8 })
+                Blank()
+                Text('›')
+                  .fontSize(20)
+                  .fontColor('#CCCCCC')
+              }
+              .width('90%')
+              .padding({ top: 14, bottom: 6 })
+              .onClick(() => {
+                this.showDrawer = false;
+                this.characterSheetMode = 'manage';
+                this.pendingParticipants = [];
+                this.showCharacterSheet = true;
+              })
               Row() {
                 Image($r('app.media.ic_settings'))
                   .width(20)
@@ -1727,7 +1743,7 @@ export struct ChatView {
                   .fontColor('#CCCCCC')
               }
               .width('90%')
-              .padding({ top: 14, bottom: 18 })
+              .padding({ top: 6, bottom: 18 })
               .onClick(() => {
                 this.showDrawer = false;
                 this.openSettings();
@@ -1907,23 +1923,27 @@ export struct ChatView {
           Column() {
             Row() {
               Column() {
-                Text('选择角色')
+                Text(this.characterSheetMode === 'manage' ? '角色管理' : '选择角色')
                   .fontSize(17)
                   .fontWeight(FontWeight.Bold)
-                Text('可多选；选2个以上进入群聊')
-                  .fontSize(11)
-                  .fontColor('#999999')
-                  .margin({ top: 2 })
+                if (this.characterSheetMode === 'select') {
+                  Text('可多选；选2个以上进入群聊')
+                    .fontSize(11)
+                    .fontColor('#999999')
+                    .margin({ top: 2 })
+                }
               }
               .alignItems(HorizontalAlign.Start)
               Blank()
-              Button('+ 新建角色')
-                .fontSize(12)
-                .height(30)
-                .borderRadius(15)
-                .onClick(() => {
-                  this.openCharEdit();
-                })
+              if (this.characterSheetMode === 'manage') {
+                Button('+ 新建角色')
+                  .fontSize(12)
+                  .height(30)
+                  .borderRadius(15)
+                  .onClick(() => {
+                    this.openCharEdit();
+                  })
+              }
             }
             .width('92%')
             .margin({ top: 18, bottom: 14 })
@@ -1934,7 +1954,7 @@ export struct ChatView {
                   .fontSize(14)
                   .fontColor('#888888')
                   .margin({ top: 30, bottom: 6 })
-                Text('点击右上角“新建角色”创建你的第一个角色')
+                Text(this.characterSheetMode === 'manage' ? '点击右上角“新建角色”创建你的第一个角色' : '请先到历史抽屉“角色管理”中新建角色卡')
                   .fontSize(12)
                   .fontColor('#AAAAAA')
               }
@@ -1981,7 +2001,11 @@ export struct ChatView {
                   .borderRadius(12)
                   .backgroundColor(this.isPendingParticipant(char.id) ? '#F4F7FF' : '#F9FAFB')
                   .onClick(() => {
-                    this.togglePendingParticipant(char.id);
+                    if (this.characterSheetMode === 'manage') {
+                      this.openCharEdit(char);
+                    } else {
+                      this.togglePendingParticipant(char.id);
+                    }
                   })
                   .gesture(LongPressGesture({ repeat: false }).onAction(() => {
                     this.openCharActions(char.id);
@@ -1995,15 +2019,17 @@ export struct ChatView {
             .scrollBar(BarState.Off)
             }
 
-            Button(this.pendingParticipants.length > 0 ? `开始对话（${this.pendingParticipants.length}）` : '开始对话')
-              .width('92%')
-              .backgroundColor('#4D6BFE')
-              .fontColor('#FFFFFF')
-              .margin({ top: 10 })
-              .enabled(this.pendingParticipants.length > 0)
-              .onClick(() => {
-                this.confirmParticipants();
-              })
+            if (this.characterSheetMode === 'select') {
+              Button(this.pendingParticipants.length > 0 ? `开始对话（${this.pendingParticipants.length}）` : '开始对话')
+                .width('92%')
+                .backgroundColor('#4D6BFE')
+                .fontColor('#FFFFFF')
+                .margin({ top: 10 })
+                .enabled(this.pendingParticipants.length > 0)
+                .onClick(() => {
+                  this.confirmParticipants();
+                })
+            }
             Button('关闭')
               .width('92%')
               .margin({ top: 8, bottom: 20 })
@@ -2166,76 +2192,62 @@ export struct ChatView {
         .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
-      // ── 5.5 @ 成员选择弹窗 ──
+      // ── 5.5 @ 成员选择小弹窗（轻量快速选择） ──
       if (this.showMentionPicker) {
         Column() {
           Blank()
-            .layoutWeight(1)
             .onClick(() => {
               this.showMentionPicker = false;
             })
           Column() {
-            Text('@ 选择要对话的角色')
-              .fontSize(17)
+            Text('@ 谁来回答')
+              .fontSize(15)
               .fontWeight(FontWeight.Bold)
-              .margin({ top: 18, bottom: 4 })
-            Text('可多选；不选则按默认规则决定谁发言')
-              .fontSize(12)
-              .fontColor('#999999')
-              .margin({ bottom: 12 })
+              .margin({ top: 14, bottom: 8 })
             List() {
               ForEach(this.participantCards(), (pc: CharacterCard) => {
                 ListItem() {
                   Row() {
                     Text(pc.name)
-                      .fontSize(15)
+                      .fontSize(14)
                       .fontWeight(this.pendingMentions.includes(pc.id) ? FontWeight.Bold : FontWeight.Normal)
                       .fontColor(this.pendingMentions.includes(pc.id) ? '#4D6BFE' : '#222222')
                       .layoutWeight(1)
                     if (this.pendingMentions.includes(pc.id)) {
-                      Text('已选')
-                        .fontSize(12)
-                        .fontColor('#FFFFFF')
-                        .backgroundColor('#4D6BFE')
-                        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-                        .borderRadius(12)
-                    } else {
-                      Text('›')
-                        .fontSize(20)
-                        .fontColor('#CCCCCC')
+                      Text('✓')
+                        .fontSize(16)
+                        .fontWeight(FontWeight.Bold)
+                        .fontColor('#4D6BFE')
                     }
                   }
                   .width('100%')
-                  .padding(14)
-                  .borderRadius(12)
-                  .backgroundColor(this.pendingMentions.includes(pc.id) ? '#F4F7FF' : '#F9FAFB')
+                  .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+                  .borderRadius(8)
+                  .backgroundColor(this.pendingMentions.includes(pc.id) ? '#F4F7FF' : '#FFFFFF')
                   .onClick(() => {
                     this.toggleMention(pc.id);
                   })
                 }
-                .margin({ bottom: 8 })
               }, (pc: CharacterCard) => pc.id)
             }
-            .width('92%')
-            .layoutWeight(1)
+            .width('90%')
             .scrollBar(BarState.Off)
+            .constraintSize({ maxHeight: 260 })
             Button('完成')
-              .width('92%')
-              .margin({ top: 10, bottom: 20 })
+              .width('90%')
+              .margin({ top: 8, bottom: 14 })
               .onClick(() => {
                 this.showMentionPicker = false;
               })
           }
-          .width('100%')
-          .height('60%')
+          .width('76%')
           .backgroundColor('#FFFFFF')
-          .borderRadius({ topLeft: 24, topRight: 24 })
-          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
+          .borderRadius(16)
+          Blank()
         }
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.4)')
-        .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
       // ── 6. 编辑并重发弹窗 ──
@@ -2377,53 +2389,23 @@ export struct ChatView {
         .backgroundColor('rgba(0,0,0,0.4)')
       }
 
-      // ── 10. 会话删除确认弹窗 ──
-      if (this.showDeleteConfirm) {
-        Column() {
-          Blank()
-          Column() {
-            Text('确认删除该会话？')
-              .fontSize(17)
-              .fontWeight(FontWeight.Bold)
-              .margin({ top: 20, bottom: 4 })
-            Text(this.sessActionTitle())
-              .fontSize(14)
-              .fontColor('#888888')
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .margin({ bottom: 16 })
-            Row() {
-              Button('取消')
-                .layoutWeight(1)
-                .backgroundColor('#F3F4F6')
-                .fontColor('#333333')
-                .margin({ right: 8 })
-                .onClick(() => {
-                  this.cancelDeleteSession();
-                })
-              Button('删除')
-                .layoutWeight(1)
-                .backgroundColor('#EF4444')
-                .fontColor('#FFFFFF')
-                .onClick(() => {
-                  this.confirmDeleteSession();
-                })
-            }
-            .width('90%')
-            .margin({ bottom: 20 })
-          }
-          .width('88%')
-          .backgroundColor('#FFFFFF')
-          .borderRadius(16)
-          Blank()
+      // ── 10. 会话删除二次确认（复用组件） ──
+      ConfirmDialog({
+        show: this.showDeleteConfirm,
+        title: '确认删除该会话？',
+        message: this.sessActionTitle(),
+        confirmText: '删除',
+        danger: true,
+        onConfirm: () => {
+          this.confirmDeleteSession();
+        },
+        onCancel: () => {
+          this.cancelDeleteSession();
         }
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
-      }
+      })
 
       // ── 7. 角色卡长按操作菜单 ──
-      if (this.charActionId !== '') {
+      if (this.charActionId !== '' && !this.showCharDeleteConfirm) {
         Column() {
           Blank()
             .layoutWeight(1)
@@ -2439,7 +2421,7 @@ export struct ChatView {
               this.editFromCharActions();
             })
             this.MsgActionRow('删除', () => {
-              this.deleteFromCharActions();
+              this.askDeleteChar();
             })
             Button('取消')
               .width('92%')
@@ -2458,6 +2440,21 @@ export struct ChatView {
         .backgroundColor('rgba(0,0,0,0.4)')
         .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
+
+      // ── 11. 角色卡删除二次确认（复用组件） ──
+      ConfirmDialog({
+        show: this.showCharDeleteConfirm,
+        title: '确认删除该角色卡？',
+        message: this.charActionName(),
+        confirmText: '删除',
+        danger: true,
+        onConfirm: () => {
+          this.confirmDeleteChar();
+        },
+        onCancel: () => {
+          this.cancelDeleteChar();
+        }
+      })
     }
     .width('100%')
     .height('100%')
