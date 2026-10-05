@@ -3,6 +3,8 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/BalanceService.ets
   - BalanceApp/entry/src/main/ets/services/ProviderRegistry.ets
   - BalanceApp/entry/src/main/ets/services/ChatService.ets
+  - BalanceApp/entry/src/main/ets/services/MarkdownService.ets
+  - BalanceApp/entry/src/main/ets/components/MarkdownBody.ets
   - BalanceApp/entry/src/main/ets/models/ChatModels.ets
   - BalanceApp/entry/src/main/ets/pages/Index.ets
   - BalanceApp/entry/src/main/ets/pages/ChatView.ets
@@ -94,6 +96,16 @@ last_verified_commit: uncommitted (working tree 2026-10-05)
   `tool_calls` 无 tools 声明有意忽略，`n` 恒为 1 不下发。记忆为无状态回传：
   `buildApiMessages` 收口流式/非流式，system 常驻首位，历史取新截断（最新 20 条 +
   12000 字符双预算，超限从旧丢弃）；全量历史仍按 session 存 Preferences，只裁剪本次请求。
+- Markdown 渲染（FluidMarkdown `fluid-markdown@1.0.11`，ohpm，`MarkdownService/MarkdownBody`）：
+  自研引擎已否决，复用支付宝开源库（Apache-2.0，原生 StyledString，无 WebView）。
+  流式走 Typing 模式（累计文本 + Begin/Append/End，库内 hash 差量 + 打字机 pacing），
+  完成/历史走 Normal；`MarkdownController` 按消息单例存活（建于生成开始、终于完成/停止/
+  删会话），ForEach key 去掉 content 长度保实例稳定。`[ref_N]` 改写为 `[N](#cite-N)`
+  （围栏/行内代码内不碰），点击路由：引用 toast（来源列表待模型侧，见 TD-002）、
+  外链仅 http/https/mailto 走 viewData 拉起。主题映射字号（`app_font_scale`，`@Prop` 接
+  `@StorageProp`）与深色正文色；代码高亮/复制为库内置（highlight.js 移植，无需 prism4cj，
+  其为 Android 侧）；表格列宽自适应故无外层横滚。延迟项见 `techdebt/TD-002-markdown-followups.md`
+  （LazyForEach 迁移/来源面板/Worker 实测/LaTeX 缺失）。
 - 数据模型：CharacterCard 移除 `tags`；ChatMessage 移除 `usage`，ChatUsage 接口删除
   （token 统计功能整体下线）。角色卡不再内置预设，DEFAULT_CHARACTERS=[]，无角色时用
   EMPTY_CHARACTER 兜底。
