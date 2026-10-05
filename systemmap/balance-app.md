@@ -55,3 +55,24 @@ last_verified_commit: uncommitted (working tree 2026-10-05)
 - 数据模型：CharacterCard 移除 `tags`；ChatMessage 移除 `usage`，ChatUsage 接口删除
   （token 统计功能整体下线）。角色卡不再内置预设，DEFAULT_CHARACTERS=[]，无角色时用
   EMPTY_CHARACTER 兜底。
+
+## 消息分支、交互细化与锚定滚动（2026-10-05 第二批）
+
+- 消息分支（ChatModels/ChatStorageService/ChatView）：`ChatMessage` 增加
+  `parentId/childIds/activeChildId`，`ChatSession` 增加 `rootIds/activeRootId`；消息池为扁平
+  节点树。`ChatStorageService.normalizeSessions` 在持久化边界做 Schema 校验并把旧线性
+  数据迁移为单链树 + 修复悬空引用。渲染只走 `activePath()`（沿 activeChildId）。
+  长按消息 → 编辑并重发（user，同父新增兄弟节点）/ 重新生成（assistant）；气泡右下角
+  `< i/n >` 切分支；请求历史用 `historyTo()` 取该分支根到目标的路径。
+- 默认会话空白、不绑定角色；点「+ 新会话」先建空白会话再弹角色选择（selectCharacter 补开场白）。
+  顶部「厂商」行移除。
+- 角色卡：`DEFAULT_CHARACTERS=[]`；列表项去掉“编辑”按钮，改长按弹操作菜单（编辑/删除）；
+  编辑弹窗去掉「角色简述」与 `(System Prompt)` 文案。
+- 选择服务商与模型：只列出本地已配置 `key_<id>` 的服务商（`loadConfiguredProviders()`）。
+- 设置页：语言/外观/字体大小/个性化/资产监控图标改为 `resources/base/media/ic_*.svg`
+  （工程化图标，非文字占位）；历史抽屉「设置」行去掉副标题、加齿轮图标。
+- 流式顶部锚定滚动（ChatView，Auto Scroll Top Anchor）：流式生成时对末条（当前回答）
+  调 `scroller.scrollToIndex(idx, false, ScrollAlign.START)`，把首行推到容器顶后停住，
+  内容继续增高但视口不动；内容不足时自动收敛为跟底。用户手动滚动（`onScrollStop`
+  比较 `currentOffset` 与 `lastAnchorOffset`）→ 暂停锚定并显示「回到底部」浮动按钮；
+  `onReachEnd` 或点按钮恢复。

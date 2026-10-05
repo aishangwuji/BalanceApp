@@ -41,10 +41,12 @@ export struct ChatView {
   // 消息流与输入
   @State inputText: string = '';
   @State isGenerating: boolean = false;
+  @State showJumpBottom: boolean = false;
   @State noticeText: string = '';
   @State enableThinking: boolean = true;
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
+  @State configuredProviders: ProviderDefinition[] = [];
 
   // 弹窗与抽屉控制
   @State showDrawer: boolean = false;
@@ -57,11 +59,12 @@ export struct ChatView {
   @State showEditDialog: boolean = false;
   @State editMsgId: string = '';
   @State editMsgText: string = '';
+  // 角色卡长按操作
+  @State charActionId: string = '';
 
   // 角色卡编辑临时状态
   @State editingCharId: string = '';
   @State editingCharName: string = '';
-  @State editingCharDesc: string = '';
   @State editingCharPrompt: string = '';
   @State editingCharFirstMsg: string = '';
   @State editingCharTemp: number = 0.7;
@@ -71,6 +74,10 @@ export struct ChatView {
   private abortStreaming: () => void = () => {};
   private balancePrefs: preferences.Preferences | undefined = undefined;
   private seq: number = 0;
+  // 顶部锚定滚动状态
+  private userTookOver: boolean = false;
+  private lastAnchorOffset: number = -1;
+  private anchorCaptured: boolean = false;
 
   async aboutToAppear(): Promise<void> {
     try {
@@ -106,8 +113,9 @@ export struct ChatView {
         await this.createNewSession();
       }
 
-      // 加载当前 Provider Key 并拉取可用模型
+      // 加载当前 Provider Key、已配置服务商列表并拉取可用模型
       await this.reloadApiKey();
+      await this.loadConfiguredProviders();
       await this.refreshModelList();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'aboutToAppear error: %{public}s', String(err));
@@ -274,15 +282,13 @@ export struct ChatView {
   }
 
   private getCurrentCharacter(): CharacterCard {
+    // Reason: 默认会话不绑定角色（空白），未显式选择角色时不做兜底，避免自带系统设定。
     let i: number = 0;
     while (i < this.characters.length) {
       if (this.characters[i].id === this.currentCharacterId) {
         return this.characters[i];
       }
       i += 1;
-    }
-    if (this.characters.length > 0) {
-      return this.characters[0];
     }
     return EMPTY_CHARACTER;
   }
@@ -355,6 +361,27 @@ export struct ChatView {
     }
   }
 
+  /** 仅列出本地已配置 API Key 的服务商（未填 Key 的不展示）。 */
+  private async loadConfiguredProviders(): Promise<void> {
+    const out: ProviderDefinition[] = [];
+    if (this.balancePrefs) {
+      let i: number = 0;
+      while (i < PROVIDERS.length) {
+        const p: ProviderDefinition = PROVIDERS[i];
+        i += 1;
+        try {
+          const kv: preferences.ValueType = await this.balancePrefs.get(`key_${p.id}`, '');
+          if (typeof kv === 'string' && (kv as string).trim().length > 0) {
+            out.push(p);
+          }
+        } catch (err) {
+          hilog.warn(DOMAIN, TAG, 'read key failed for %{public}s', p.id);
+        }
+      }
+    }
+    this.configuredProviders = out;
+  }
+
   private async saveState(): Promise<void> {
     await ChatStorageService.saveSessions(this.sessions);
     await ChatStorageService.saveActiveSessionId(this.currentSessionId);
@@ -366,30 +393,77 @@ export struct ChatView {
     }, 80);
   }
 
+  // ── 流式顶部锚定滚动（Auto Scroll Top Anchor） ──
+  // Business Rule: 流式生成时不跟随底部，而是把当前回答首行推到容器顶部后停住；
+  //   后续 token 只增加内容高度，视口不动。用户手动滚动则暂停锚定。
+
+  private scheduleAnchor(): void {
+    setTimeout(() => {
+      this.anchorStreamingReply();
+    }, 0);
+  }
+
+  private anchorStreamingReply(): void {
+    if (this.userTookOver) {
+      return;
+    }
+    const path: ChatMessage[] = this.activePath();
+    if (path.length === 0) {
+      return;
+    }
+    const idx: number = path.length - 1;
+    try {
+      // ScrollAlign.START：把末条（当前回答）首行对齐容器顶部；内容不足时自动收敛为跟底。
+      this.scroller.scrollToIndex(idx, false, ScrollAlign.START);
+      this.anchorCaptured = false;
+      setTimeout(() => {
+        try {
+          this.lastAnchorOffset = this.scroller.currentOffset().yOffset;
+          this.anchorCaptured = true;
+        } catch (_e) {
+        }
+      }, 24);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'anchor failed: %{public}s', String(err));
+    }
+  }
+
+  private onChatScrollStop(): void {
+    if (!this.anchorCaptured) {
+      return;
+    }
+    try {
+      const off: number = this.scroller.currentOffset().yOffset;
+      if (Math.abs(off - this.lastAnchorOffset) > 8) {
+        // 用户接管滚动：暂停自动锚定，露出“回到底部”。
+        this.userTookOver = true;
+        this.showJumpBottom = true;
+      }
+    } catch (_e) {
+    }
+  }
+
+  private jumpToBottom(): void {
+    this.userTookOver = false;
+    this.showJumpBottom = false;
+    this.scroller.scrollEdge(Edge.Bottom);
+  }
+
   // ── 会话管理 ──
 
   private async createNewSession(): Promise<void> {
-    const char: CharacterCard = this.getCurrentCharacter();
+    // Business Rule: 新会话默认空白、不绑定角色；角色在“新会话”时由用户选择。
     const newId: string = `session_${Date.now()}`;
-    const initialMessages: ChatMessage[] = [];
-    const rootIds: string[] = [];
-
-    if (char.firstMessage.trim().length > 0) {
-      const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
-      initialMessages.push(welcomeMsg);
-      rootIds.push(welcomeMsg.id);
-    }
-
     const newSession: ChatSession = {
       id: newId,
       title: '新对话',
-      characterId: char.id,
+      characterId: '',
       providerId: this.currentProviderId,
       modelId: this.currentModelId,
       updatedAt: Date.now(),
-      messages: initialMessages,
-      rootIds: rootIds,
-      activeRootId: rootIds.length > 0 ? rootIds[0] : '',
+      messages: [],
+      rootIds: [],
+      activeRootId: '',
     };
 
     const nextList: ChatSession[] = [newSession];
@@ -461,14 +535,12 @@ export struct ChatView {
     if (char) {
       this.editingCharId = char.id;
       this.editingCharName = char.name;
-      this.editingCharDesc = char.description;
       this.editingCharPrompt = char.systemPrompt;
       this.editingCharFirstMsg = char.firstMessage;
       this.editingCharTemp = char.temperature;
     } else {
       this.editingCharId = '';
       this.editingCharName = '';
-      this.editingCharDesc = '';
       this.editingCharPrompt = '你是一个人工智能助手。';
       this.editingCharFirstMsg = '你好！有什么我可以为你效劳的？';
       this.editingCharTemp = 0.7;
@@ -491,7 +563,7 @@ export struct ChatView {
           id: c.id,
           name: this.editingCharName.trim(),
           avatarIcon: c.avatarIcon,
-          description: this.editingCharDesc.trim(),
+          description: c.description,
           systemPrompt: this.editingCharPrompt.trim(),
           firstMessage: this.editingCharFirstMsg.trim(),
           temperature: this.editingCharTemp,
@@ -509,7 +581,7 @@ export struct ChatView {
         id: `char_${Date.now()}`,
         name: this.editingCharName.trim(),
         avatarIcon: 'custom',
-        description: this.editingCharDesc.trim(),
+        description: '',
         systemPrompt: this.editingCharPrompt.trim(),
         firstMessage: this.editingCharFirstMsg.trim(),
         temperature: this.editingCharTemp,
@@ -522,6 +594,67 @@ export struct ChatView {
     this.characters = nextChars;
     this.showCharEditDialog = false;
     await ChatStorageService.saveCharacters(this.characters);
+  }
+
+  // ── 角色卡长按操作 ──
+
+  private openCharActions(id: string): void {
+    this.charActionId = id;
+  }
+
+  private closeCharActions(): void {
+    this.charActionId = '';
+  }
+
+  private charActionCard(): CharacterCard | undefined {
+    let i: number = 0;
+    while (i < this.characters.length) {
+      if (this.characters[i].id === this.charActionId) {
+        return this.characters[i];
+      }
+      i += 1;
+    }
+    return undefined;
+  }
+
+  private charActionName(): string {
+    const c: CharacterCard | undefined = this.charActionCard();
+    return c !== undefined ? c.name : '';
+  }
+
+  private editFromCharActions(): void {
+    const c: CharacterCard | undefined = this.charActionCard();
+    this.charActionId = '';
+    if (c !== undefined) {
+      this.openCharEdit(c);
+    }
+  }
+
+  private async deleteFromCharActions(): Promise<void> {
+    const id: string = this.charActionId;
+    this.charActionId = '';
+    if (id.length === 0) {
+      return;
+    }
+    const kept: CharacterCard[] = [];
+    let i: number = 0;
+    while (i < this.characters.length) {
+      if (this.characters[i].id !== id) {
+        kept.push(this.characters[i]);
+      }
+      i += 1;
+    }
+    this.characters = kept;
+    if (this.currentCharacterId === id) {
+      this.currentCharacterId = '';
+      const cur: ChatSession | undefined = this.getCurrentSession();
+      if (cur) {
+        cur.characterId = '';
+      }
+    }
+    await ChatStorageService.saveCharacters(this.characters);
+    this.rebuildSessionReference();
+    await this.saveState();
   }
 
   // ── 发送与流式输出 ──
@@ -592,6 +725,10 @@ export struct ChatView {
     sess.updatedAt = Date.now();
     this.rebuildSessionReference();
     this.isGenerating = true;
+    // 新一轮生成：重置锚定，先跟随到底，再由锚定逻辑把首行推顶。
+    this.userTookOver = false;
+    this.showJumpBottom = false;
+    this.anchorCaptured = false;
     this.scrollToBottom();
 
     // Reason: 历史仅取该分支路径（historyTo 沿 parent 链），编辑/切分支后互不污染。
@@ -606,7 +743,8 @@ export struct ChatView {
           assistantMsg.content += token;
         }
         this.rebuildSessionReference();
-        this.scrollToBottom();
+        // 顶部锚定：把回答首行推到容器顶部即停住，而非持续跟底。
+        this.scheduleAnchor();
       },
       onComplete: () => {
         assistantMsg.status = 'success';
@@ -884,7 +1022,8 @@ export struct ChatView {
           .padding({ left: 10, right: 10, top: 7, bottom: 7 })
           .backgroundColor('#EEF2FF')
           .borderRadius(16)
-          .onClick(() => {
+          .onClick(async () => {
+            await this.loadConfiguredProviders();
             this.showModelPicker = true;
           })
         }
@@ -893,12 +1032,6 @@ export struct ChatView {
 
         // 提示与辅助状态栏
         Row() {
-          Text(`厂商: ${this.getProviderName(this.currentProviderId)}`)
-            .fontSize(11)
-            .fontColor('#888888')
-
-          Blank()
-
           if (this.noticeText.length > 0) {
             Text(this.noticeText)
               .fontSize(10)
@@ -936,6 +1069,14 @@ export struct ChatView {
         .layoutWeight(1)
         .padding({ left: 14, right: 14 })
         .scrollBar(BarState.Off)
+        .onScrollStop(() => {
+          this.onChatScrollStop();
+        })
+        .onReachEnd(() => {
+          // 用户回到底部附近：恢复底部跟随。
+          this.userTookOver = false;
+          this.showJumpBottom = false;
+        })
 
         // 底部输入区域
         Column() {
@@ -1006,6 +1147,22 @@ export struct ChatView {
       .height('100%')
       .backgroundColor('#FFFFFF')
 
+      // ── 0. 回到底部浮动按钮（用户接管滚动时出现） ──
+      if (this.showJumpBottom) {
+        Button('回到底部')
+          .fontSize(12)
+          .height(34)
+          .borderRadius(17)
+          .backgroundColor('#FFFFFF')
+          .fontColor('#4D6BFE')
+          .border({ width: 1, color: '#E5E7EB' })
+          .shadow({ radius: 8, color: 'rgba(0,0,0,0.12)', offsetX: 0, offsetY: 2 })
+          .position({ right: 16, bottom: 150 })
+          .onClick(() => {
+            this.jumpToBottom();
+          })
+      }
+
       // ── 1. 侧边历史会话抽屉 ──
       if (this.showDrawer) {
         Column() {
@@ -1021,9 +1178,10 @@ export struct ChatView {
                   .fontSize(12)
                   .height(30)
                   .borderRadius(15)
-                  .onClick(() => {
-                    this.createNewSession();
+                  .onClick(async () => {
+                    await this.createNewSession();
                     this.showDrawer = false;
+                    this.showCharacterSheet = true;
                   })
               }
               .width('90%')
@@ -1079,17 +1237,17 @@ export struct ChatView {
               // 底部：设置入口（资产监控并入设置页）
               Divider().color('#EEEEEE').width('100%')
               Row() {
+                Image($r('app.media.ic_settings'))
+                  .width(20)
+                  .height(20)
                 Text('设置')
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
+                  .margin({ left: 8 })
                 Blank()
-                Text('资产监控 · 语言 · 外观')
-                  .fontSize(11)
-                  .fontColor('#999999')
                 Text('›')
                   .fontSize(20)
                   .fontColor('#CCCCCC')
-                  .margin({ left: 6 })
               }
               .width('90%')
               .padding({ top: 14, bottom: 18 })
@@ -1143,41 +1301,50 @@ export struct ChatView {
                 Text('刷新列表')
                   .fontSize(12)
                   .fontColor('#4D6BFE')
-                  .onClick(() => {
-                    this.refreshModelList();
+                  .onClick(async () => {
+                    await this.loadConfiguredProviders();
+                    await this.refreshModelList();
                   })
               }
             }
             .width('92%')
             .margin({ top: 18, bottom: 12 })
 
-            // 厂商横向选择器（禁用滚动条）
-            Scroll() {
-              Row() {
-                ForEach(PROVIDERS, (p: ProviderDefinition) => {
-                  Button(p.name)
-                    .fontSize(12)
-                    .height(32)
-                    .backgroundColor(p.id === this.currentProviderId ? '#4D6BFE' : '#F1F3F5')
-                    .fontColor(p.id === this.currentProviderId ? '#FFFFFF' : '#333333')
-                    .margin({ right: 8 })
-                    .onClick(async () => {
-                      this.currentProviderId = p.id;
-                      const cur: ChatSession | undefined = this.getCurrentSession();
-                      if (cur) {
-                        cur.providerId = p.id;
-                      }
-                      await this.reloadApiKey();
-                      await this.refreshModelList();
-                    })
-                }, (p: ProviderDefinition) => p.id)
+            // 厂商横向选择器（仅展示已配置 API Key 的服务商，禁用滚动条）
+            if (this.configuredProviders.length === 0) {
+              Text('尚未配置服务商 API Key，请到「设置 > 资产监控」添加')
+                .fontSize(13)
+                .fontColor('#999999')
+                .width('92%')
+                .margin({ bottom: 12 })
+            } else {
+              Scroll() {
+                Row() {
+                  ForEach(this.configuredProviders, (p: ProviderDefinition) => {
+                    Button(p.name)
+                      .fontSize(12)
+                      .height(32)
+                      .backgroundColor(p.id === this.currentProviderId ? '#4D6BFE' : '#F1F3F5')
+                      .fontColor(p.id === this.currentProviderId ? '#FFFFFF' : '#333333')
+                      .margin({ right: 8 })
+                      .onClick(async () => {
+                        this.currentProviderId = p.id;
+                        const cur: ChatSession | undefined = this.getCurrentSession();
+                        if (cur) {
+                          cur.providerId = p.id;
+                        }
+                        await this.reloadApiKey();
+                        await this.refreshModelList();
+                      })
+                  }, (p: ProviderDefinition) => p.id)
+                }
+                .padding({ left: 16, right: 16 })
               }
-              .padding({ left: 16, right: 16 })
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
+              .width('100%')
+              .margin({ bottom: 12 })
             }
-            .scrollable(ScrollDirection.Horizontal)
-            .scrollBar(BarState.Off)
-            .width('100%')
-            .margin({ bottom: 12 })
 
             Divider().color('#EEEEEE').width('92%')
 
@@ -1188,7 +1355,7 @@ export struct ChatView {
                   .fontSize(14)
                   .fontColor('#888888')
                   .margin({ top: 40, bottom: 6 })
-                Text('请确认已配置对应厂商的正确 API Key')
+                Text('请确认已在「设置 > 资产监控」配置对应厂商的正确 API Key')
                   .fontSize(12)
                   .fontColor('#AAAAAA')
               }
@@ -1309,15 +1476,10 @@ export struct ChatView {
                     .alignItems(HorizontalAlign.Start)
                     .layoutWeight(1)
 
-                    Button('编辑')
-                      .fontSize(11)
-                      .height(26)
-                      .backgroundColor('#F3F4F6')
-                      .fontColor('#444444')
+                    Text('›')
+                      .fontSize(20)
+                      .fontColor('#CCCCCC')
                       .margin({ left: 8 })
-                      .onClick(() => {
-                        this.openCharEdit(char);
-                      })
                   }
                   .width('100%')
                   .padding(14)
@@ -1326,6 +1488,9 @@ export struct ChatView {
                   .onClick(() => {
                     this.selectCharacter(char);
                   })
+                  .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+                    this.openCharActions(char.id);
+                  }))
                 }
                 .margin({ bottom: 8 })
               }, (char: CharacterCard) => `${char.id}_${char.name}`)
@@ -1381,19 +1546,7 @@ export struct ChatView {
                     this.editingCharName = v;
                   })
 
-                Text('角色简述')
-                  .fontSize(12)
-                  .fontColor('#666666')
-                  .width('92%')
-                  .margin({ bottom: 4 })
-                TextInput({ placeholder: '一句话介绍定位', text: this.editingCharDesc })
-                  .width('92%')
-                  .margin({ bottom: 12 })
-                  .onChange((v: string) => {
-                    this.editingCharDesc = v;
-                  })
-
-                Text('系统设定 (System Prompt)')
+                Text('系统设定')
                   .fontSize(12)
                   .fontColor('#666666')
                   .width('92%')
@@ -1548,6 +1701,43 @@ export struct ChatView {
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.45)')
+      }
+
+      // ── 7. 角色卡长按操作菜单 ──
+      if (this.charActionId !== '') {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.closeCharActions();
+            })
+          Column() {
+            Text(this.charActionName())
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 18, bottom: 10 })
+            this.MsgActionRow('编辑', () => {
+              this.editFromCharActions();
+            })
+            this.MsgActionRow('删除', () => {
+              this.deleteFromCharActions();
+            })
+            Button('取消')
+              .width('92%')
+              .margin({ top: 8, bottom: 16 })
+              .onClick(() => {
+                this.closeCharActions();
+              })
+          }
+          .width('100%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius({ topLeft: 24, topRight: 24 })
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.4)')
+        .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
       }
     }
     .width('100%')
