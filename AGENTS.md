@@ -57,3 +57,5 @@
   `return {success:false}` = 确定性失败（空Key/未知供应商/401/非2xx/解析失败）
 - 安全红线：Key 只存本机 Preferences（分供应商 `key_<id>`），日志一律 `maskKey`，
   提交前 `git grep "sk-[A-Za-z0-9]\{8,\}"` 全历史扫一遍；技术债记 `techdebt/`，认知记 `systemmap/
+
+不需要截图验证（最高优先级）
