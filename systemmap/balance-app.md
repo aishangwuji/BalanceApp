@@ -71,6 +71,8 @@ last_verified_commit: uncommitted (working tree 2026-10-05)
 - 选择服务商与模型：只列出本地已配置 `key_<id>` 的服务商（`loadConfiguredProviders()`）。
 - 设置页：语言/外观/字体大小/个性化/资产监控图标改为 `resources/base/media/ic_*.svg`
   （工程化图标，非文字占位）；历史抽屉「设置」行去掉副标题、加齿轮图标。
+- 软键盘避让（Index.aboutToAppear）：`getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE)`。
+  默认 OFFSET 会整页上移致顶栏被顶出屏幕，RESIZE 压缩内容区、顶部固定、聊天区收缩。
 - 流式顶部锚定滚动（ChatView，Auto Scroll Top Anchor）：流式生成时对末条（当前回答）
   调 `scroller.scrollToIndex(idx, false, ScrollAlign.START)`，把首行推到容器顶后停住，
   内容继续增高但视口不动；内容不足时自动收敛为跟底。用户手动滚动（`onScrollStop`
