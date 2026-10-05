@@ -268,6 +268,9 @@ struct Assets {
   private refreshOne(id: string): void {
     this.globalSession += 1;
     const sid: number = this.globalSession;
+    // Reason: 单卡刷新会作废进行中的整轮刷新；整轮刷新的收尾条件 sid === globalSession
+    //   将不再成立，若不在此复位 refreshingAll，「刷新全部」按钮会永久置灰。
+    this.refreshingAll = false;
     this.queryOne(id, sid);
   }
 
@@ -955,7 +958,7 @@ struct Assets {
               .width(40)
               .height(40)
               .borderRadius(10)
-              .backgroundColor('#F5F5F5')
+              .backgroundColor($r('app.color.fill'))
             Column() {
               Text(p.name)
                 .fontSize(15)
@@ -974,13 +977,13 @@ struct Assets {
             } else {
               Text('›')
                 .fontSize(20)
-                .fontColor('#CCCCCC')
+                .fontColor($r('app.color.icon_muted'))
             }
           }
           .width('92%')
           .padding(10)
           .margin({ bottom: 6 })
-          .backgroundColor('#F7F7F8')
+          .backgroundColor($r('app.color.surface_row'))
           .borderRadius(12)
           .onClick(() => {
             this.onPickProvider(p.id);
