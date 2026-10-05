@@ -99,8 +99,13 @@ last_verified_commit: uncommitted (working tree 2026-10-05)
 - Markdown 渲染（FluidMarkdown `fluid-markdown@1.0.11`，ohpm，`MarkdownService/MarkdownBody`）：
   自研引擎已否决，复用支付宝开源库（Apache-2.0，原生 StyledString，无 WebView）。
   流式走 Typing 模式（累计文本 + Begin/Append/End，库内 hash 差量 + 打字机 pacing），
-  完成/历史走 Normal；`MarkdownController` 按消息单例存活（建于生成开始、终于完成/停止/
-  删会话），ForEach key 去掉 content 长度保实例稳定。`[ref_N]` 改写为 `[N](#cite-N)`
+   完成/历史走 Normal；`MarkdownController` 按消息单例存活（建于生成开始、终于完成/停止/
+   删会话），ForEach key 去掉 content 长度保实例稳定。库契约：`typing.update`
+   只能在 `onMarkdownTypingReady` 之后（`MarkdownBody.onTypingReady` 回调记
+   `mdTypingReady`，就绪前跳过不记 begun；完成前未 Begin 则不发 End）。
+   高频刷新节流 `refreshStreamView`（~8fps）：driveMarkdown + 整表重建 + 思考跟随
+   统一压到 tick，喂库永远累计文本故合并无损（直驱百 Hz 重建会压垮 UI 线程，
+   视感"一次性"）。`[ref_N]` 改写为 `[N](#cite-N)`
   （围栏/行内代码内不碰），点击路由：引用 toast（来源列表待模型侧，见 TD-002）、
   外链仅 http/https/mailto 走 viewData 拉起。主题映射字号（`app_font_scale`，`@Prop` 接
   `@StorageProp`）与深色正文色；代码高亮/复制为库内置（highlight.js 移植，无需 prism4cj，
@@ -136,8 +141,53 @@ last_verified_commit: uncommitted (working tree 2026-10-05)
  （`collapsedReasons + reasonVersion` 强制 ForEach 按 key 刷新）。
 - 过渡动画：底部面板统一 `translate(y:360)+ExtremeDeceleration/320ms`，蒙层 `opacity/280ms`，
   历史抽屉面板加左侧滑入。
-- 流式顶部锚定滚动（ChatView，Auto Scroll Top Anchor）：流式生成时对末条（当前回答）
-  调 `scroller.scrollToIndex(idx, false, ScrollAlign.START)`，把首行推到容器顶后停住，
-  内容继续增高但视口不动；内容不足时自动收敛为跟底。用户手动滚动（`onScrollStop`
-  比较 `currentOffset` 与 `lastAnchorOffset`）→ 暂停锚定并显示「回到底部」浮动按钮；
-  `onReachEnd` 或点按钮恢复。
+- 流式顶部锚定滚动（ChatView，Auto Scroll Top Anchor，一次性锚定 2026-10-05 修复）：
+  单条回复只在首 token 到达时调一次 `scroller.scrollToIndex(idx, false, ScrollAlign.START)`
+  （`anchoredForMsgId` 落标记），顶部固定后内容向下生长视口自然不动；非生成态
+  （历史浏览/图片后加载）、用户已接管、已锚定一律直接返回，杜绝每 token 重推把拖动拽回
+  （此前每 token + 每次 Markdown 尺寸变化都重锚定，长回答体感“拉不动”）。
+  接管检测双通道：`onScrollIndex` 管条目间（end < total-1）；超长单条气泡内部拖动
+  end 恒为末条，靠 `onScrollStop` 比较 `currentOffset` 与 `lastAnchorOffset`
+ （差值 >30px 即接管并显示「回到底部」）；`onReachEnd` 或点按钮恢复。
+  思考区/内容区高度变化只做 offset 记账，不再 bump `reasonVersion`
+ （否则 ForEach key 全变致整表重建、滚动跳变）。
+  同理：思考结束自动折叠与生成完成时也不 bump `reasonVersion`
+ （2026-10-05 跳顶/回复"消失"修复）—— ForEach key 已含 `status` 与折叠态，
+  当事条目照常重建（完成时切 Normal 全量渲染）；bump 会改全表 key 致 List
+  滚动归零到顶部、新回复沉底不可见。`toggleReason` 的 bump 必须保留
+ （`collapsedReasons` 非 @State，那里靠它本身触发渲染）。
+- 思考区流式体验（ChatView + MarkdownService，2026-10-05）：思考区定高 380 + 内嵌
+  Scroll，流式超出后新文本沉底不可见 → 按消息 id 懒建 `thinkScrollers` 跟底，
+  仅内滚动已在底部时跟随（用户上翻查看旧思考不动）；每轮生成重置
+  `reasonChunkCount/contentChunkCount`，完成时打一行 hilog 区分"服务端一次性下发"
+  与"UI 未刷新"。图片居中限高曾走 `theme.image` 下发，导致整块 Markdown 空白
+ （已回退：疑普通对象不符合库内样式级联预期，渲染期异常；居中方案待定）。
+  思考标题栏整行可点
+  （width 100% + 上下 10vp padding，箭头另加 12/8 padding）；分支切换 `‹ ›`
+  内边距加到 16/10。
+
+## 缺陷修复（2026-10-05，已落地，构建通过）
+
+- 流式不刷新根因（ChatView）：ForEach 同 key 复用旧快照，原 key 不含流式进度 →
+  正文首 token 不触发 MarkdownBody 挂载、思考 Text 流式期静止。修法：key 增加
+  `msgContentPhaseKey`——正文未出现前为 `R<思考字数>`（逐帧重建让思考文本刷新，
+  此时 MarkdownBody 未挂载无副作用），正文出现后固定 `C`（MarkdownBody 仅挂载一次，
+  增量由 controller 驱动不重建）。思考内滚动 `followThinking` 改为生成期间统一定底
+  （条目重建会重置内滚动，`isAtEnd` 会误判）。`onTypingReady`/`mdTypingReady` 机制
+  至此才真正生效。
+- 深色模式（全仓）：新增 `resources/base|dark/element/color.json` 语义色板
+  （page_bg/surface/text_*/divider/accent_soft/reasoning_*/user_bubble_text/hero_bg/
+  danger_text 等），ChatView/Settings/Assets/ConfirmDialog/ThinkingButton 的硬编码
+  色值改用 `$r('app.color.*')`，由 `setColorMode` 自动切；白色仍保留仅用于彩底按钮
+  前景。解析深色态 `app_dark`（system 跟随系统）由 `SettingsService.resolveDark`
+  （读 `context.config.colorMode`）落 AppStorage，`EntryAbility.onConfigurationUpdate`
+  在 system 模式跟随系统变化；ChatView `isDarkMode()` 读 `app_dark`，Markdown 主题
+  随之切换，修复"深色下正文浅字白底隐形"。
+- 资产页整轮刷新失效（Assets）：单卡 `refreshOne` 自增 `globalSession` 作废进行中的
+  `refreshAll`，但 `refreshAll` 收尾条件不成立 → `refreshingAll` 卡 true、按钮永久
+  置灰；修法：`refreshOne` 内复位 `refreshingAll=false`。
+- 删除当前会话状态不同步（ChatView）：`deleteSession` 删当前会话后委托
+  `switchSession(sessions[0].id)`，重同步 provider/model/key 并重载模型（原逻辑只改
+  会话/角色，头部与发送会用错厂商）。
+- 待办（本次未动，已识别）：多语言仅 Settings 覆盖、字号仅 ChatView 生效、模型选择
+  无手动输入、移除服务商无二次确认、MiMo 余额端点 `/v1/models` 恒 0 等，见审查清单。
