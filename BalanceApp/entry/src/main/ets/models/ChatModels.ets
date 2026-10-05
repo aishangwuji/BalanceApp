@@ -12,6 +12,8 @@ export interface ChatMessage {
   role: MessageRole;
   content: string;
   reasoningContent?: string;
+  /** 深度思考用时（秒，整数，用于还原 DeepSeek 思考用时显示）。 */
+  thinkingDuration?: number;
   createdAt: number;
   status: 'sending' | 'streaming' | 'success' | 'error';
   errorMessage?: string;
@@ -35,8 +37,8 @@ export interface CharacterCard {
   systemPrompt: string;
   firstMessage: string;
   temperature: number; // 默认 0.7
-  /** 私有知识（该角色知道、他人默认不知道的事实；建群聊上下文时注入）。 */
-  knowledge: string;
+  /** 私有知识（已下线，统一集成到系统设定中；保留可选以兼容历史数据）。 */
+  knowledge?: string;
   createdAt: number;
 }
 

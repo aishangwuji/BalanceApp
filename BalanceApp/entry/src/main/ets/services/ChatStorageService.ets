@@ -335,6 +335,7 @@ export class ChatStorageService {
       role: role,
       content: typeof rec['content'] === 'string' ? rec['content'] as string : '',
       reasoningContent: typeof rec['reasoningContent'] === 'string' ? rec['reasoningContent'] as string : undefined,
+      thinkingDuration: typeof rec['thinkingDuration'] === 'number' ? rec['thinkingDuration'] as number : undefined,
       createdAt: typeof rec['createdAt'] === 'number' ? rec['createdAt'] as number : Date.now(),
       status: status,
       errorMessage: typeof rec['errorMessage'] === 'string' ? rec['errorMessage'] as string : undefined,
