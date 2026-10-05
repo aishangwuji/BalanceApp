@@ -824,8 +824,9 @@ export struct ChatView {
 
     if (this.currentSessionId === sessionId) {
       if (this.sessions.length > 0) {
-        this.currentSessionId = this.sessions[0].id;
-        this.currentCharacterId = this.sessions[0].characterId;
+        // Reason: 删除当前会话后必须像 switchSession 一样重同步 provider/model/key，
+        //   否则头部仍显示被删会话的模型、发送会用错厂商（见 switchSession 同构逻辑）。
+        await this.switchSession(this.sessions[0].id);
       } else {
         await this.createNewSession();
       }
