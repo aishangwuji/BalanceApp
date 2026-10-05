@@ -66,6 +66,9 @@ export struct ChatView {
   @State charActionId: string = '';
   // 新会话角色多选（选2个以上自动进入群聊）
   @State pendingParticipants: string[] = [];
+  // @ 指定发言人（群聊）
+  @State pendingMentions: string[] = [];
+  @State showMentionPicker: boolean = false;
   // 历史会话长按操作（重命名/删除）
   @State sessActionId: string = '';
   @State showRenameDialog: boolean = false;
@@ -324,6 +327,75 @@ export struct ChatView {
     return c !== undefined ? c.name : '';
   }
 
+  /** 当前会话的群聊成员（按 participantIds 顺序）。 */
+  private participantCards(): CharacterCard[] {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    const out: CharacterCard[] = [];
+    if (!sess) {
+      return out;
+    }
+    let i: number = 0;
+    while (i < sess.participantIds.length) {
+      const c: CharacterCard | undefined = this.characterById(sess.participantIds[i]);
+      if (c !== undefined) {
+        out.push(c);
+      }
+      i += 1;
+    }
+    return out;
+  }
+
+  private isGroupChat(): boolean {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    return sess !== undefined && sess.sceneMode === 'group' && sess.participantIds.length > 0;
+  }
+
+  private toggleMention(id: string): void {
+    const c: CharacterCard | undefined = this.characterById(id);
+    if (c === undefined) {
+      return;
+    }
+    const marker: string = `@${c.name}`;
+    const next: string[] = [];
+    let found: boolean = false;
+    let i: number = 0;
+    while (i < this.pendingMentions.length) {
+      if (this.pendingMentions[i] === id) {
+        found = true;
+      } else {
+        next.push(this.pendingMentions[i]);
+      }
+      i += 1;
+    }
+    if (found) {
+      // 取消 @：同步去掉输入框中的标记。
+      this.inputText = this.inputText.split(marker).join('').trim();
+      this.pendingMentions = next;
+      return;
+    }
+    next.push(id);
+    this.pendingMentions = next;
+    if (!this.inputText.includes(marker)) {
+      this.inputText = this.inputText.length > 0 ? `${this.inputText} ${marker} ` : `${marker} `;
+    }
+  }
+
+  private removeMention(id: string): void {
+    const c: CharacterCard | undefined = this.characterById(id);
+    const next: string[] = [];
+    let i: number = 0;
+    while (i < this.pendingMentions.length) {
+      if (this.pendingMentions[i] !== id) {
+        next.push(this.pendingMentions[i]);
+      }
+      i += 1;
+    }
+    this.pendingMentions = next;
+    if (c !== undefined) {
+      this.inputText = this.inputText.split(`@${c.name}`).join('').trim();
+    }
+  }
+
   private mentionText(msg: ChatMessage): string {
     let out: string = '';
     let i: number = 0;
@@ -560,12 +632,16 @@ export struct ChatView {
     }
     this.sessions = nextList;
     this.currentSessionId = newId;
+    this.pendingMentions = [];
+    this.showMentionPicker = false;
     await this.saveState();
     this.scrollToBottom();
   }
 
   private async switchSession(sessionId: string): Promise<void> {
     this.currentSessionId = sessionId;
+    this.pendingMentions = [];
+    this.showMentionPicker = false;
     const cur: ChatSession | undefined = this.getCurrentSession();
     if (cur) {
       this.currentProviderId = cur.providerId;
@@ -944,9 +1020,19 @@ export struct ChatView {
       sess.title = text.length > 14 ? `${text.substring(0, 14)}...` : text;
     }
 
-    // 新消息挂在当前激活分支的叶节点之下。
+    // 新消息挂在当前激活分支的叶节点之下；@ 以输入框标记为准校对后落库。
     const parentId: string = this.currentLeafId(sess);
     const userMsg: ChatMessage = this.buildMessage('user', text, parentId);
+    let mi: number = 0;
+    while (mi < this.pendingMentions.length) {
+      const mid: string = this.pendingMentions[mi];
+      const mName: string = this.characterName(mid);
+      if (mName.length > 0 && text.includes(`@${mName}`)) {
+        userMsg.mentionedIds.push(mid);
+      }
+      mi += 1;
+    }
+    this.pendingMentions = [];
     this.attach(sess, userMsg);
     sess.updatedAt = Date.now();
     this.rebuildSessionReference();
@@ -1442,7 +1528,53 @@ export struct ChatView {
             })
           }
 
+          // 已 @ 对象 chips（点移除）
+          if (this.pendingMentions.length > 0) {
+            Scroll() {
+              Row() {
+                ForEach(this.pendingMentions, (mid: string) => {
+                  Row() {
+                    Text(`@${this.characterName(mid)}`)
+                      .fontSize(12)
+                      .fontColor('#4D6BFE')
+                    Text('  ×')
+                      .fontSize(12)
+                      .fontColor('#999999')
+                  }
+                  .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+                  .backgroundColor('#EEF2FF')
+                  .borderRadius(12)
+                  .margin({ right: 6 })
+                  .onClick(() => {
+                    this.removeMention(mid);
+                  })
+                }, (mid: string) => mid)
+              }
+              .padding({ left: 12, right: 12 })
+            }
+            .scrollable(ScrollDirection.Horizontal)
+            .scrollBar(BarState.Off)
+            .width('96%')
+            .margin({ bottom: 6 })
+          }
+
           Row() {
+            // @ 按钮：仅群聊展示，点击弹成员选择
+            if (this.isGroupChat()) {
+              Text('@')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#4D6BFE')
+                .width(40)
+                .height(40)
+                .textAlign(TextAlign.Center)
+                .backgroundColor('#EEF2FF')
+                .borderRadius(20)
+                .margin({ right: 8 })
+                .onClick(() => {
+                  this.showMentionPicker = true;
+                })
+            }
             TextInput({ placeholder: '输入您的问题...', text: this.inputText })
               .layoutWeight(1)
               .height(44)
@@ -2024,6 +2156,78 @@ export struct ChatView {
               })
           }
           .width('100%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius({ topLeft: 24, topRight: 24 })
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.4)')
+        .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
+      }
+
+      // ── 5.5 @ 成员选择弹窗 ──
+      if (this.showMentionPicker) {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.showMentionPicker = false;
+            })
+          Column() {
+            Text('@ 选择要对话的角色')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 18, bottom: 4 })
+            Text('可多选；不选则按默认规则决定谁发言')
+              .fontSize(12)
+              .fontColor('#999999')
+              .margin({ bottom: 12 })
+            List() {
+              ForEach(this.participantCards(), (pc: CharacterCard) => {
+                ListItem() {
+                  Row() {
+                    Text(pc.name)
+                      .fontSize(15)
+                      .fontWeight(this.pendingMentions.includes(pc.id) ? FontWeight.Bold : FontWeight.Normal)
+                      .fontColor(this.pendingMentions.includes(pc.id) ? '#4D6BFE' : '#222222')
+                      .layoutWeight(1)
+                    if (this.pendingMentions.includes(pc.id)) {
+                      Text('已选')
+                        .fontSize(12)
+                        .fontColor('#FFFFFF')
+                        .backgroundColor('#4D6BFE')
+                        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+                        .borderRadius(12)
+                    } else {
+                      Text('›')
+                        .fontSize(20)
+                        .fontColor('#CCCCCC')
+                    }
+                  }
+                  .width('100%')
+                  .padding(14)
+                  .borderRadius(12)
+                  .backgroundColor(this.pendingMentions.includes(pc.id) ? '#F4F7FF' : '#F9FAFB')
+                  .onClick(() => {
+                    this.toggleMention(pc.id);
+                  })
+                }
+                .margin({ bottom: 8 })
+              }, (pc: CharacterCard) => pc.id)
+            }
+            .width('92%')
+            .layoutWeight(1)
+            .scrollBar(BarState.Off)
+            Button('完成')
+              .width('92%')
+              .margin({ top: 10, bottom: 20 })
+              .onClick(() => {
+                this.showMentionPicker = false;
+              })
+          }
+          .width('100%')
+          .height('60%')
           .backgroundColor('#FFFFFF')
           .borderRadius({ topLeft: 24, topRight: 24 })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))

@@ -12,6 +12,20 @@ covered_paths:
 last_verified_commit: uncommitted (working tree 2026-10-05)
 ---
 
+> 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
+> 状态：Phase 1 已落地（@ 确定性路由 + 群聊链式生成，无 Jev）；Phase 2（Jev）待 Phase 0 评估。
+
+## 群聊 Phase 1（2026-10-05，已落地）
+
+- 数据：`ChatMessage.speakerId/mentionedIds`，`ChatSession.participantIds/sceneMode/joinMap`，
+  `CharacterCard.knowledge`；存储归一化补缺省并兼容旧数据。
+- 建联：新会话角色卡多选 + 开始对话确认；单选绑定单聊（含开场白），多选自动群聊（空白开场）。
+- 路由：`sendGroup` 确定性路由（@ 优先 → 规则回退上轮发言人/首位成员 → 全体沉默插提示）；
+  按序链式生成（后者挂前者之下），出错即停；`generateReply` 改为 Promise 以支持等待链。
+- 显示：助手气泡头显发言人名，用户气泡显 @ 对象；@ 按钮仅群聊展示，成员弹窗多选，
+  chips 回显，发送时按输入框 `@Name` 标记校对落库。
+- 私有知识拼入对应发言角色的 systemPrompt（标注不得外泄）。
+
 # BalanceApp systemmap（初始）
 
 ## 入口点
