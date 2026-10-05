@@ -467,7 +467,7 @@ struct Assets {
         Row() {
           Text('‹')
             .fontSize(24)
-            .fontColor('#333333')
+            .fontColor($r('app.color.text_primary'))
             .width(44)
             .textAlign(TextAlign.Center)
             .onClick(() => {
@@ -479,7 +479,7 @@ struct Assets {
           Blank()
           Text(formatToday())
             .fontSize(13)
-            .fontColor('#888888')
+            .fontColor($r('app.color.text_muted'))
             .margin({ right: 16 })
         }
         .width('100%')
@@ -516,7 +516,7 @@ struct Assets {
                 .margin({ top: 80, bottom: 8 })
               Text('添加 API 供应商并填写 Key，即可透视多家余额')
                 .fontSize(14)
-                .fontColor('#888888')
+                .fontColor($r('app.color.text_muted'))
                 .margin({ bottom: 20 })
               Button('添加服务商')
                 .onClick(() => {
@@ -548,7 +548,7 @@ struct Assets {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      .backgroundColor($r('app.color.page_bg'))
 
       // 添加服务商弹窗（底部上滑 + 点空白处收回）
       if (this.showAddSheet) {
@@ -577,9 +577,9 @@ struct Assets {
             Row() {
               Text('未添加')
                 .fontSize(13)
-                .fontColor(this.addTab === 0 ? '#FFFFFF' : '#333333')
+                .fontColor(this.addTab === 0 ? '#FFFFFF' : $r('app.color.text_primary'))
                 .padding({ left: 16, right: 16, top: 6, bottom: 6 })
-                .backgroundColor(this.addTab === 0 ? '#4D6BFE' : '#F1F3F5')
+                .backgroundColor(this.addTab === 0 ? '#4D6BFE' : $r('app.color.fill'))
                 .borderRadius(16)
                 .margin({ right: 8 })
                 .onClick(() => {
@@ -587,9 +587,9 @@ struct Assets {
                 })
               Text('已添加')
                 .fontSize(13)
-                .fontColor(this.addTab === 1 ? '#FFFFFF' : '#333333')
+                .fontColor(this.addTab === 1 ? '#FFFFFF' : $r('app.color.text_primary'))
                 .padding({ left: 16, right: 16, top: 6, bottom: 6 })
-                .backgroundColor(this.addTab === 1 ? '#4D6BFE' : '#F1F3F5')
+                .backgroundColor(this.addTab === 1 ? '#4D6BFE' : $r('app.color.fill'))
                 .borderRadius(16)
                 .onClick(() => {
                   this.addTab = 1;
@@ -614,7 +614,7 @@ struct Assets {
           }
           .width('100%')
           .height('70%')
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.surface'))
           .borderRadius({ topLeft: 24, topRight: 24 })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
         }
@@ -663,7 +663,7 @@ struct Assets {
               })
           }
           .width('100%')
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.surface'))
           .borderRadius({ topLeft: 24, topRight: 24 })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
         }
@@ -720,7 +720,7 @@ struct Assets {
             .margin({ bottom: 20 })
           }
           .width('88%')
-          .backgroundColor('#FFFFFF')
+          .backgroundColor($r('app.color.surface'))
           .borderRadius(16)
           Blank()
         }
@@ -738,13 +738,13 @@ struct Assets {
     Column() {
       Text('总资产')
         .fontSize(16)
-        .fontColor('#666666')
+        .fontColor($r('app.color.text_secondary'))
         .width('100%')
         .margin({ bottom: 12 })
       if (this.heroGroups.length === 0) {
         Text('查询后此处汇总可用余额')
           .fontSize(15)
-          .fontColor('#AAAAAA')
+          .fontColor($r('app.color.text_faint'))
           .width('100%')
       } else if (this.heroGroups.length > 1) {
         // Reason: 多币种不做跨币种相加（智额仅提示 mixedCurrency），分币种列示避免误导。
@@ -769,7 +769,7 @@ struct Assets {
             .fontColor('#0A84FF')
           Text(` ${this.heroGroups[0].currency}`)
             .fontSize(14)
-            .fontColor('#666666')
+            .fontColor($r('app.color.text_secondary'))
         }
         .width('100%')
       }
@@ -781,7 +781,7 @@ struct Assets {
     .width('92%')
     .padding(16)
     .margin({ top: 4, bottom: 12 })
-    .backgroundColor('#F0F6FF')
+    .backgroundColor($r('app.color.hero_bg'))
     .borderRadius(20)
   }
 
@@ -790,7 +790,7 @@ struct Assets {
     Row() {
       Text(this.cardName(rec))
         .fontSize(13)
-        .fontColor('#666666')
+        .fontColor($r('app.color.text_secondary'))
       Blank()
       if (rec.info !== undefined) {
         Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).available.toFixed(2)}`)
@@ -799,11 +799,11 @@ struct Assets {
       } else if (rec.loading) {
         Text('查询中…')
           .fontSize(13)
-          .fontColor('#AAAAAA')
+          .fontColor($r('app.color.text_faint'))
       } else {
         Text(rec.error !== undefined ? '失败' : '未查询')
           .fontSize(13)
-          .fontColor('#B00020')
+          .fontColor($r('app.color.danger_text'))
       }
     }
     .width('100%')
@@ -819,7 +819,7 @@ struct Assets {
           .width(44)
           .height(44)
           .borderRadius(12)
-          .backgroundColor('#F5F5F5')
+          .backgroundColor($r('app.color.fill'))
         Column() {
           Text(this.cardName(rec))
             .fontSize(16)
@@ -827,7 +827,7 @@ struct Assets {
           if (rec.updatedAt.length > 0) {
             Text(rec.updatedAt)
               .fontSize(12)
-              .fontColor('#999999')
+              .fontColor($r('app.color.text_muted'))
           }
         }
         .margin({ left: 12 })
@@ -849,20 +849,20 @@ struct Assets {
             .fontWeight(FontWeight.Bold)
           Text(` ${(rec.info as BalanceInfo).currency}`)
             .fontSize(13)
-            .fontColor('#888888')
+            .fontColor($r('app.color.text_muted'))
         }
         .width('100%')
         .margin({ bottom: 10 })
       } else if (rec.error !== undefined) {
         Text(rec.error as string)
           .fontSize(14)
-          .fontColor('#B00020')
+          .fontColor($r('app.color.danger_text'))
           .width('100%')
           .margin({ bottom: 10 })
       } else if (!rec.loading) {
         Text('尚未查询，点击卡片刷新获取余额')
           .fontSize(14)
-          .fontColor('#AAAAAA')
+          .fontColor($r('app.color.text_faint'))
           .width('100%')
           .margin({ bottom: 10 })
       }
@@ -870,8 +870,8 @@ struct Assets {
     .width('92%')
     .padding(14)
     .margin({ bottom: 10 })
-    .backgroundColor('#FFFFFF')
-    .border({ width: 1, color: '#EEEEEE' })
+    .backgroundColor($r('app.color.surface'))
+    .border({ width: 1, color: $r('app.color.divider') })
     .borderRadius(16)
     .shadow({ radius: 6, color: 'rgba(0,0,0,0.06)', offsetX: 0, offsetY: 2 })
     // Business Rule: 单击=刷新（只读无副作用），长按=操作菜单（刷新/换Key/移除三选一）。
@@ -923,19 +923,19 @@ struct Assets {
           .fontWeight(FontWeight.Medium)
         Text(desc)
           .fontSize(12)
-          .fontColor('#999999')
+          .fontColor($r('app.color.text_muted'))
       }
       .margin({ left: 12 })
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       Text('›')
         .fontSize(20)
-        .fontColor('#CCCCCC')
+        .fontColor($r('app.color.icon_muted'))
     }
     .width('100%')
     .padding(10)
     .margin({ bottom: isLast ? 0 : 6 })
-    .backgroundColor('#F7F7F8')
+    .backgroundColor($r('app.color.surface_row'))
     .borderRadius(12)
     .onClick(onTap)
   }
@@ -946,7 +946,7 @@ struct Assets {
       if (this.filteredProviders(cat).length > 0) {
         Text(categoryLabel(cat))
           .fontSize(12)
-          .fontColor('#999999')
+          .fontColor($r('app.color.text_muted'))
           .width('92%')
           .margin({ top: 8, bottom: 4 })
         ForEach(this.filteredProviders(cat), (p: ProviderDefinition) => {

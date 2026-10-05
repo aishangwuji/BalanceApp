@@ -17,6 +17,12 @@ const PREFS_NAME = 'balance_prefs';
 export const KEY_APP_APPEARANCE = 'app_appearance'; // 'system' | 'light' | 'dark'
 export const KEY_FONT_SIZE_LEVEL = 'app_font_size_level'; // 1 ~ 7，默认 3
 export const KEY_AUTO_COLLAPSE_THINKING = 'auto_collapse_thinking'; // boolean，默认 true
+/**
+ * 解析后的实际深色态（system 时跟随系统），供非资源侧（Markdown 主题）读取。
+ * Business Rule: 资源颜色由 setColorMode 自动切换，但 Markdown 库主题需显式布尔，
+ *   故此处统一落一个已解析值，避免 system+系统深色时正文配色与背景不一致（隐形）。
+ */
+export const KEY_APP_DARK = 'app_dark'; // boolean
 
 // 7 档字体缩放系数，第 3 档为标准大小 (1.0)
 export const FONT_SCALE_LEVELS: number[] = [0.85, 0.92, 1.0, 1.08, 1.16, 1.25, 1.35];
@@ -41,6 +47,7 @@ export class SettingsService {
       }
       AppStorage.setOrCreate<string>(KEY_APP_APPEARANCE, appearance);
       SettingsService.applyColorMode(context, appearance);
+      SettingsService.storeResolvedDark(context, appearance);
 
       // 2. 字体大小档位 (1 ~ 7，第 3 档为标准)
       const fontLevelVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_FONT_SIZE_LEVEL, 3);
@@ -92,12 +99,36 @@ export class SettingsService {
     }
   }
 
+  /** 解析并落存实际深色态，供 Markdown 等非资源侧读取。 */
+  private static storeResolvedDark(context: common.UIAbilityContext, mode: AppearanceMode): void {
+    AppStorage.setOrCreate<boolean>(KEY_APP_DARK, SettingsService.resolveDark(context, mode));
+  }
+
+  /**
+   * 解析实际深色态：显式 light/dark 直接决定；system 读系统配置。
+   * Reason: setColorMode 只切换资源解析，Markdown 库主题需显式布尔，故统一收口于此。
+   */
+  public static resolveDark(context: common.UIAbilityContext, mode: AppearanceMode): boolean {
+    if (mode === 'dark') {
+      return true;
+    }
+    if (mode === 'light') {
+      return false;
+    }
+    try {
+      return context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+    } catch (err) {
+      return false;
+    }
+  }
+
   /**
    * 设置外观模式并持久化
    */
   public static async setAppearance(context: common.UIAbilityContext, mode: AppearanceMode): Promise<void> {
     AppStorage.setOrCreate<string>(KEY_APP_APPEARANCE, mode);
     SettingsService.applyColorMode(context, mode);
+    SettingsService.storeResolvedDark(context, mode);
 
     try {
       if (SettingsService.prefsInstance === undefined) {

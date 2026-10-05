@@ -29,7 +29,7 @@ export struct ConfirmDialog {
           if (this.message.length > 0) {
             Text(this.message)
               .fontSize(14)
-              .fontColor('#888888')
+              .fontColor($r('app.color.text_muted'))
               .maxLines(2)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .margin({ bottom: 16 })
@@ -39,8 +39,8 @@ export struct ConfirmDialog {
           Row() {
             Button('取消')
               .layoutWeight(1)
-              .backgroundColor('#F3F4F6')
-              .fontColor('#333333')
+              .backgroundColor($r('app.color.fill'))
+              .fontColor($r('app.color.text_primary'))
               .margin({ right: 8 })
               .onClick(() => {
                 this.onCancel();
@@ -57,7 +57,7 @@ export struct ConfirmDialog {
           .margin({ bottom: 20 })
         }
         .width('88%')
-        .backgroundColor('#FFFFFF')
+        .backgroundColor($r('app.color.surface'))
         .borderRadius(16)
         Blank()
       }

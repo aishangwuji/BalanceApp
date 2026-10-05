@@ -157,7 +157,7 @@ struct Settings {
         Row() {
           Text('‹')
             .fontSize(24)
-            .fontColor('#333333')
+            .fontColor($r('app.color.text_primary'))
             .width(44)
             .textAlign(TextAlign.Center)
             .onClick(() => {
@@ -177,7 +177,7 @@ struct Settings {
             // ── 应用 ──
             Text(this.t('settings_section_app'))
               .fontSize(12)
-              .fontColor('#999999')
+              .fontColor($r('app.color.text_muted'))
               .width('92%')
               .margin({ top: 8, bottom: 6 })
 
@@ -197,13 +197,13 @@ struct Settings {
               })
             }
             .width('92%')
-            .backgroundColor('#FFFFFF')
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(14)
 
             // ── 数据 ──
             Text(this.t('settings_section_data'))
               .fontSize(12)
-              .fontColor('#999999')
+              .fontColor($r('app.color.text_muted'))
               .width('92%')
               .margin({ top: 20, bottom: 6 })
 
@@ -213,12 +213,12 @@ struct Settings {
               })
             }
             .width('92%')
-            .backgroundColor('#FFFFFF')
+            .backgroundColor($r('app.color.surface'))
             .borderRadius(14)
 
             Text(this.t('settings_version'))
               .fontSize(12)
-              .fontColor('#BBBBBB')
+              .fontColor($r('app.color.text_faint'))
               .margin({ top: 24 })
           }
           .width('100%')
@@ -230,7 +230,7 @@ struct Settings {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      .backgroundColor($r('app.color.page_bg'))
 
       // 底部弹框：多语言切换面板
       if (this.showLanguageSheet) {
@@ -273,11 +273,11 @@ struct Settings {
           Text(this.t('settings_select_language'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#111111')
+            .fontColor($r('app.color.text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor('#999999')
+            .fontColor($r('app.color.text_muted'))
             .padding(6)
             .onClick(() => {
               this.showLanguageSheet = false;
@@ -292,11 +292,11 @@ struct Settings {
               Text(item.nativeName)
                 .fontSize(15)
                 .fontWeight(this.currentLang === item.code ? FontWeight.Medium : FontWeight.Regular)
-                .fontColor(this.currentLang === item.code ? '#4D6BFE' : '#222222')
+                .fontColor(this.currentLang === item.code ? '#4D6BFE' : $r('app.color.text_primary'))
               if (item.code !== 'en-US') {
                 Text(item.name)
                   .fontSize(12)
-                  .fontColor('#999999')
+                  .fontColor($r('app.color.text_muted'))
                   .margin({ top: 2 })
               }
             }
@@ -312,7 +312,7 @@ struct Settings {
           }
           .width('100%')
           .padding({ left: 20, right: 20, top: 14, bottom: 14 })
-          .border({ width: { bottom: 1 }, color: '#F3F4F6' })
+          .border({ width: { bottom: 1 }, color: $r('app.color.fill') })
           .onClick(() => {
             this.selectLanguage(item.code);
           })
@@ -321,7 +321,7 @@ struct Settings {
         Blank().height(24)
       }
       .width('100%')
-      .backgroundColor('#FFFFFF')
+      .backgroundColor($r('app.color.surface'))
       .borderRadius({ topLeft: 20, topRight: 20 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -349,11 +349,11 @@ struct Settings {
           Text(this.t('settings_appearance_select'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#111111')
+            .fontColor($r('app.color.text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor('#999999')
+            .fontColor($r('app.color.text_muted'))
             .padding(6)
             .onClick(() => {
               this.showAppearanceSheet = false;
@@ -367,7 +367,7 @@ struct Settings {
             Text(this.t(opt.nameKey))
               .fontSize(15)
               .fontWeight(this.currentAppearance === opt.key ? FontWeight.Medium : FontWeight.Regular)
-              .fontColor(this.currentAppearance === opt.key ? '#4D6BFE' : '#222222')
+              .fontColor(this.currentAppearance === opt.key ? '#4D6BFE' : $r('app.color.text_primary'))
               .layoutWeight(1)
 
             if (this.currentAppearance === opt.key) {
@@ -379,7 +379,7 @@ struct Settings {
           }
           .width('100%')
           .padding({ left: 20, right: 20, top: 16, bottom: 16 })
-          .border({ width: { bottom: 1 }, color: '#F3F4F6' })
+          .border({ width: { bottom: 1 }, color: $r('app.color.fill') })
           .onClick(() => {
             this.selectAppearance(opt.key);
           })
@@ -388,7 +388,7 @@ struct Settings {
         Blank().height(24)
       }
       .width('100%')
-      .backgroundColor('#FFFFFF')
+      .backgroundColor($r('app.color.surface'))
       .borderRadius({ topLeft: 20, topRight: 20 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -417,11 +417,11 @@ struct Settings {
           Text(this.t('settings_font_size_title'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#111111')
+            .fontColor($r('app.color.text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor('#999999')
+            .fontColor($r('app.color.text_muted'))
             .padding(6)
             .onClick(() => {
               this.showFontSizeSheet = false;
@@ -434,20 +434,20 @@ struct Settings {
         Column() {
           Text(this.t('settings_font_size_preview_title'))
             .fontSize(12)
-            .fontColor('#888888')
+            .fontColor($r('app.color.text_muted'))
             .margin({ bottom: 8 })
 
           Text(this.t('settings_font_size_preview_sample'))
             .fontSize(15 * SettingsService.getScaleByLevel(this.tempFontLevel))
-            .fontColor('#1F2937')
+            .fontColor($r('app.color.text_primary'))
             .lineHeight(22 * SettingsService.getScaleByLevel(this.tempFontLevel))
         }
         .width('90%')
         .padding(16)
-        .backgroundColor('#F9FAFB')
+        .backgroundColor($r('app.color.surface_alt'))
         .borderRadius(12)
         .borderWidth(1)
-        .borderColor('#E5E7EB')
+        .borderColor($r('app.color.border_card'))
         .alignItems(HorizontalAlign.Start)
         .margin({ top: 10, bottom: 20 })
 
@@ -455,7 +455,7 @@ struct Settings {
         Row() {
           Text('A')
             .fontSize(12)
-            .fontColor('#666666')
+            .fontColor($r('app.color.text_secondary'))
           Blank()
           Text(this.tempFontLevel === 3 ? this.t('settings_font_size_standard') : `${this.tempFontLevel} / 7`)
             .fontSize(13)
@@ -465,7 +465,7 @@ struct Settings {
           Text('A')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#666666')
+            .fontColor($r('app.color.text_secondary'))
         }
         .width('88%')
         .margin({ bottom: 8 })
@@ -494,7 +494,7 @@ struct Settings {
         Blank().height(30)
       }
       .width('100%')
-      .backgroundColor('#FFFFFF')
+      .backgroundColor($r('app.color.surface'))
       .borderRadius({ topLeft: 20, topRight: 20 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -522,11 +522,11 @@ struct Settings {
           Text(this.t('settings_personalize'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#111111')
+            .fontColor($r('app.color.text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor('#999999')
+            .fontColor($r('app.color.text_muted'))
             .padding(6)
             .onClick(() => {
               this.showPersonalizeSheet = false;
@@ -541,11 +541,11 @@ struct Settings {
             Column() {
               Text(this.t('settings_auto_collapse_thinking'))
                 .fontSize(15)
-                .fontColor('#222222')
+                .fontColor($r('app.color.text_primary'))
                 .fontWeight(FontWeight.Medium)
               Text(this.t('settings_auto_collapse_thinking_desc'))
                 .fontSize(12)
-                .fontColor('#888888')
+                .fontColor($r('app.color.text_muted'))
                 .margin({ top: 4 })
             }
             .alignItems(HorizontalAlign.Start)
@@ -562,16 +562,16 @@ struct Settings {
           .padding({ left: 16, right: 16, top: 16, bottom: 16 })
         }
         .width('92%')
-        .backgroundColor('#F9FAFB')
+        .backgroundColor($r('app.color.surface_alt'))
         .borderRadius(12)
         .borderWidth(1)
-        .borderColor('#E5E7EB')
+        .borderColor($r('app.color.border_card'))
         .margin({ top: 10, bottom: 24 })
 
         Blank().height(20)
       }
       .width('100%')
-      .backgroundColor('#FFFFFF')
+      .backgroundColor($r('app.color.surface'))
       .borderRadius({ topLeft: 20, topRight: 20 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -598,22 +598,22 @@ struct Settings {
       .borderRadius(8)
       Text(title)
         .fontSize(15)
-        .fontColor('#222222')
+        .fontColor($r('app.color.text_primary'))
         .margin({ left: 12 })
         .layoutWeight(1)
       if (value.length > 0) {
         Text(value)
           .fontSize(13)
-          .fontColor('#999999')
+          .fontColor($r('app.color.text_muted'))
           .margin({ right: 4 })
       }
       Text('›')
         .fontSize(20)
-        .fontColor('#CCCCCC')
+        .fontColor($r('app.color.icon_muted'))
     }
     .width('100%')
     .padding({ left: 14, right: 14, top: 13, bottom: 13 })
-    .border({ width: { bottom: isLast ? 0 : 1 }, color: '#F0F0F0' })
+    .border({ width: { bottom: isLast ? 0 : 1 }, color: $r('app.color.border_soft') })
     .onClick(onTap)
   }
 }

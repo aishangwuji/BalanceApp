@@ -13,11 +13,11 @@
  * limitations under the License.
  */
 
-import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { I18nService } from '../services/I18nService';
-import { SettingsService } from '../services/SettingsService';
+import { SettingsService, KEY_APP_APPEARANCE, KEY_APP_DARK } from '../services/SettingsService';
 
 const DOMAIN = 0x0000;
 
@@ -26,6 +26,15 @@ export default class EntryAbility extends UIAbility {
     I18nService.init(this.context);
     SettingsService.init(this.context);
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
+  }
+
+  onConfigurationUpdate(newConfig: Configuration): void {
+    // Business Rule: 仅当用户选择「跟随系统」时，系统深色变化才更新解析深色态。
+    const mode: string | undefined = AppStorage.get<string>(KEY_APP_APPEARANCE);
+    if (mode === undefined || mode === 'system') {
+      const dark: boolean = newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+      AppStorage.setOrCreate<boolean>(KEY_APP_DARK, dark);
+    }
   }
 
   onDestroy(): void {
