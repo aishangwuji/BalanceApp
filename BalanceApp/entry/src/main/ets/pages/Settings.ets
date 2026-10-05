@@ -71,16 +71,16 @@ struct Settings {
             .margin({ top: 8, bottom: 6 })
 
           Column() {
-            this.SettingRow('语', '#4D6BFE', '语言', '中文（简体中文）', false, () => {
+            this.SettingRow($r('app.media.ic_language'), '#4D6BFE', '语言', '中文（简体中文）', false, () => {
               this.notImplemented();
             })
-            this.SettingRow('观', '#F59E0B', '外观', '系统', false, () => {
+            this.SettingRow($r('app.media.ic_appearance'), '#F59E0B', '外观', '系统', false, () => {
               this.notImplemented();
             })
-            this.SettingRow('A', '#10B981', '字体大小', '', false, () => {
+            this.SettingRow($r('app.media.ic_font'), '#10B981', '字体大小', '', false, () => {
               this.notImplemented();
             })
-            this.SettingRow('个', '#8B5CF6', '个性化', '', true, () => {
+            this.SettingRow($r('app.media.ic_personalize'), '#8B5CF6', '个性化', '', true, () => {
               this.notImplemented();
             })
           }
@@ -96,7 +96,7 @@ struct Settings {
             .margin({ top: 20, bottom: 6 })
 
           Column() {
-            this.SettingRow('资', '#0EA5E9', '资产监控', '查看各服务商余额', true, () => {
+            this.SettingRow($r('app.media.ic_assets'), '#0EA5E9', '资产监控', '查看各服务商余额', true, () => {
               this.openAssets();
             })
           }
@@ -122,17 +122,19 @@ struct Settings {
   }
 
   @Builder
-  SettingRow(badge: string, color: string, title: string, value: string, isLast: boolean, onTap: () => void) {
+  SettingRow(icon: Resource, color: string, title: string, value: string, isLast: boolean, onTap: () => void) {
     Row() {
-      Text(badge)
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .width(28)
-        .height(28)
-        .textAlign(TextAlign.Center)
-        .backgroundColor(color)
-        .borderRadius(8)
+      Row() {
+        Image(icon)
+          .width(18)
+          .height(18)
+      }
+      .width(28)
+      .height(28)
+      .justifyContent(FlexAlign.Center)
+      .alignItems(VerticalAlign.Center)
+      .backgroundColor(color)
+      .borderRadius(8)
       Text(title)
         .fontSize(15)
         .fontColor('#222222')
