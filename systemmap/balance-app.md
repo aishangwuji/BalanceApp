@@ -83,10 +83,17 @@ last_verified_commit: uncommitted (working tree 2026-10-05)
 - 设置页 Settings.ets：仅入口占位——语言 / 外观 / 字体大小 / 个性化（点击 toast
   「该功能暂未实现」）+ 「资产监控」入口（router.pushUrl → pages/Assets）。
 - 对话导航：ChatView 顶部左侧三横杠打开历史抽屉；抽屉底部「设置」行 → Settings。
-- 思考模式（ChatService.ets）：`ProviderDefinition.supportsThinking`（当前仅 deepseek=true）
-  控制是否下发 `thinking:{type:enabled/disabled}` 与 `reasoning_effort`；思考开启时按官方
-  规范不下发 `temperature`；非支持厂商不传非标准字段。`reasoning_content` 仅本地展示，
-  多轮历史按无 tools 场景只回传 role/content（符合官方“无需回传”）。
+- 思考模式（ChatService.ets）：`ProviderDefinition.supportsThinking`（deepseek/kimi/mimo=true）
+  控制是否下发 `thinking:{type:enabled/disabled}` 与 `reasoning_effort`；Kimi K3 始终推理
+  只下发 `reasoning_effort`（默认 max），K2.7 始终思考不下发任何开关，思考开启时按官方
+  规范不下发 `temperature`；非支持厂商不传非标准字段。保留式思考：Kimi/MiMo 历史回传
+  `reasoning_content` 保多轮思维连贯（DeepSeek 无 tools 场景传了也被忽略，统一回传无害）。
+- 流式/记忆（ChatService.ets，对齐 Kimi 官方两节规范）：SSE 以 `data:[DONE]` 为唯一完成判据
+  （不用 finish_reason；中断走 err 回调）；`delta.content/reasoning_content` 追加折叠，
+  终块 `{choices:[],usage}` 直接跳过（token 统计已下线，不下发 `stream_options.include_usage`）；
+  `tool_calls` 无 tools 声明有意忽略，`n` 恒为 1 不下发。记忆为无状态回传：
+  `buildApiMessages` 收口流式/非流式，system 常驻首位，历史取新截断（最新 20 条 +
+  12000 字符双预算，超限从旧丢弃）；全量历史仍按 session 存 Preferences，只裁剪本次请求。
 - 数据模型：CharacterCard 移除 `tags`；ChatMessage 移除 `usage`，ChatUsage 接口删除
   （token 统计功能整体下线）。角色卡不再内置预设，DEFAULT_CHARACTERS=[]，无角色时用
   EMPTY_CHARACTER 兜底。
