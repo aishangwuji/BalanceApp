@@ -8,12 +8,13 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { CharacterCard, ChatMessage, ChatSession, MessageRole } from '../models/ChatModels';
+import { CharacterCard, ChatMessage, ChatSession, MessageRole, UserIdentityCard } from '../models/ChatModels';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatStorageService';
 const PREFS_STORE_NAME = 'chat_storage_prefs';
 const KEY_CHARACTERS = 'saved_characters';
+const KEY_IDENTITIES = 'saved_identities';
 const KEY_SESSIONS = 'saved_sessions';
 const KEY_ACTIVE_SESSION_ID = 'active_session_id';
 
@@ -82,6 +83,63 @@ export class ChatStorageService {
         firstMessage: typeof rec['firstMessage'] === 'string' ? rec['firstMessage'] as string : '',
         temperature: typeof rec['temperature'] === 'number' ? rec['temperature'] as number : 0.7,
         knowledge: typeof rec['knowledge'] === 'string' ? rec['knowledge'] as string : '',
+        createdAt: typeof rec['createdAt'] === 'number' ? rec['createdAt'] as number : Date.now(),
+      };
+      out.push(card);
+    }
+    return out;
+  }
+
+  // ── 用户身份卡持久化 ──
+
+  public static async loadIdentities(): Promise<UserIdentityCard[]> {
+    if (!ChatStorageService.prefsInstance) {
+      return [];
+    }
+    try {
+      const val: preferences.ValueType = await ChatStorageService.prefsInstance.get(KEY_IDENTITIES, '');
+      if (typeof val === 'string' && (val as string).length > 0) {
+        const parsed: ESObject = JSON.parse(val as string) as ESObject;
+        if (Array.isArray(parsed)) {
+          return ChatStorageService.normalizeIdentities(parsed as ESObject[]);
+        }
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'Failed to load identities: %{public}s', String(err));
+    }
+    return [];
+  }
+
+  public static async saveIdentities(cards: UserIdentityCard[]): Promise<void> {
+    if (!ChatStorageService.prefsInstance) {
+      return;
+    }
+    try {
+      await ChatStorageService.prefsInstance.put(KEY_IDENTITIES, JSON.stringify(cards));
+      await ChatStorageService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'Failed to save identities: %{public}s', String(err));
+    }
+  }
+
+  private static normalizeIdentities(rawList: ESObject[]): UserIdentityCard[] {
+    const out: UserIdentityCard[] = [];
+    let i: number = 0;
+    while (i < rawList.length) {
+      const item: ESObject = rawList[i];
+      i += 1;
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, ESObject> = item as Record<string, ESObject>;
+      const id: string = typeof rec['id'] === 'string' ? rec['id'] as string : '';
+      if (id.length === 0) {
+        continue;
+      }
+      const card: UserIdentityCard = {
+        id: id,
+        name: typeof rec['name'] === 'string' ? rec['name'] as string : '未命名',
+        persona: typeof rec['persona'] === 'string' ? rec['persona'] as string : '',
         createdAt: typeof rec['createdAt'] === 'number' ? rec['createdAt'] as number : Date.now(),
       };
       out.push(card);
@@ -234,6 +292,7 @@ export class ChatStorageService {
         participantIds: participantIds,
         sceneMode: sceneMode,
         joinMap: joinMap,
+        userIdentityId: typeof rec['userIdentityId'] === 'string' ? rec['userIdentityId'] as string : '',
       };
       out.push(session);
     }

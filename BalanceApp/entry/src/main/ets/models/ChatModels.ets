@@ -40,6 +40,17 @@ export interface CharacterCard {
   createdAt: number;
 }
 
+/**
+ * 用户身份卡：真人在剧中扮演的身份，区别于 AI 扮演的角色卡。
+ * Business Rule: 只要"我是谁"（名字+背景/性格），不要 AI 参数（温度/开场白/知识）。
+ */
+export interface UserIdentityCard {
+  id: string;
+  name: string;
+  persona: string; // 背景、性格、身份描述
+  createdAt: number;
+}
+
 export interface ChatSession {
   id: string;
   title: string;
@@ -59,6 +70,8 @@ export interface ChatSession {
   sceneMode: 'single' | 'group';
   /** 角色可见水位：characterId -> 可见首条消息之前的 msgId（缺省全部可见；Phase1 全员可见）。 */
   joinMap: Record<string, string>;
+  /** 本会话用户扮演的身份卡 id；''=普通用户。选定后锁定。 */
+  userIdentityId: string;
 }
 
 export interface ModelInfo {
