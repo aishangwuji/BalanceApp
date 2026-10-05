@@ -10,7 +10,8 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { ChatMessage, ChatSession, CharacterCard, ModelInfo } from '../models/ChatModels';
+import { pasteboard } from '@kit.BasicServicesKit';
+import { ChatMessage, ChatSession, CharacterCard, ModelInfo, MessageRole } from '../models/ChatModels';
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
@@ -51,6 +52,12 @@ export struct ChatView {
   @State showCharacterSheet: boolean = false;
   @State showCharEditDialog: boolean = false;
 
+  // 消息操作（长按菜单 + 编辑重发）
+  @State actionMsgId: string = '';
+  @State showEditDialog: boolean = false;
+  @State editMsgId: string = '';
+  @State editMsgText: string = '';
+
   // 角色卡编辑临时状态
   @State editingCharId: string = '';
   @State editingCharName: string = '';
@@ -63,6 +70,7 @@ export struct ChatView {
   private scroller: Scroller = new Scroller();
   private abortStreaming: () => void = () => {};
   private balancePrefs: preferences.Preferences | undefined = undefined;
+  private seq: number = 0;
 
   async aboutToAppear(): Promise<void> {
     try {
@@ -128,6 +136,141 @@ export struct ChatView {
       i += 1;
     }
     return undefined;
+  }
+
+  // ── 分支树辅助 ──
+
+  private findMessage(sess: ChatSession, id: string): ChatMessage | undefined {
+    let i: number = 0;
+    while (i < sess.messages.length) {
+      if (sess.messages[i].id === id) {
+        return sess.messages[i];
+      }
+      i += 1;
+    }
+    return undefined;
+  }
+
+  /** 当前激活分支的完整路径（从根沿 activeChildId 走到叶）。 */
+  private activePath(): ChatMessage[] {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    const path: ChatMessage[] = [];
+    if (!sess) {
+      return path;
+    }
+    let cur: string = sess.activeRootId;
+    let guard: number = 0;
+    while (cur.length > 0 && guard < 2000) {
+      guard += 1;
+      const node: ChatMessage | undefined = this.findMessage(sess, cur);
+      if (node === undefined) {
+        break;
+      }
+      path.push(node);
+      cur = node.activeChildId;
+    }
+    return path;
+  }
+
+  /** 从根到指定节点的路径（沿 parent 链回溯，与激活分支无关）。 */
+  private pathToNode(sess: ChatSession, targetId: string): ChatMessage[] {
+    const rev: ChatMessage[] = [];
+    let cur: string = targetId;
+    let guard: number = 0;
+    while (cur.length > 0 && guard < 2000) {
+      guard += 1;
+      const node: ChatMessage | undefined = this.findMessage(sess, cur);
+      if (node === undefined) {
+        break;
+      }
+      rev.push(node);
+      cur = node.parentId;
+    }
+    const path: ChatMessage[] = [];
+    let i: number = rev.length - 1;
+    while (i >= 0) {
+      path.push(rev[i]);
+      i -= 1;
+    }
+    return path;
+  }
+
+  /** 请求用历史：根到 target 的路径，仅保留有内容的 user/assistant 节点。 */
+  private historyTo(sess: ChatSession, targetId: string): ChatMessage[] {
+    const full: ChatMessage[] = this.pathToNode(sess, targetId);
+    const out: ChatMessage[] = [];
+    let i: number = 0;
+    while (i < full.length) {
+      const m: ChatMessage = full[i];
+      if ((m.role === 'user' || m.role === 'assistant') && m.content.length > 0) {
+        out.push(m);
+      }
+      i += 1;
+    }
+    return out;
+  }
+
+  /** 同一父节点下的兄弟（编辑版本/重新生成版本）；根消息的兄弟即 rootIds。 */
+  private siblingsOf(sess: ChatSession, msg: ChatMessage): string[] {
+    if (msg.parentId.length === 0) {
+      return sess.rootIds;
+    }
+    const p: ChatMessage | undefined = this.findMessage(sess, msg.parentId);
+    if (p === undefined) {
+      return [msg.id];
+    }
+    return p.childIds;
+  }
+
+  private siblingIndex(sess: ChatSession, msg: ChatMessage): number {
+    const sibs: string[] = this.siblingsOf(sess, msg);
+    let i: number = 0;
+    while (i < sibs.length) {
+      if (sibs[i] === msg.id) {
+        return i;
+      }
+      i += 1;
+    }
+    return 0;
+  }
+
+  private nextId(role: string): string {
+    this.seq += 1;
+    return `msg_${role}_${Date.now()}_${this.seq}`;
+  }
+
+  private buildMessage(role: MessageRole, content: string, parentId: string): ChatMessage {
+    return {
+      id: this.nextId(role),
+      role: role,
+      content: content,
+      reasoningContent: role === 'assistant' ? '' : undefined,
+      createdAt: Date.now(),
+      status: 'success',
+      parentId: parentId,
+      childIds: [],
+      activeChildId: '',
+    };
+  }
+
+  /** 将 node 挂到 parent 之下并激活该分支（parent 为空则作为新根）。 */
+  private attach(sess: ChatSession, node: ChatMessage): void {
+    sess.messages.push(node);
+    if (node.parentId.length === 0) {
+      sess.rootIds.push(node.id);
+      sess.activeRootId = node.id;
+      return;
+    }
+    const parent: ChatMessage | undefined = this.findMessage(sess, node.parentId);
+    if (parent === undefined) {
+      // 父节点缺失（不应发生）：退化为根，保证数据自洽。
+      node.parentId = '';
+      sess.rootIds.push(node.id);
+      sess.activeRootId = node.id;
+      return;
+    }
+    parent.childIds.push(node.id);
+    parent.activeChildId = node.id;
   }
 
   private getCurrentCharacter(): CharacterCard {
@@ -229,16 +372,12 @@ export struct ChatView {
     const char: CharacterCard = this.getCurrentCharacter();
     const newId: string = `session_${Date.now()}`;
     const initialMessages: ChatMessage[] = [];
+    const rootIds: string[] = [];
 
     if (char.firstMessage.trim().length > 0) {
-      const welcomeMsg: ChatMessage = {
-        id: `msg_${Date.now()}`,
-        role: 'assistant',
-        content: char.firstMessage,
-        createdAt: Date.now(),
-        status: 'success'
-      };
+      const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
       initialMessages.push(welcomeMsg);
+      rootIds.push(welcomeMsg.id);
     }
 
     const newSession: ChatSession = {
@@ -248,7 +387,9 @@ export struct ChatView {
       providerId: this.currentProviderId,
       modelId: this.currentModelId,
       updatedAt: Date.now(),
-      messages: initialMessages
+      messages: initialMessages,
+      rootIds: rootIds,
+      activeRootId: rootIds.length > 0 ? rootIds[0] : '',
     };
 
     const nextList: ChatSession[] = [newSession];
@@ -307,13 +448,8 @@ export struct ChatView {
     if (cur) {
       cur.characterId = char.id;
       if (cur.messages.length === 0 && char.firstMessage.trim().length > 0) {
-        cur.messages.push({
-          id: `msg_${Date.now()}`,
-          role: 'assistant',
-          content: char.firstMessage,
-          createdAt: Date.now(),
-          status: 'success'
-        });
+        const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
+        this.attach(cur, welcomeMsg);
       }
       this.rebuildSessionReference();
     }
@@ -400,58 +536,66 @@ export struct ChatView {
     this.sessions = list;
   }
 
+  private canSend(): boolean {
+    if (this.currentApiKey.trim().length === 0) {
+      this.noticeText = `未配置 [${this.getProviderName(this.currentProviderId)}] 的 API Key，请先在设置中添加`;
+      return false;
+    }
+    if (this.currentModelId.trim().length === 0 || this.currentModelId === '选择模型') {
+      this.noticeText = '请先点击右上角选择一个有效模型';
+      return false;
+    }
+    return true;
+  }
+
+  private currentLeafId(sess: ChatSession): string {
+    const path: ChatMessage[] = this.activePath();
+    return path.length > 0 ? path[path.length - 1].id : '';
+  }
+
   private async sendMessage(): Promise<void> {
     const text: string = this.inputText.trim();
     if (text.length === 0 || this.isGenerating) {
       return;
     }
 
-    const curSession: ChatSession | undefined = this.getCurrentSession();
-    if (!curSession) {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    if (!sess) {
       return;
     }
-
-    if (this.currentApiKey.trim().length === 0) {
-      this.noticeText = `未配置 [${this.getProviderName(this.currentProviderId)}] 的 API Key，请先在设置中添加`;
-      return;
-    }
-
-    if (this.currentModelId.trim().length === 0 || this.currentModelId === '选择模型') {
-      this.noticeText = '请先点击右上角选择一个有效模型';
+    if (!this.canSend()) {
       return;
     }
 
     this.inputText = '';
     this.noticeText = '';
 
-    if (curSession.title === '新对话') {
-      curSession.title = text.length > 14 ? `${text.substring(0, 14)}...` : text;
+    if (sess.title === '新对话') {
+      sess.title = text.length > 14 ? `${text.substring(0, 14)}...` : text;
     }
 
-    const userMsg: ChatMessage = {
-      id: `msg_${Date.now()}`,
-      role: 'user',
-      content: text,
-      createdAt: Date.now(),
-      status: 'success'
-    };
-    curSession.messages.push(userMsg);
+    // 新消息挂在当前激活分支的叶节点之下。
+    const parentId: string = this.currentLeafId(sess);
+    const userMsg: ChatMessage = this.buildMessage('user', text, parentId);
+    this.attach(sess, userMsg);
+    sess.updatedAt = Date.now();
+    this.rebuildSessionReference();
+    this.scrollToBottom();
+    this.generateReply(sess, userMsg);
+  }
 
-    const assistantMsgId: string = `msg_bot_${Date.now()}`;
-    const assistantMsg: ChatMessage = {
-      id: assistantMsgId,
-      role: 'assistant',
-      content: '',
-      reasoningContent: '',
-      createdAt: Date.now(),
-      status: 'streaming'
-    };
-    curSession.messages.push(assistantMsg);
-    curSession.updatedAt = Date.now();
+  /** 为某个 user 节点挂 assistant 占位并流式生成；历史取该分支根->user 的路径。 */
+  private generateReply(sess: ChatSession, userMsg: ChatMessage): void {
+    const assistantMsg: ChatMessage = this.buildMessage('assistant', '', userMsg.id);
+    assistantMsg.status = 'streaming';
+    this.attach(sess, assistantMsg);
+    sess.updatedAt = Date.now();
     this.rebuildSessionReference();
     this.isGenerating = true;
     this.scrollToBottom();
 
+    // Reason: 历史仅取该分支路径（historyTo 沿 parent 链），编辑/切分支后互不污染。
+    const history: ChatMessage[] = this.historyTo(sess, userMsg.id);
     const char: CharacterCard = this.getCurrentCharacter();
     const callbacks: StreamCallbacks = {
       onToken: (token: string, reasoningChunk?: string) => {
@@ -484,20 +628,138 @@ export struct ChatView {
       apiKey: this.currentApiKey,
       model: this.currentModelId,
       temperature: char.temperature,
-      messages: curSession.messages,
+      messages: history,
       systemPrompt: char.systemPrompt,
       enableThinking: this.enableThinking,
       reasoningEffort: 'high'
     }, callbacks);
   }
 
+  // ── 消息编辑 / 重新生成 / 分支切换 ──
+
+  private openMsgActions(msgId: string): void {
+    if (this.isGenerating) {
+      return;
+    }
+    this.actionMsgId = msgId;
+  }
+
+  private closeMsgActions(): void {
+    this.actionMsgId = '';
+  }
+
+  private actionMsg(): ChatMessage | undefined {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    if (!sess || this.actionMsgId.length === 0) {
+      return undefined;
+    }
+    return this.findMessage(sess, this.actionMsgId);
+  }
+
+  /** 长按后点「编辑并重发」：打开编辑框并预填原文。 */
+  private beginEdit(): void {
+    const msg: ChatMessage | undefined = this.actionMsg();
+    if (msg === undefined) {
+      this.closeMsgActions();
+      return;
+    }
+    this.editMsgId = msg.id;
+    this.editMsgText = msg.content;
+    this.actionMsgId = '';
+    this.showEditDialog = true;
+  }
+
+  private cancelEdit(): void {
+    this.showEditDialog = false;
+    this.editMsgId = '';
+    this.editMsgText = '';
+  }
+
+  /** 提交编辑：在原文同父下新建兄弟 user 节点（保留原分支），并生成新回复。 */
+  private async confirmEdit(): Promise<void> {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    const newText: string = this.editMsgText.trim();
+    if (!sess || this.editMsgId.length === 0 || newText.length === 0) {
+      return;
+    }
+    if (!this.canSend()) {
+      this.showEditDialog = false;
+      return;
+    }
+    const original: ChatMessage | undefined = this.findMessage(sess, this.editMsgId);
+    if (original === undefined) {
+      this.cancelEdit();
+      return;
+    }
+    const userMsg: ChatMessage = this.buildMessage('user', newText, original.parentId);
+    this.attach(sess, userMsg);
+    sess.updatedAt = Date.now();
+    this.showEditDialog = false;
+    this.editMsgId = '';
+    this.editMsgText = '';
+    this.rebuildSessionReference();
+    this.scrollToBottom();
+    this.generateReply(sess, userMsg);
+  }
+
+  /** 长按 assistant 点「重新生成」：同一 user 下新建助手兄弟分支。 */
+  private async regenerate(): Promise<void> {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    const assistantMsg: ChatMessage | undefined = this.actionMsg();
+    this.closeMsgActions();
+    if (!sess || assistantMsg === undefined || assistantMsg.role !== 'assistant') {
+      return;
+    }
+    if (!this.canSend()) {
+      return;
+    }
+    const userMsg: ChatMessage | undefined = this.findMessage(sess, assistantMsg.parentId);
+    if (userMsg === undefined) {
+      return;
+    }
+    this.generateReply(sess, userMsg);
+  }
+
+  private switchBranch(msg: ChatMessage, delta: number): void {
+    if (this.isGenerating) {
+      return;
+    }
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    if (!sess) {
+      return;
+    }
+    const sibs: string[] = this.siblingsOf(sess, msg);
+    if (sibs.length <= 1) {
+      return;
+    }
+    let idx: number = this.siblingIndex(sess, msg);
+    idx += delta;
+    if (idx < 0 || idx >= sibs.length) {
+      return;
+    }
+    const targetId: string = sibs[idx];
+    if (msg.parentId.length === 0) {
+      sess.activeRootId = targetId;
+    } else {
+      const parent: ChatMessage | undefined = this.findMessage(sess, msg.parentId);
+      if (parent === undefined) {
+        return;
+      }
+      parent.activeChildId = targetId;
+    }
+    sess.updatedAt = Date.now();
+    this.rebuildSessionReference();
+    this.saveState();
+    this.scrollToBottom();
+  }
+
   private stopGenerating(): void {
     if (this.isGenerating) {
       this.abortStreaming();
       this.isGenerating = false;
-      const cur: ChatSession | undefined = this.getCurrentSession();
-      if (cur && cur.messages.length > 0) {
-        const lastMsg: ChatMessage = cur.messages[cur.messages.length - 1];
+      const path: ChatMessage[] = this.activePath();
+      if (path.length > 0) {
+        const lastMsg: ChatMessage = path[path.length - 1];
         if (lastMsg.status === 'streaming') {
           lastMsg.status = 'success';
         }
@@ -511,18 +773,47 @@ export struct ChatView {
     const cur: ChatSession | undefined = this.getCurrentSession();
     if (cur) {
       cur.messages = [];
+      cur.rootIds = [];
+      cur.activeRootId = '';
       const char: CharacterCard = this.getCurrentCharacter();
       if (char.firstMessage.trim().length > 0) {
-        cur.messages.push({
-          id: `msg_${Date.now()}`,
-          role: 'assistant',
-          content: char.firstMessage,
-          createdAt: Date.now(),
-          status: 'success'
-        });
+        const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
+        this.attach(cur, welcomeMsg);
       }
       this.rebuildSessionReference();
       this.saveState();
+    }
+  }
+
+  private branchCount(msg: ChatMessage): number {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    return sess ? this.siblingsOf(sess, msg).length : 1;
+  }
+
+  private branchIndex(msg: ChatMessage): number {
+    const sess: ChatSession | undefined = this.getCurrentSession();
+    return sess ? this.siblingIndex(sess, msg) : 0;
+  }
+
+  private actionIsUser(): boolean {
+    const m: ChatMessage | undefined = this.actionMsg();
+    return m !== undefined && m.role === 'user';
+  }
+
+  private copyText(text: string): void {
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setDataSync(data);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'copy failed: %{public}s', String(err));
+    }
+  }
+
+  private copyActionMsg(): void {
+    const m: ChatMessage | undefined = this.actionMsg();
+    this.closeMsgActions();
+    if (m !== undefined && m.content.length > 0) {
+      this.copyText(m.content);
     }
   }
 
@@ -632,9 +923,9 @@ export struct ChatView {
 
         Divider().color('#EEEEEE').width('100%')
 
-        // 对话气泡消息流
+        // 对话气泡消息流（仅渲染当前激活分支）
         List({ scroller: this.scroller }) {
-          ForEach(this.getCurrentSession()?.messages || [], (msg: ChatMessage) => {
+          ForEach(this.activePath(), (msg: ChatMessage) => {
             ListItem() {
               this.MessageBubble(msg)
             }
@@ -1161,9 +1452,125 @@ export struct ChatView {
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.45)')
       }
+
+      // ── 5. 消息长按操作菜单 ──
+      if (this.actionMsgId !== '') {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.closeMsgActions();
+            })
+          Column() {
+            Text(this.actionIsUser() ? '编辑消息' : '回复操作')
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 18, bottom: 10 })
+            if (this.actionIsUser()) {
+              this.MsgActionRow('编辑并重发', () => {
+                this.beginEdit();
+              })
+            } else {
+              this.MsgActionRow('重新生成', () => {
+                this.regenerate();
+              })
+            }
+            this.MsgActionRow('复制', () => {
+              this.copyActionMsg();
+            })
+            Button('取消')
+              .width('92%')
+              .margin({ top: 8, bottom: 16 })
+              .onClick(() => {
+                this.closeMsgActions();
+              })
+          }
+          .width('100%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius({ topLeft: 24, topRight: 24 })
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.4)')
+        .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
+      }
+
+      // ── 6. 编辑并重发弹窗 ──
+      if (this.showEditDialog) {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.cancelEdit();
+            })
+          Column() {
+            Text('编辑并重发')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 18, bottom: 4 })
+            Text('修改后将作为新分支发送，原对话会保留')
+              .fontSize(12)
+              .fontColor('#999999')
+              .margin({ bottom: 12 })
+            TextArea({ placeholder: '修改消息内容...', text: this.editMsgText })
+              .width('92%')
+              .height(120)
+              .margin({ bottom: 16 })
+              .onChange((v: string) => {
+                this.editMsgText = v;
+              })
+            Row() {
+              Button('取消')
+                .layoutWeight(1)
+                .backgroundColor('#F3F4F6')
+                .fontColor('#333333')
+                .margin({ right: 8 })
+                .onClick(() => {
+                  this.cancelEdit();
+                })
+              Button('发送')
+                .layoutWeight(1)
+                .backgroundColor('#4D6BFE')
+                .fontColor('#FFFFFF')
+                .enabled(this.editMsgText.trim().length > 0)
+                .onClick(() => {
+                  this.confirmEdit();
+                })
+            }
+            .width('92%')
+            .margin({ bottom: 20 })
+          }
+          .width('100%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius({ topLeft: 24, topRight: 24 })
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+      }
     }
     .width('100%')
     .height('100%')
+  }
+
+  @Builder
+  MsgActionRow(title: string, onTap: () => void) {
+    Row() {
+      Text(title)
+        .fontSize(15)
+        .fontWeight(FontWeight.Medium)
+        .layoutWeight(1)
+      Text('›')
+        .fontSize(20)
+        .fontColor('#CCCCCC')
+    }
+    .width('92%')
+    .padding({ left: 14, right: 14, top: 14, bottom: 14 })
+    .margin({ bottom: 6 })
+    .backgroundColor('#F7F7F8')
+    .borderRadius(12)
+    .onClick(onTap)
   }
 
   // ── 消息气泡子组件 ──
@@ -1180,8 +1587,20 @@ export struct ChatView {
             .padding({ left: 14, right: 14, top: 10, bottom: 10 })
             .backgroundColor('#4D6BFE')
             .borderRadius({ topLeft: 16, topRight: 4, bottomLeft: 16, bottomRight: 16 })
+          // 分支切换（编辑后的多个版本）
+          if (this.branchCount(msg) > 1) {
+            Row() {
+              Blank()
+              this.BranchSwitcher(msg)
+            }
+            .width('100%')
+            .margin({ top: 4 })
+          }
         }
         .alignItems(HorizontalAlign.End)
+        .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+          this.openMsgActions(msg.id);
+        }))
       }
       .width('100%')
     } else {
@@ -1215,7 +1634,6 @@ export struct ChatView {
               .fontSize(15)
               .fontColor('#1F2937')
               .lineHeight(23)
-              .copyOption(CopyOptions.LocalDevice)
           } else if (msg.status === 'streaming') {
             Row() {
               LoadingProgress().width(18).height(18).color('#4D6BFE')
@@ -1232,16 +1650,55 @@ export struct ChatView {
               .fontColor('#EF4444')
               .margin({ top: 6 })
           }
+
+          // 分支切换（重新生成的多个版本）
+          if (this.branchCount(msg) > 1) {
+            Row() {
+              Blank()
+              this.BranchSwitcher(msg)
+            }
+            .width('100%')
+            .margin({ top: 4 })
+          }
         }
         .alignItems(HorizontalAlign.Start)
         .padding({ left: 14, right: 14, top: 12, bottom: 12 })
         .backgroundColor('#F3F4F6')
         .borderRadius({ topLeft: 4, topRight: 16, bottomLeft: 16, bottomRight: 16 })
         .constraintSize({ maxWidth: '88%' })
+        .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+          this.openMsgActions(msg.id);
+        }))
 
         Blank()
       }
       .width('100%')
     }
+  }
+
+  // 分支切换控件：< i/n >，仅在存在多个版本时由调用方渲染。
+  @Builder
+  BranchSwitcher(msg: ChatMessage) {
+    Row() {
+      Text('‹')
+        .fontSize(18)
+        .fontColor('#4D6BFE')
+        .padding({ left: 10, right: 10 })
+        .onClick(() => {
+          this.switchBranch(msg, -1);
+        })
+      Text(`${this.branchIndex(msg) + 1}/${this.branchCount(msg)}`)
+        .fontSize(12)
+        .fontColor('#666666')
+      Text('›')
+        .fontSize(18)
+        .fontColor('#4D6BFE')
+        .padding({ left: 10, right: 10 })
+        .onClick(() => {
+          this.switchBranch(msg, 1);
+        })
+    }
+    .backgroundColor('#FFFFFF')
+    .borderRadius(12)
   }
 }

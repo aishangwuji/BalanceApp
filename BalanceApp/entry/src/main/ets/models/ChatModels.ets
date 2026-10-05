@@ -15,6 +15,12 @@ export interface ChatMessage {
   createdAt: number;
   status: 'sending' | 'streaming' | 'success' | 'error';
   errorMessage?: string;
+  /** 父节点 id；根节点为 ''。 */
+  parentId: string;
+  /** 有序子节点 id 列表（承载多个分支/编辑版本）。 */
+  childIds: string[];
+  /** 当前激活的子分支 id；无子节点为 ''。 */
+  activeChildId: string;
 }
 
 export interface CharacterCard {
@@ -35,7 +41,12 @@ export interface ChatSession {
   providerId: string;
   modelId: string;
   updatedAt: number;
+  /** 扁平节点池：所有分支的节点都保留在此，靠 parent/child 关系组织成树。 */
   messages: ChatMessage[];
+  /** 根节点 id 列表（首条消息被编辑会产生多个根分支）。 */
+  rootIds: string[];
+  /** 当前激活的根分支 id。 */
+  activeRootId: string;
 }
 
 export interface ModelInfo {
