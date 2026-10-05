@@ -43,6 +43,9 @@ export struct ChatView {
   @State isGenerating: boolean = false;
   @State showJumpBottom: boolean = false;
   @State noticeText: string = '';
+  // 思考过程折叠（reasonVersion 变化强制 ForEach 按 key 刷新对应条目）
+  @State reasonVersion: number = 0;
+  private collapsedReasons: string[] = [];
   @State enableThinking: boolean = true;
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
@@ -61,6 +64,11 @@ export struct ChatView {
   @State editMsgText: string = '';
   // 角色卡长按操作
   @State charActionId: string = '';
+  // 历史会话长按操作（重命名/删除）
+  @State sessActionId: string = '';
+  @State showRenameDialog: boolean = false;
+  @State renameText: string = '';
+  @State showDeleteConfirm: boolean = false;
 
   // 角色卡编辑临时状态
   @State editingCharId: string = '';
@@ -298,10 +306,7 @@ export struct ChatView {
     return def !== undefined && def.supportsThinking === true;
   }
 
-  private currentCharacterName(): string {
-    const c: CharacterCard = this.getCurrentCharacter();
-    return c.name.length > 0 ? c.name : '角色';
-  }
+
 
   private openSettings(): void {
     try {
@@ -464,8 +469,16 @@ export struct ChatView {
 
   // ── 会话管理 ──
 
+  private toast(text: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: text });
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'showToast failed: %{public}s', String(err));
+    }
+  }
+
   private async createNewSession(): Promise<void> {
-    // Business Rule: 新会话默认空白、不绑定角色；角色在“新会话”时由用户选择。
+    // Business Rule: 新会话默认空白、不绑定角色；角色只能在“新会话”时选择，选中后锁定。
     const newId: string = `session_${Date.now()}`;
     const newSession: ChatSession = {
       id: newId,
@@ -478,6 +491,7 @@ export struct ChatView {
       rootIds: [],
       activeRootId: '',
     };
+    this.currentCharacterId = '';
 
     const nextList: ChatSession[] = [newSession];
     let i: number = 0;
@@ -520,6 +534,7 @@ export struct ChatView {
     if (this.currentSessionId === sessionId) {
       if (this.sessions.length > 0) {
         this.currentSessionId = this.sessions[0].id;
+        this.currentCharacterId = this.sessions[0].characterId;
       } else {
         await this.createNewSession();
       }
@@ -530,16 +545,24 @@ export struct ChatView {
   // ── 角色卡选择与编辑 ──
 
   private async selectCharacter(char: CharacterCard): Promise<void> {
-    this.currentCharacterId = char.id;
     const cur: ChatSession | undefined = this.getCurrentSession();
-    if (cur) {
-      cur.characterId = char.id;
-      if (cur.messages.length === 0 && char.firstMessage.trim().length > 0) {
-        const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
-        this.attach(cur, welcomeMsg);
-      }
-      this.rebuildSessionReference();
+    if (!cur) {
+      this.showCharacterSheet = false;
+      return;
     }
+    // Business Rule: 角色只能绑定一次（新会话时）；会话中存在初始回答/已绑定则锁定，不可更改。
+    if (cur.characterId.length > 0) {
+      this.showCharacterSheet = false;
+      this.toast('该会话已绑定角色，无法更改');
+      return;
+    }
+    this.currentCharacterId = char.id;
+    cur.characterId = char.id;
+    if (cur.messages.length === 0 && char.firstMessage.trim().length > 0) {
+      const welcomeMsg: ChatMessage = this.buildMessage('assistant', char.firstMessage, '');
+      this.attach(cur, welcomeMsg);
+    }
+    this.rebuildSessionReference();
     this.showCharacterSheet = false;
     await this.saveState();
   }
@@ -609,7 +632,86 @@ export struct ChatView {
     await ChatStorageService.saveCharacters(this.characters);
   }
 
-  // ── 角色卡长按操作 ──
+  // ── 历史会话长按操作 ──
+
+  private openSessActions(id: string): void {
+    if (this.isGenerating) {
+      return;
+    }
+    this.sessActionId = id;
+  }
+
+  private closeSessActions(): void {
+    this.sessActionId = '';
+  }
+
+  private sessActionTitle(): string {
+    let i: number = 0;
+    while (i < this.sessions.length) {
+      if (this.sessions[i].id === this.sessActionId) {
+        return this.sessions[i].title;
+      }
+      i += 1;
+    }
+    return '';
+  }
+
+  private beginRename(): void {
+    const title: string = this.sessActionTitle();
+    if (title.length === 0) {
+      this.sessActionId = '';
+      return;
+    }
+    // 保留 sessActionId 作为重命名目标；菜单用 showRenameDialog 隐藏。
+    this.renameText = title;
+    this.showRenameDialog = true;
+  }
+
+  private cancelRename(): void {
+    this.showRenameDialog = false;
+    this.renameText = '';
+    this.sessActionId = '';
+  }
+
+  private confirmRename(): void {
+    const text: string = this.renameText.trim();
+    if (text.length === 0) {
+      return;
+    }
+    let i: number = 0;
+    while (i < this.sessions.length) {
+      if (this.sessions[i].id === this.sessActionId) {
+        this.sessions[i].title = text;
+        break;
+      }
+      i += 1;
+    }
+    this.showRenameDialog = false;
+    this.renameText = '';
+    this.sessActionId = '';
+    this.rebuildSessionReference();
+    this.saveState();
+  }
+
+  private askDeleteSession(): void {
+    // 保留 sessActionId 作为删除目标；菜单用 showDeleteConfirm 隐藏。
+    this.showDeleteConfirm = true;
+  }
+
+  private cancelDeleteSession(): void {
+    this.showDeleteConfirm = false;
+    this.sessActionId = '';
+  }
+
+  private async confirmDeleteSession(): Promise<void> {
+    const id: string = this.sessActionId;
+    this.showDeleteConfirm = false;
+    this.sessActionId = '';
+    if (id.length === 0) {
+      return;
+    }
+    await this.deleteSession(id);
+  }
 
   private openCharActions(id: string): void {
     this.charActionId = id;
@@ -946,6 +1048,20 @@ export struct ChatView {
     return sess ? this.siblingIndex(sess, msg) : 0;
   }
 
+  private isReasonCollapsed(id: string): boolean {
+    return this.collapsedReasons.includes(id);
+  }
+
+  private toggleReason(id: string): void {
+    const idx: number = this.collapsedReasons.indexOf(id);
+    if (idx >= 0) {
+      this.collapsedReasons.splice(idx, 1);
+    } else {
+      this.collapsedReasons.push(id);
+    }
+    this.reasonVersion += 1;
+  }
+
   private actionIsUser(): boolean {
     const m: ChatMessage | undefined = this.actionMsg();
     return m !== undefined && m.role === 'user';
@@ -995,26 +1111,6 @@ export struct ChatView {
           .borderRadius(17)
           .onClick(() => {
             this.showDrawer = true;
-          })
-
-          Blank()
-
-          // 中间：角色卡切换入口
-          Row() {
-            Text(this.currentCharacterName())
-              .fontSize(14)
-              .fontWeight(FontWeight.Bold)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(' 切换')
-              .fontSize(11)
-              .fontColor('#666666')
-          }
-          .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-          .backgroundColor('#F3F4F6')
-          .borderRadius(16)
-          .onClick(() => {
-            this.showCharacterSheet = true;
           })
 
           Blank()
@@ -1076,7 +1172,7 @@ export struct ChatView {
               this.MessageBubble(msg)
             }
             .margin({ top: 10, bottom: 10 })
-          }, (msg: ChatMessage) => `${msg.id}_${msg.content.length}_${msg.status}_${msg.reasoningContent || ''}`)
+          }, (msg: ChatMessage) => `${msg.id}_${msg.content.length}_${msg.status}_${msg.reasoningContent || ''}_${this.reasonVersion}`)
         }
         .width('100%')
         .layoutWeight(1)
@@ -1225,14 +1321,9 @@ export struct ChatView {
                       .alignItems(HorizontalAlign.Start)
                       .layoutWeight(1)
 
-                      Button('删除')
-                        .fontSize(11)
-                        .height(24)
-                        .backgroundColor('#FEE2E2')
-                        .fontColor('#EF4444')
-                        .onClick(() => {
-                          this.deleteSession(sess.id);
-                        })
+                      Text('›')
+                        .fontSize(20)
+                        .fontColor('#CCCCCC')
                     }
                     .width('100%')
                     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
@@ -1241,6 +1332,9 @@ export struct ChatView {
                     .onClick(() => {
                       this.switchSession(sess.id);
                     })
+                    .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+                      this.openSessActions(sess.id);
+                    }))
                   }
                   .margin({ bottom: 6 })
                 }, (sess: ChatSession) => `${sess.id}_${sess.title}_${sess.updatedAt}`)
@@ -1276,6 +1370,7 @@ export struct ChatView {
             .height('100%')
             .backgroundColor('#FFFFFF')
             .shadow({ radius: 20, color: 'rgba(0,0,0,0.1)' })
+            .transition(TransitionEffect.translate({ x: -260 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
 
             // 蒙层空白点击收回
             Blank()
@@ -1291,7 +1386,7 @@ export struct ChatView {
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.45)')
-        .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
+        .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
       // ── 2. 模型与供应商选择弹窗 ──
@@ -1657,12 +1752,12 @@ export struct ChatView {
           .width('100%')
           .backgroundColor('#FFFFFF')
           .borderRadius({ topLeft: 24, topRight: 24 })
-          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
         }
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.4)')
-        .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
+        .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
       // ── 6. 编辑并重发弹窗 ──
@@ -1719,6 +1814,136 @@ export struct ChatView {
         .backgroundColor('rgba(0,0,0,0.45)')
       }
 
+      // ── 8. 历史会话长按操作菜单 ──
+      if (this.sessActionId !== '' && !this.showRenameDialog && !this.showDeleteConfirm) {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.closeSessActions();
+            })
+          Column() {
+            Text(this.sessActionTitle())
+              .fontSize(15)
+              .fontWeight(FontWeight.Bold)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .margin({ top: 18, bottom: 10 })
+            this.MsgActionRow('重命名', () => {
+              this.beginRename();
+            })
+            this.MsgActionRow('删除', () => {
+              this.askDeleteSession();
+            })
+            Button('取消')
+              .width('92%')
+              .margin({ top: 8, bottom: 16 })
+              .onClick(() => {
+                this.closeSessActions();
+              })
+          }
+          .width('100%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius({ topLeft: 24, topRight: 24 })
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.4)')
+        .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
+      }
+
+      // ── 9. 会话重命名弹窗 ──
+      if (this.showRenameDialog) {
+        Column() {
+          Blank()
+          Column() {
+            Text('重命名会话')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 20, bottom: 12 })
+            TextInput({ placeholder: '输入新名称', text: this.renameText })
+              .width('90%')
+              .margin({ bottom: 16 })
+              .onChange((v: string) => {
+                this.renameText = v;
+              })
+            Row() {
+              Button('取消')
+                .layoutWeight(1)
+                .backgroundColor('#F3F4F6')
+                .fontColor('#333333')
+                .margin({ right: 8 })
+                .onClick(() => {
+                  this.cancelRename();
+                })
+              Button('保存')
+                .layoutWeight(1)
+                .backgroundColor('#4D6BFE')
+                .fontColor('#FFFFFF')
+                .enabled(this.renameText.trim().length > 0)
+                .onClick(() => {
+                  this.confirmRename();
+                })
+            }
+            .width('90%')
+            .margin({ bottom: 20 })
+          }
+          .width('88%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius(16)
+          Blank()
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.4)')
+      }
+
+      // ── 10. 会话删除确认弹窗 ──
+      if (this.showDeleteConfirm) {
+        Column() {
+          Blank()
+          Column() {
+            Text('确认删除该会话？')
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 20, bottom: 4 })
+            Text(this.sessActionTitle())
+              .fontSize(14)
+              .fontColor('#888888')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .margin({ bottom: 16 })
+            Row() {
+              Button('取消')
+                .layoutWeight(1)
+                .backgroundColor('#F3F4F6')
+                .fontColor('#333333')
+                .margin({ right: 8 })
+                .onClick(() => {
+                  this.cancelDeleteSession();
+                })
+              Button('删除')
+                .layoutWeight(1)
+                .backgroundColor('#EF4444')
+                .fontColor('#FFFFFF')
+                .onClick(() => {
+                  this.confirmDeleteSession();
+                })
+            }
+            .width('90%')
+            .margin({ bottom: 20 })
+          }
+          .width('88%')
+          .backgroundColor('#FFFFFF')
+          .borderRadius(16)
+          Blank()
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.4)')
+      }
+
       // ── 7. 角色卡长按操作菜单 ──
       if (this.charActionId !== '') {
         Column() {
@@ -1748,12 +1973,12 @@ export struct ChatView {
           .width('100%')
           .backgroundColor('#FFFFFF')
           .borderRadius({ topLeft: 24, topRight: 24 })
-          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
+          .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
         }
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.4)')
-        .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
+        .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
     }
     .width('100%')
@@ -1812,20 +2037,31 @@ export struct ChatView {
     } else {
       Row() {
         Column() {
-          // 深度思考过程（针对 DeepSeek-Reasoner / Kimi 等思考模型）
+          // 深度思考过程（可折叠；不设固定宽度，由父气泡包裹，避免边框溢出）
           if (msg.reasoningContent && msg.reasoningContent.length > 0) {
             Column() {
-              Text('思考过程：')
-                .fontSize(11)
-                .fontColor('#6B7280')
-                .fontWeight(FontWeight.Bold)
-                .margin({ bottom: 4 })
-              Text(msg.reasoningContent)
-                .fontSize(12)
-                .fontColor('#4B5563')
-                .lineHeight(18)
+              Row() {
+                Text('思考过程')
+                  .fontSize(11)
+                  .fontColor('#6B7280')
+                  .fontWeight(FontWeight.Bold)
+                Blank()
+                Text(this.isReasonCollapsed(msg.id) ? '展开' : '收起')
+                  .fontSize(11)
+                  .fontColor('#4D6BFE')
+              }
+              .width('100%')
+              .margin({ bottom: this.isReasonCollapsed(msg.id) ? 0 : 4 })
+              .onClick(() => {
+                this.toggleReason(msg.id);
+              })
+              if (!this.isReasonCollapsed(msg.id)) {
+                Text(msg.reasoningContent)
+                  .fontSize(12)
+                  .fontColor('#4B5563')
+                  .lineHeight(18)
+              }
             }
-            .width('100%')
             .padding(10)
             .backgroundColor('#F9FAFB')
             .borderRadius(8)
