@@ -24,7 +24,7 @@ const PREFS_NAME = 'balance_prefs';
 /** 无角色卡时的中性兜底：不附带任何系统设定与开场白。 */
 const EMPTY_CHARACTER: CharacterCard = {
   id: '', name: '', avatarIcon: '', description: '',
-  systemPrompt: '', firstMessage: '', temperature: 0.7, createdAt: 0,
+  systemPrompt: '', firstMessage: '', temperature: 0.7, knowledge: '', createdAt: 0,
 };
 
 @Component
@@ -74,6 +74,7 @@ export struct ChatView {
   @State editingCharId: string = '';
   @State editingCharName: string = '';
   @State editingCharPrompt: string = '';
+  @State editingCharKnowledge: string = '';
   @State editingCharFirstMsg: string = '';
   @State editingCharTemp: number = 0.7;
 
@@ -266,6 +267,8 @@ export struct ChatView {
       parentId: parentId,
       childIds: [],
       activeChildId: '',
+      speakerId: '',
+      mentionedIds: [],
     };
   }
 
@@ -490,6 +493,9 @@ export struct ChatView {
       messages: [],
       rootIds: [],
       activeRootId: '',
+      participantIds: [],
+      sceneMode: 'single',
+      joinMap: {},
     };
     this.currentCharacterId = '';
 
@@ -572,12 +578,14 @@ export struct ChatView {
       this.editingCharId = char.id;
       this.editingCharName = char.name;
       this.editingCharPrompt = char.systemPrompt;
+      this.editingCharKnowledge = char.knowledge;
       this.editingCharFirstMsg = char.firstMessage;
       this.editingCharTemp = char.temperature;
     } else {
       this.editingCharId = '';
       this.editingCharName = '';
       this.editingCharPrompt = '你是一个人工智能助手。';
+      this.editingCharKnowledge = '';
       this.editingCharFirstMsg = '你好！有什么我可以为你效劳的？';
       this.editingCharTemp = 0.7;
     }
@@ -603,6 +611,7 @@ export struct ChatView {
           systemPrompt: this.editingCharPrompt.trim(),
           firstMessage: this.editingCharFirstMsg.trim(),
           temperature: this.editingCharTemp,
+          knowledge: this.editingCharKnowledge.trim(),
           createdAt: c.createdAt
         };
         nextChars.push(updated);
@@ -621,6 +630,7 @@ export struct ChatView {
         systemPrompt: this.editingCharPrompt.trim(),
         firstMessage: this.editingCharFirstMsg.trim(),
         temperature: this.editingCharTemp,
+        knowledge: this.editingCharKnowledge.trim(),
         createdAt: Date.now()
       };
       nextChars.unshift(created);
@@ -1668,6 +1678,19 @@ export struct ChatView {
                   .margin({ bottom: 12 })
                   .onChange((v: string) => {
                     this.editingCharPrompt = v;
+                  })
+
+                Text('私有知识')
+                  .fontSize(12)
+                  .fontColor('#666666')
+                  .width('92%')
+                  .margin({ bottom: 4 })
+                TextArea({ placeholder: '该角色知道、他人默认不知道的事实（群聊时注入）...', text: this.editingCharKnowledge })
+                  .width('92%')
+                  .height(80)
+                  .margin({ bottom: 12 })
+                  .onChange((v: string) => {
+                    this.editingCharKnowledge = v;
                   })
 
                 Text('初次问候语')

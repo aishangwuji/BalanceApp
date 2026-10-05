@@ -47,7 +47,8 @@ export class ChatStorageService {
       if (typeof val === 'string' && (val as string).length > 0) {
         const parsed: ESObject = JSON.parse(val as string) as ESObject;
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed as CharacterCard[];
+          // 边界归一化：旧角色卡补 knowledge 缺省。
+          return ChatStorageService.normalizeCharacters(parsed as ESObject[]);
         }
       }
     } catch (err) {
@@ -56,6 +57,36 @@ export class ChatStorageService {
     // 初次加载保存默认列表
     await ChatStorageService.saveCharacters(DEFAULT_CHARACTERS);
     return DEFAULT_CHARACTERS;
+  }
+
+  private static normalizeCharacters(rawList: ESObject[]): CharacterCard[] {
+    const out: CharacterCard[] = [];
+    let i: number = 0;
+    while (i < rawList.length) {
+      const item: ESObject = rawList[i];
+      i += 1;
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, ESObject> = item as Record<string, ESObject>;
+      const id: string = typeof rec['id'] === 'string' ? rec['id'] as string : '';
+      if (id.length === 0) {
+        continue;
+      }
+      const card: CharacterCard = {
+        id: id,
+        name: typeof rec['name'] === 'string' ? rec['name'] as string : '未命名',
+        avatarIcon: typeof rec['avatarIcon'] === 'string' ? rec['avatarIcon'] as string : 'custom',
+        description: typeof rec['description'] === 'string' ? rec['description'] as string : '',
+        systemPrompt: typeof rec['systemPrompt'] === 'string' ? rec['systemPrompt'] as string : '',
+        firstMessage: typeof rec['firstMessage'] === 'string' ? rec['firstMessage'] as string : '',
+        temperature: typeof rec['temperature'] === 'number' ? rec['temperature'] as number : 0.7,
+        knowledge: typeof rec['knowledge'] === 'string' ? rec['knowledge'] as string : '',
+        createdAt: typeof rec['createdAt'] === 'number' ? rec['createdAt'] as number : Date.now(),
+      };
+      out.push(card);
+    }
+    return out;
   }
 
   public static async saveCharacters(cards: CharacterCard[]): Promise<void> {
@@ -158,6 +189,38 @@ export class ChatStorageService {
         activeRootId = rootIds.length > 0 ? rootIds[0] : '';
       }
 
+      // 参与者与模式（旧数据缺省为单聊）。
+      const partsRaw: ESObject = rec['participantIds'];
+      const participantIds: string[] = [];
+      if (Array.isArray(partsRaw)) {
+        const pArr: ESObject[] = partsRaw as ESObject[];
+        let p: number = 0;
+        while (p < pArr.length) {
+          if (typeof pArr[p] === 'string' && (pArr[p] as string).length > 0) {
+            participantIds.push(pArr[p] as string);
+          }
+          p += 1;
+        }
+      }
+      let sceneMode: 'single' | 'group' = 'single';
+      if (rec['sceneMode'] === 'group' && participantIds.length >= 2) {
+        sceneMode = 'group';
+      }
+      const joinRaw: ESObject = rec['joinMap'];
+      const joinMap: Record<string, string> = {};
+      if (joinRaw !== null && typeof joinRaw === 'object' && !Array.isArray(joinRaw)) {
+        const jRec: Record<string, ESObject> = joinRaw as Record<string, ESObject>;
+        const jKeys: string[] = Object.keys(jRec);
+        let ki: number = 0;
+        while (ki < jKeys.length) {
+          const kk: string = jKeys[ki];
+          if (typeof jRec[kk] === 'string') {
+            joinMap[kk] = jRec[kk] as string;
+          }
+          ki += 1;
+        }
+      }
+
       const session: ChatSession = {
         id: id,
         title: typeof rec['title'] === 'string' ? rec['title'] as string : '对话',
@@ -168,6 +231,9 @@ export class ChatStorageService {
         messages: pool,
         rootIds: rootIds,
         activeRootId: activeRootId,
+        participantIds: participantIds,
+        sceneMode: sceneMode,
+        joinMap: joinMap,
       };
       out.push(session);
     }
@@ -193,6 +259,18 @@ export class ChatStorageService {
     if (st === 'sending' || st === 'streaming' || st === 'error') {
       status = st as 'sending' | 'streaming' | 'error';
     }
+    const menRaw: ESObject = rec['mentionedIds'];
+    const mentionedIds: string[] = [];
+    if (Array.isArray(menRaw)) {
+      const mArr: ESObject[] = menRaw as ESObject[];
+      let mi: number = 0;
+      while (mi < mArr.length) {
+        if (typeof mArr[mi] === 'string' && (mArr[mi] as string).length > 0) {
+          mentionedIds.push(mArr[mi] as string);
+        }
+        mi += 1;
+      }
+    }
     const msg: ChatMessage = {
       id: id,
       role: role,
@@ -204,6 +282,8 @@ export class ChatStorageService {
       parentId: typeof rec['parentId'] === 'string' ? rec['parentId'] as string : '',
       childIds: [],
       activeChildId: '',
+      speakerId: typeof rec['speakerId'] === 'string' ? rec['speakerId'] as string : '',
+      mentionedIds: mentionedIds,
     };
     const childRaw: ESObject = rec['childIds'];
     if (Array.isArray(childRaw)) {

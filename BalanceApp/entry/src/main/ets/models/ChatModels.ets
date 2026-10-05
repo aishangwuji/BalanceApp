@@ -21,6 +21,10 @@ export interface ChatMessage {
   childIds: string[];
   /** 当前激活的子分支 id；无子节点为 ''。 */
   activeChildId: string;
+  /** 发言角色卡 id；用户消息为 ''；单聊助手消息为会话绑定的角色卡 id。 */
+  speakerId: string;
+  /** 本条用户消息 @ 的角色卡 id（助手消息为空）。 */
+  mentionedIds: string[];
 }
 
 export interface CharacterCard {
@@ -31,6 +35,8 @@ export interface CharacterCard {
   systemPrompt: string;
   firstMessage: string;
   temperature: number; // 默认 0.7
+  /** 私有知识（该角色知道、他人默认不知道的事实；建群聊上下文时注入）。 */
+  knowledge: string;
   createdAt: number;
 }
 
@@ -47,6 +53,12 @@ export interface ChatSession {
   rootIds: string[];
   /** 当前激活的根分支 id。 */
   activeRootId: string;
+  /** 本场景参与的角色卡 id（群聊成员）；单聊为空。 */
+  participantIds: string[];
+  /** 会话模式：单聊沿用单角色逻辑，群聊走多角色链式生成。 */
+  sceneMode: 'single' | 'group';
+  /** 角色可见水位：characterId -> 可见首条消息之前的 msgId（缺省全部可见；Phase1 全员可见）。 */
+  joinMap: Record<string, string>;
 }
 
 export interface ModelInfo {
