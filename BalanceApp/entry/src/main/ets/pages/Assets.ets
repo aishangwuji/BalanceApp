@@ -12,7 +12,6 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
-import { pasteboard } from '@kit.BasicServicesKit';
 import {
   PROVIDERS, ProviderDefinition, ProviderCategory, BalanceInfo,
   findProvider, currencySymbol, categoryLabel,
@@ -238,16 +237,6 @@ struct Assets {
     this.jevKeyMasked = '';
     this.jevKeyText = '';
     this.showJevKeyInput = false;
-  }
-
-  private copyJevSite(): void {
-    try {
-      const data: pasteboard.PasteData = pasteboard.createData(
-        pasteboard.MIMETYPE_TEXT_PLAIN, 'https://console.typesafe.ai');
-      pasteboard.getSystemPasteboard().setDataSync(data);
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'copyJevSite failed: %{public}s', String(err));
-    }
   }
 
   // ── 查询 ──
@@ -833,16 +822,9 @@ struct Assets {
   JevCard() {
     Column() {
       Row() {
-        Text('智能路由')
+        Text('路由')
           .fontSize(15)
           .fontWeight(FontWeight.Bold)
-        Text('Jev 判断模型')
-          .fontSize(11)
-          .fontColor('#7C3AED')
-          .backgroundColor('#F3E8FF')
-          .padding({ left: 8, right: 8, top: 2, bottom: 2 })
-          .borderRadius(10)
-          .margin({ left: 8 })
         Blank()
         Toggle({ type: ToggleType.Switch, isOn: this.jevEnabled })
           .onChange((on: boolean) => {
@@ -850,7 +832,7 @@ struct Assets {
           })
       }
       .width('100%')
-      Text('无 @ 时由 Jev 决定谁发言；只做判断、不生成对话（本期仅保存配置）')
+      Text('无 @ 时由 Jev 决定谁发言')
         .fontSize(12)
         .fontColor('#888888')
         .width('100%')
@@ -908,20 +890,6 @@ struct Assets {
         .width('100%')
         .margin({ top: 8 })
       }
-      Row() {
-        Text('Key 仅在 TypeSafe 官网或 OpenRouter 获取')
-          .fontSize(11)
-          .fontColor('#AAAAAA')
-          .layoutWeight(1)
-        Text('复制官网链接')
-          .fontSize(11)
-          .fontColor('#4D6BFE')
-          .onClick(() => {
-            this.copyJevSite();
-          })
-      }
-      .width('100%')
-      .margin({ top: 6 })
     }
     .width('92%')
     .padding(14)
