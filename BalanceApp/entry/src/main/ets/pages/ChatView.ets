@@ -449,6 +449,19 @@ export struct ChatView {
     this.scroller.scrollEdge(Edge.Bottom);
   }
 
+  /** 输入框获焦：键盘弹起后最新内容可能被遮挡，把列表底到底（生成中保持锚定不动）。 */
+  private onInputFocus(): void {
+    if (this.isGenerating) {
+      return;
+    }
+    setTimeout(() => {
+      this.scroller.scrollEdge(Edge.Bottom);
+    }, 120);
+    setTimeout(() => {
+      this.scroller.scrollEdge(Edge.Bottom);
+    }, 380);
+  }
+
   // ── 会话管理 ──
 
   private async createNewSession(): Promise<void> {
@@ -1108,6 +1121,9 @@ export struct ChatView {
               .padding({ left: 16, right: 16 })
               .onChange((val: string) => {
                 this.inputText = val;
+              })
+              .onFocus(() => {
+                this.onInputFocus();
               })
               .onSubmit(() => {
                 this.sendMessage();
