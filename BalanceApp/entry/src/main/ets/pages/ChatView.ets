@@ -20,6 +20,9 @@ import { ChatStorageService } from '../services/ChatStorageService';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
+import { MarkdownBody } from '../components/MarkdownBody';
+import { MarkdownService, MdClickAction } from '../services/MarkdownService';
+import { MarkdownController, ETypingMode } from 'fluid-markdown';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatView';
@@ -49,6 +52,11 @@ export struct ChatView {
   @State noticeText: string = '';
   @StorageProp('auto_collapse_thinking') autoCollapseThinking: boolean = true;
   @StorageProp('app_font_scale') appFontScale: number = 1.0;
+  @StorageProp('app_appearance') appearance: string = 'system';
+  // Markdown 流式驱动：仅存活中的流式消息持有（生成开始建、结束/停止/删会话时删）。
+  private mdControllers: Map<string, MarkdownController> = new Map();
+  private mdTypingBegun: string[] = [];
+  @State previewImage: string = '';
   // 思考过程折叠（reasonVersion 变化强制 ForEach 按 key 刷新对应条目）
   @State reasonVersion: number = 0;
   private collapsedReasons: string[] = [];
@@ -751,6 +759,18 @@ export struct ChatView {
   }
 
   private async deleteSession(sessionId: string): Promise<void> {
+    let victim: ChatSession | undefined = undefined;
+    let vi: number = 0;
+    while (vi < this.sessions.length) {
+      if (this.sessions[vi].id === sessionId) {
+        victim = this.sessions[vi];
+        break;
+      }
+      vi += 1;
+    }
+    if (victim !== undefined) {
+      this.dropSessionControllers(victim);
+    }
     const nextList: ChatSession[] = [];
     let i: number = 0;
     while (i < this.sessions.length) {
@@ -1207,6 +1227,110 @@ export struct ChatView {
     this.sessions = list;
   }
 
+  // ── Markdown 渲染接入（FluidMarkdown） ──
+
+  private isDarkMode(): boolean {
+    return this.appearance === 'dark';
+  }
+
+  /** 仅当消息仍在流式且驱动器存活时走 Typing；否则一律 Normal（防僵尸流式）。 */
+  private isLiveStreaming(msg: ChatMessage): boolean {
+    return msg.status === 'streaming' && this.mdControllers.has(msg.id);
+  }
+
+  /** 每 token 喂累计文本（库内取最新合并、hash 差量、打字机 pacing）。 */
+  private driveMarkdown(msg: ChatMessage): void {
+    const ctl: MarkdownController | undefined = this.mdControllers.get(msg.id);
+    if (ctl === undefined) {
+      return;
+    }
+    const full: string = MarkdownService.rewriteCitations(msg.content);
+    try {
+      if (!this.mdTypingBegun.includes(msg.id)) {
+        this.mdTypingBegun.push(msg.id);
+        ctl.typing.update(full, ETypingMode.Begin, true);
+      } else {
+        ctl.typing.update(full, ETypingMode.Append, true);
+      }
+    } catch (_e) {
+    }
+  }
+
+  /** 收尾：正常结束刷 End 帧吐完 pacing 队列；中断则直接停。随后删驱动器防泄漏。 */
+  private finishMarkdown(msg: ChatMessage, stopped: boolean): void {
+    const ctl: MarkdownController | undefined = this.mdControllers.get(msg.id);
+    if (ctl !== undefined && !stopped) {
+      try {
+        ctl.typing.update(MarkdownService.rewriteCitations(msg.content), ETypingMode.End, false);
+      } catch (_e) {
+      }
+    }
+    this.mdControllers.delete(msg.id);
+    const kept: string[] = [];
+    let i: number = 0;
+    while (i < this.mdTypingBegun.length) {
+      if (this.mdTypingBegun[i] !== msg.id) {
+        kept.push(this.mdTypingBegun[i]);
+      }
+      i += 1;
+    }
+    this.mdTypingBegun = kept;
+  }
+
+  private dropSessionControllers(sess: ChatSession): void {
+    let i: number = 0;
+    while (i < sess.messages.length) {
+      const id: string = sess.messages[i].id;
+      this.mdControllers.delete(id);
+      i += 1;
+    }
+    const kept: string[] = [];
+    let j: number = 0;
+    while (j < this.mdTypingBegun.length) {
+      if (!this.mdControllers.has(this.mdTypingBegun[j])) {
+        // 已删驱动的 begun 标记一并清理（has 判空，无额外查找）。
+      } else {
+        kept.push(this.mdTypingBegun[j]);
+      }
+      j += 1;
+    }
+    this.mdTypingBegun = kept;
+  }
+
+  private onMarkdownLink(href: string): void {
+    const action: MdClickAction = MarkdownService.routeHref(href);
+    if (action.kind === 'cite') {
+      // @DeferDecision: 引用来源列表待模型侧提供 URL，当前仅落 toast + 日志不断链。
+      this.toast(`引用来源 [${action.index}]（来源列表待模型侧提供）`);
+      hilog.info(DOMAIN, TAG, 'citation clicked: %{public}d', action.index);
+      return;
+    }
+    if (action.kind === 'open') {
+      this.openExternalUrl(action.target);
+      return;
+    }
+    this.toast('该链接暂不支持打开');
+    hilog.warn(DOMAIN, TAG, 'blocked unsafe link');
+  }
+
+  private onMarkdownImage(src: string): void {
+    this.previewImage = src;
+  }
+
+  private async openExternalUrl(url: string): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await hostCtx.startAbility({
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: url,
+      });
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'open url failed: %{public}s', String(err));
+      this.toast('无法打开链接');
+    }
+  }
+
   private canSend(): boolean {
     if (this.currentApiKey.trim().length === 0) {
       this.noticeText = `未配置 [${this.getProviderName(this.currentProviderId)}] 的 API Key，请先在设置中添加`;
@@ -1352,6 +1476,10 @@ export struct ChatView {
       const thinkingStartTime: number = Date.now();
       let thinkingEndTime: number = 0;
 
+      // 流式 Markdown 驱动器：随本轮回复创建，随完成/失败/停止销毁。
+      const mdCtl: MarkdownController = new MarkdownController({});
+      this.mdControllers.set(assistantMsg.id, mdCtl);
+
       const callbacks: StreamCallbacks = {
         onToken: (token: string, reasoningChunk?: string) => {
           if (reasoningChunk && reasoningChunk.length > 0) {
@@ -1377,6 +1505,7 @@ export struct ChatView {
             }
             assistantMsg.content += token;
           }
+          this.driveMarkdown(assistantMsg);
           this.rebuildSessionReference();
           // 顶部锚定：把回答首行推到容器顶部即停住，而非持续跟底。
           this.scheduleAnchor();
@@ -1384,6 +1513,7 @@ export struct ChatView {
         onComplete: () => {
           assistantMsg.status = 'success';
           this.isGenerating = false;
+          this.finishMarkdown(assistantMsg, false);
           if (assistantMsg.reasoningContent && assistantMsg.reasoningContent.length > 0) {
             if (!assistantMsg.thinkingDuration) {
               const dur: number = Math.max(1, Math.round(((thinkingEndTime > 0 ? thinkingEndTime : Date.now()) - thinkingStartTime) / 1000));
@@ -1404,6 +1534,7 @@ export struct ChatView {
           assistantMsg.status = 'error';
           assistantMsg.errorMessage = errMsg;
           this.isGenerating = false;
+          this.finishMarkdown(assistantMsg, true);
           this.rebuildSessionReference();
           this.saveState();
           finish();
@@ -1589,6 +1720,14 @@ export struct ChatView {
         const lastMsg: ChatMessage = path[path.length - 1];
         if (lastMsg.status === 'streaming') {
           lastMsg.status = 'success';
+          const ctl: MarkdownController | undefined = this.mdControllers.get(lastMsg.id);
+          if (ctl !== undefined) {
+            try {
+              ctl.typing.stop();
+            } catch (_e) {
+            }
+          }
+          this.finishMarkdown(lastMsg, true);
         }
       }
       this.rebuildSessionReference();
@@ -1800,7 +1939,7 @@ export struct ChatView {
               this.MessageBubble(msg)
             }
             .margin({ top: 10, bottom: 10 })
-          }, (msg: ChatMessage) => `${msg.id}_${msg.content.length}_${msg.status}_${msg.reasoningContent ? msg.reasoningContent.length : 0}_${this.isReasonCollapsed(msg.id) ? 'c' : 'e'}_${this.reasonVersion}`)
+            }, (msg: ChatMessage) => `${msg.id}_${msg.status}_${this.isReasonCollapsed(msg.id) ? 'c' : 'e'}_${this.reasonVersion}_${Math.round(this.appFontScale * 100)}_${this.appearance}`)
         }
         .width('100%')
         .layoutWeight(1)
@@ -1926,6 +2065,35 @@ export struct ChatView {
       .width('100%')
       .height('100%')
       .backgroundColor('#FFFFFF')
+
+      // ── 图片预览浮层（Markdown 图片点击，全屏深底 + 点空白/按钮关闭） ──
+      if (this.previewImage.length > 0) {
+        Column() {
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.previewImage = '';
+            })
+          Image(this.previewImage)
+            .width('92%')
+            .objectFit(ImageFit.Contain)
+            .constraintSize({ maxHeight: '70%' })
+            .borderRadius(12)
+          Blank()
+            .layoutWeight(1)
+            .onClick(() => {
+              this.previewImage = '';
+            })
+          Button('关闭')
+            .margin({ bottom: 28 })
+            .onClick(() => {
+              this.previewImage = '';
+            })
+        }
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+      }
 
       // ── 0. 回到底部浮动按钮（视口离开底部时优雅浮现） ──
       if (this.showJumpBottom) {
@@ -3118,13 +3286,27 @@ export struct ChatView {
             .margin({ bottom: 8 })
           }
 
-          // 正文回复：像 DeepSeek 一样直接排版输出在页面上，字号 15vp，行高舒适
+          // 正文回复：FluidMarkdown 原生渲染（GFM）；流式中走 Typing 增量，完成后走 Normal。
+          // Reason: key 已去掉 content/reasoning 长度（稳定实例防闪烁），文本经父重建下发，
+          //   流式帧由库内 hash 差量 + 打字机 pacing 消化。
           if (msg.content.length > 0) {
-            Text(msg.content)
-              .fontSize(15 * this.appFontScale)
-              .fontColor('#111827')
-              .lineHeight(24 * this.appFontScale)
-              .copyOption(CopyOptions.InApp)
+            MarkdownBody({
+              content: MarkdownService.rewriteCitations(msg.content),
+              streaming: this.isLiveStreaming(msg),
+              fontScale: this.appFontScale,
+              darkMode: this.isDarkMode(),
+              controller: this.mdControllers.get(msg.id),
+              onLinkClick: (href: string) => {
+                this.onMarkdownLink(href);
+              },
+              onImageClick: (src: string) => {
+                this.onMarkdownImage(src);
+              },
+              onMdResize: () => {
+                this.scheduleAnchor();
+              },
+            })
+            .width('100%')
           } else if (msg.status === 'streaming') {
             Row() {
               LoadingProgress().width(18).height(18).color('#4D6BFE')
