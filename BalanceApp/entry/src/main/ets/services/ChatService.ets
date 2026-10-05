@@ -307,7 +307,7 @@ export class ChatService {
     while (j >= start) {
       const c: Record<string, string> = candidates[j];
       let rcLen: number = 0;
-      if ('reasoning_content' in c && typeof c['reasoning_content'] === 'string') {
+      if (typeof c['reasoning_content'] === 'string') {
         rcLen = (c['reasoning_content'] as string).length;
       }
       const total: number = c['content'].length + c['role'].length + 8 + rcLen;
