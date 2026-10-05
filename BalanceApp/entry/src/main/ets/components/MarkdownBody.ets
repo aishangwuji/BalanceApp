@@ -41,6 +41,12 @@ export struct MarkdownBody {
   /** 尺寸变化（流式长高时父级做锚定滚动）与打字完成通知。 */
   onMdResize: () => void = () => {};
   onTypingDone: () => void = () => {};
+  /**
+   * Typing 就绪通知：库要求 typing.update() 只能在 onMarkdownTypingReady 之后调用，
+   * 否则首帧 Begin 丢失致整个流式会话无效（流式期空白、结束才一次性全出）。
+   * 父级收到后才开始喂累计文本。
+   */
+  onTypingReady: () => void = () => {};
 
   private engine: BaseEngine = new BaseEngine();
   private innerController: MarkdownController = new MarkdownController({});
@@ -78,6 +84,10 @@ export struct MarkdownBody {
     this.onTypingDone();
   }
 
+  private handleTypingReady(_e: IMarkdownEvent): void {
+    this.onTypingReady();
+  }
+
   build() {
     if (this.streaming) {
       Markdown({
@@ -89,6 +99,9 @@ export struct MarkdownBody {
         },
         onMarkdownAreaChange: () => {
           this.onMdResize();
+        },
+        onMarkdownTypingReady: (e: IMarkdownEvent) => {
+          this.handleTypingReady(e);
         },
         onMarkdownTypingCompleted: (e: IMarkdownEvent) => {
           this.handleTypingDone(e);

@@ -200,6 +200,10 @@ export class MarkdownService {
         fontSize: LengthMetrics.vp(Math.round(15 * scale)),
         fontColor: dark ? '#E5E7EB' : '#111827',
       };
+      // Reason: 图片样式（theme.image）本次回退不设 —— 曾尝试 textBlock 居中 + maxHeight 限高，
+      //   随后出现 Markdown 整块空白，疑为普通对象不符合库内 StyledParagraphValue 级联预期、
+      //   在渲染期（try/catch 之外）异常致整块不渲染。先回退保渲染，居中方案待对照库源码再定。
+      //   （文档 font 的普通对象赋值是已验证安全的，保持。）
     } catch (_err) {
       // 主题为体验增强，失败不阻断渲染（库默认主题兜底）。
     }

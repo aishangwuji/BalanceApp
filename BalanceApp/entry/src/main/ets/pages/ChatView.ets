@@ -124,6 +124,13 @@ export struct ChatView {
   private userTookOver: boolean = false;
   private lastAnchorOffset: number = -1;
   private anchorCaptured: boolean = false;
+  // 单条回复只锚定一次：记下已锚定的消息 id，防每 token 重复 scrollToIndex 把用户拖动拽回。
+  private anchoredForMsgId: string = '';
+  // 思考区内嵌滚动跟随：定高 380 + Scroll，流式超出后新文本沉底不可见，需在底部时跟底。
+  private thinkScrollers: Map<string, Scroller> = new Map();
+  // 流式诊断计数（完成时打一行 hilog，区分"服务端一次性下发"与"UI 未刷新"）。
+  private reasonChunkCount: number = 0;
+  private contentChunkCount: number = 0;
   // 当前流式生成的完成回调（停止时唤醒等待链，避免挂起）
   private resolveCurrent: (() => void) | undefined = undefined;
 
@@ -614,14 +621,22 @@ export struct ChatView {
   // Business Rule: 流式生成时不跟随底部，而是把当前回答首行推到容器顶部后停住；
   //   后续 token 只增加内容高度，视口不动。用户手动滚动则暂停锚定。
 
-  private scheduleAnchor(): void {
+  private scheduleAnchor(msgId: string): void {
+    // Business Rule: 非生成态（历史浏览/图片后加载）一律不锚定；用户接管后不锚定；
+    //   同一条回复只锚定一次 —— 顶部固定后内容向下生长视口自然不动，无需每 token 重推。
+    //   异步时序推演：若顺序颠倒（用户先拖动、首 token 后到），userTookOver 已置 true，
+    //   本次锚定跳过，用户停留在自己的位置，不会被拽回。
+    if (!this.isGenerating || this.userTookOver || msgId.length === 0 || this.anchoredForMsgId === msgId) {
+      return;
+    }
+    const targetId: string = msgId;
     setTimeout(() => {
-      this.anchorStreamingReply();
+      this.anchorStreamingReply(targetId);
     }, 0);
   }
 
-  private anchorStreamingReply(): void {
-    if (this.userTookOver) {
+  private anchorStreamingReply(msgId: string): void {
+    if (!this.isGenerating || this.userTookOver || this.anchoredForMsgId === msgId) {
       return;
     }
     const path: ChatMessage[] = this.activePath();
@@ -632,6 +647,9 @@ export struct ChatView {
     try {
       // ScrollAlign.START：把末条（当前回答）首行对齐容器顶部；内容不足时自动收敛为跟底。
       this.scroller.scrollToIndex(idx, false, ScrollAlign.START);
+      // 锚定成功才落标记：抛异常则不记，下个 token 可重试。
+      this.anchoredForMsgId = msgId;
+      hilog.info(DOMAIN, TAG, 'anchored reply to index %{public}d', idx);
       this.anchorCaptured = false;
       setTimeout(() => {
         try {
@@ -679,6 +697,18 @@ export struct ChatView {
       if (this.scroller.isAtEnd()) {
         this.showJumpBottom = false;
         this.userTookOver = false;
+        return;
+      }
+      // 条目内接管检测：onScrollIndex 只能感知条目间滚动（end < total-1），
+      //   在超长单条气泡内部拖动时 end 恒为末条，必须用 offset 差值判定，
+      //   否则流式中用户在回答内部的任何拖动都会被下一次锚定拽回（体感"拉不动"）。
+      if (this.anchorCaptured && this.anchoredForMsgId.length > 0) {
+        const cur: number = this.scroller.currentOffset().yOffset;
+        const drift: number = Math.abs(cur - this.lastAnchorOffset);
+        if (drift > 30) {
+          this.userTookOver = true;
+          this.showJumpBottom = true;
+        }
       }
     } catch (_e) {
     }
@@ -743,6 +773,8 @@ export struct ChatView {
     this.currentSessionId = newId;
     this.pendingMentions = [];
     this.showMentionPicker = false;
+    this.anchoredForMsgId = '';
+    this.anchorCaptured = false;
     await this.saveState();
     this.scrollToBottom();
   }
@@ -761,6 +793,8 @@ export struct ChatView {
     }
     this.showDrawer = false;
     this.initCollapsedReasons();
+    this.anchoredForMsgId = '';
+    this.anchorCaptured = false;
     await ChatStorageService.saveActiveSessionId(sessionId);
     this.scrollToBottom();
   }
@@ -1237,7 +1271,22 @@ export struct ChatView {
   // ── Markdown 渲染接入（FluidMarkdown） ──
 
   private isDarkMode(): boolean {
-    return this.appearance === 'dark';
+    return this.appDark;
+  }
+
+  /**
+   * Reason: ForEach 同 key 会复用旧快照不刷新，流式期必须让相关条目重建。
+   *   正文未出现前把思考字数纳入 key（'R<n>'），使思考文本随 token 逐帧刷新
+   *   （此时 MarkdownBody 尚未挂载，重建无副作用）；正文一旦出现即切换为固定的 'C'，
+   *   key 从此稳定，MarkdownBody 只挂载一次、后续增量由 controller 驱动（不重建防闪）。
+   * Business Rule: 有正文后思考内容按约定冻结，key 不再随思考长度变化。
+   */
+  private msgContentPhaseKey(msg: ChatMessage): string {
+    if (msg.content.length > 0) {
+      return 'C';
+    }
+    const rLen: number = msg.reasoningContent ? msg.reasoningContent.length : 0;
+    return rLen > 0 ? `R${rLen}` : 'E';
   }
 
   /** 仅当消息仍在流式且驱动器存活时走 Typing；否则一律 Normal（防僵尸流式）。 */
@@ -1245,8 +1294,94 @@ export struct ChatView {
     return msg.status === 'streaming' && this.mdControllers.has(msg.id);
   }
 
-  /** 每 token 喂累计文本（库内取最新合并、hash 差量、打字机 pacing）。 */
+  /** 思考区内嵌 Scroller（懒建随消息 id 存活，删会话时清理，防泄漏）。 */
+  private thinkScrollerFor(id: string): Scroller {
+    const existed: Scroller | undefined = this.thinkScrollers.get(id);
+    if (existed !== undefined) {
+      return existed;
+    }
+    const created: Scroller = new Scroller();
+    this.thinkScrollers.set(id, created);
+    return created;
+  }
+
+  /**
+   * 思考区跟底：仅当内滚动已在底部时跟随（用户上翻查看旧思考时不动，
+   *   否则就是外层锚定"拽回" bug 在小框里的重演）。
+   */
+  private followThinking(msgId: string): void {
+    const sc: Scroller | undefined = this.thinkScrollers.get(msgId);
+    if (sc === undefined) {
+      return;
+    }
+    try {
+      // Reason: 思考文本经 ForEach key（R<n>）变化会重建条目，内嵌 Scroll 的滚动位置随之重置，
+      //   isAtEnd() 判断会误判为"不在底部"而放弃跟随，导致长思考沉底不可见。
+      //   生成期间（本方法仅在 onToken 路径被调）统一贴底即可；生成结束不再调用，用户可自由翻阅。
+      sc.scrollEdge(Edge.Bottom);
+    } catch (_e) {
+    }
+  }
+
+  /** 库 Typing 就绪：只记标记，Begin 由下一拍 driveMarkdown 用累计文本发出（无损）。 */
+  private onMarkdownReady(msgId: string): void {
+    // 完成/停止后 controller 已删，天然忽略迟到就绪。
+    if (this.mdControllers.has(msgId) && !this.mdTypingReady.includes(msgId)) {
+      this.mdTypingReady.push(msgId);
+    }
+  }
+
+  /**
+   * 流式刷新节流（~8fps）：driveMarkdown + 整表重建 + 思考跟随统一压到 tick。
+   * Reason: token 可达百 Hz，直驱全表重建会压垮 UI 线程致刷新合并成"一次性"；
+   *   喂给库的永远是累计文本，合并无损。完成/停止走直接重建，不经此门。
+   */
+  private refreshStreamView(msg: ChatMessage): void {
+    const now: number = Date.now();
+    if (now - this.lastRefreshAt < 120) {
+      if (!this.refreshPending) {
+        this.refreshPending = true;
+        const targetId: string = msg.id;
+        setTimeout(() => {
+          this.refreshPending = false;
+          this.lastRefreshAt = Date.now();
+          const target: ChatMessage | undefined = this.findLiveMessage(targetId);
+          if (target !== undefined) {
+            this.driveMarkdown(target);
+          }
+          this.rebuildSessionReference();
+          this.followThinking(targetId);
+        }, 120);
+      }
+      return;
+    }
+    this.lastRefreshAt = now;
+    this.driveMarkdown(msg);
+    this.rebuildSessionReference();
+    this.followThinking(msg.id);
+  }
+
+  /** 跨会话按 id 找存活消息（节流 tick 触发时原对象引用仍有效，此为兜底）。 */
+  private findLiveMessage(id: string): ChatMessage | undefined {
+    let si: number = 0;
+    while (si < this.sessions.length) {
+      const sess: ChatSession = this.sessions[si];
+      let mi: number = 0;
+      while (mi < sess.messages.length) {
+        if (sess.messages[mi].id === id) {
+          return sess.messages[mi];
+        }
+        mi += 1;
+      }
+      si += 1;
+    }
+    return undefined;
+  }
   private driveMarkdown(msg: ChatMessage): void {
+    // 库契约：update 只能在 TypingReady 之后；就绪前跳过（不记 begun），就绪后首帧即 Begin。
+    if (!this.mdTypingReady.includes(msg.id)) {
+      return;
+    }
     const ctl: MarkdownController | undefined = this.mdControllers.get(msg.id);
     if (ctl === undefined) {
       return;
@@ -1266,22 +1401,28 @@ export struct ChatView {
   /** 收尾：正常结束刷 End 帧吐完 pacing 队列；中断则直接停。随后删驱动器防泄漏。 */
   private finishMarkdown(msg: ChatMessage, stopped: boolean): void {
     const ctl: MarkdownController | undefined = this.mdControllers.get(msg.id);
-    if (ctl !== undefined && !stopped) {
+    // 未 Begin（就绪前即完成）则不发 End，无会话可收尾。
+    if (ctl !== undefined && !stopped && this.mdTypingBegun.includes(msg.id)) {
       try {
         ctl.typing.update(MarkdownService.rewriteCitations(msg.content), ETypingMode.End, false);
       } catch (_e) {
       }
     }
     this.mdControllers.delete(msg.id);
+    this.mdTypingReady = this.withoutId(this.mdTypingReady, msg.id);
+    this.mdTypingBegun = this.withoutId(this.mdTypingBegun, msg.id);
+  }
+
+  private withoutId(list: string[], id: string): string[] {
     const kept: string[] = [];
     let i: number = 0;
-    while (i < this.mdTypingBegun.length) {
-      if (this.mdTypingBegun[i] !== msg.id) {
-        kept.push(this.mdTypingBegun[i]);
+    while (i < list.length) {
+      if (list[i] !== id) {
+        kept.push(list[i]);
       }
       i += 1;
     }
-    this.mdTypingBegun = kept;
+    return kept;
   }
 
   private dropSessionControllers(sess: ChatSession): void {
@@ -1289,6 +1430,7 @@ export struct ChatView {
     while (i < sess.messages.length) {
       const id: string = sess.messages[i].id;
       this.mdControllers.delete(id);
+      this.thinkScrollers.delete(id);
       i += 1;
     }
     const kept: string[] = [];
@@ -1302,6 +1444,15 @@ export struct ChatView {
       j += 1;
     }
     this.mdTypingBegun = kept;
+    const keptReady: string[] = [];
+    let k: number = 0;
+    while (k < this.mdTypingReady.length) {
+      if (this.mdControllers.has(this.mdTypingReady[k])) {
+        keptReady.push(this.mdTypingReady[k]);
+      }
+      k += 1;
+    }
+    this.mdTypingReady = keptReady;
   }
 
   private onMarkdownLink(href: string): void {
@@ -1438,10 +1589,15 @@ export struct ChatView {
       sess.updatedAt = Date.now();
       this.rebuildSessionReference();
       this.isGenerating = true;
-      // 新一轮生成：重置锚定，先跟随到底，再由锚定逻辑把首行推顶。
+      // 新一轮生成：重置锚定，先跟随到底，再由锚定逻辑把首行推顶（首 token 到达时一次性执行）。
       this.userTookOver = false;
       this.showJumpBottom = false;
       this.anchorCaptured = false;
+      this.anchoredForMsgId = '';
+      this.reasonChunkCount = 0;
+      this.contentChunkCount = 0;
+      this.lastRefreshAt = 0;
+      this.refreshPending = false;
       this.scrollToBottom();
 
       const finish = (): void => {
@@ -1491,36 +1647,43 @@ export struct ChatView {
         onToken: (token: string, reasoningChunk?: string) => {
           if (reasoningChunk && reasoningChunk.length > 0) {
             assistantMsg.reasoningContent = (assistantMsg.reasoningContent || '') + reasoningChunk;
+            this.reasonChunkCount += 1;
             // 思考生成中：确保不处于折叠状态，保持展开
             const cIdx: number = this.collapsedReasons.indexOf(assistantMsg.id);
             if (cIdx >= 0) {
               this.collapsedReasons.splice(cIdx, 1);
             }
+            // 思考跟随在节流 tick 内统一做（refreshStreamView），此处只做数据追加。
           }
           if (token && token.length > 0) {
+            this.contentChunkCount += 1;
             if (thinkingEndTime === 0 && assistantMsg.reasoningContent && assistantMsg.reasoningContent.length > 0) {
               thinkingEndTime = Date.now();
               const elapsedSec: number = Math.max(1, Math.round((thinkingEndTime - thinkingStartTime) / 1000));
               assistantMsg.thinkingDuration = elapsedSec;
               // 思考完毕，正文开始：自动折叠为已思考
+              // Reason: 只 push 不 bump reasonVersion —— 折叠态 e→c 已在 ForEach key 中，
+              //   本条目照常刷新；bump 会改全表 key 致 List 整表重建、滚动归零（流式中跳顶）。
               if (this.autoCollapseThinking) {
                 if (!this.collapsedReasons.includes(assistantMsg.id)) {
                   this.collapsedReasons.push(assistantMsg.id);
-                  this.reasonVersion += 1;
                 }
               }
             }
             assistantMsg.content += token;
           }
-          this.driveMarkdown(assistantMsg);
-          this.rebuildSessionReference();
-          // 顶部锚定：把回答首行推到容器顶部即停住，而非持续跟底。
-          this.scheduleAnchor();
+          // 高频刷新节流：driveMarkdown/重建/跟随统一压到 tick（~8fps），累计文本无损。
+          this.refreshStreamView(assistantMsg);
+          // 顶部锚定：首 token 把回答首行推到容器顶部即停住（单条只一次），而非持续跟底。
+          this.scheduleAnchor(assistantMsg.id);
         },
         onComplete: () => {
           assistantMsg.status = 'success';
           this.isGenerating = false;
           this.finishMarkdown(assistantMsg, false);
+          const rLen: number = assistantMsg.reasoningContent ? assistantMsg.reasoningContent.length : 0;
+          hilog.info(DOMAIN, TAG, 'stream done: reasoning %{public}d chunks/%{public}d chars, content %{public}d chunks/%{public}d chars',
+            this.reasonChunkCount, rLen, this.contentChunkCount, assistantMsg.content.length);
           if (assistantMsg.reasoningContent && assistantMsg.reasoningContent.length > 0) {
             if (!assistantMsg.thinkingDuration) {
               const dur: number = Math.max(1, Math.round(((thinkingEndTime > 0 ? thinkingEndTime : Date.now()) - thinkingStartTime) / 1000));
@@ -1532,7 +1695,11 @@ export struct ChatView {
               }
             }
           }
-          this.reasonVersion += 1;
+          // Reason: 此处不 bump reasonVersion —— status streaming→success 已在 ForEach key 中，
+          //   本条目会重建并切到 Normal 全量渲染；bump 会改全表 key 致 List 整表重建、
+          //   滚动归零到顶部、新回复沉底不可见（体感"回复消失"）。
+          //   注意 toggleReason 的 bump 必须保留：collapsedReasons 非 @State，
+          //   那里靠 reasonVersion 本身触发渲染（本两处都有 rebuildSessionReference 兜底）。
           this.rebuildSessionReference();
           this.saveState();
           finish();
@@ -1811,14 +1978,9 @@ export struct ChatView {
   }
 
   private handleScrollAnchorOnHeightChange(msgId: string, delta: number): void {
-    // 虚拟列表高度改变，通知重新计算
-    this.reasonVersion += 1;
-
-    // 流式生成中保持顶部锚定
-    if (this.isGenerating && !this.userTookOver) {
-      this.scheduleAnchor();
-      return;
-    }
+    // Reason: 高度变化只做 offset 记账，不再 bump reasonVersion（否则 ForEach key 全变致整表重建、滚动跳变），
+    //   也不再每 token 重锚定（首 token 的一次性锚定已足够，重复 scrollToIndex 会与用户拖动互斥致页面拉不动）。
+    //   参数保留签名供未来阈值策略使用（ArkTS 允许形参暂不读取）。
 
     // 浏览模式下平滑同步滚动锚点，防止视口异常跳变
     try {
@@ -1946,7 +2108,7 @@ export struct ChatView {
               this.MessageBubble(msg)
             }
             .margin({ top: 10, bottom: 10 })
-            }, (msg: ChatMessage) => `${msg.id}_${msg.status}_${this.isReasonCollapsed(msg.id) ? 'c' : 'e'}_${this.reasonVersion}_${Math.round(this.appFontScale * 100)}_${this.appearance}`)
+            }, (msg: ChatMessage) => `${msg.id}_${msg.status}_${this.isReasonCollapsed(msg.id) ? 'c' : 'e'}_${this.reasonVersion}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`)
         }
         .width('100%')
         .layoutWeight(1)
@@ -3224,31 +3386,33 @@ export struct ChatView {
           // 深度思考折叠条（纯净 DeepSeek 风格：灰字「已思考（用时 X 秒）」+ 旋转小三角 + 展开左侧竖线装饰）
           if (msg.reasoningContent && msg.reasoningContent.length > 0) {
             Column() {
-              // 标题栏：负责状态展示和点击切换
+              // 标题栏：整行可点（44px 级触区），负责状态展示和点击切换
               Row() {
                 if (this.isMsgThinkingStreaming(msg)) {
                   LoadingProgress()
                     .width(14)
                     .height(14)
-                    .color('#6B7280')
+                    .color($r('app.color.reasoning_text'))
                     .margin({ right: 6 })
                 }
                 Text(this.reasonDisplayTitle(msg))
                   .fontSize(13)
-                  .fontColor('#6B7280')
+                  .fontColor($r('app.color.reasoning_text'))
                   .fontWeight(FontWeight.Normal)
 
-                // 箭头旋转动效（折叠 0 度指向右，展开 90 度指向下）
+                // 箭头旋转动效（折叠 0 度指向右，展开 90 度指向下）；加大内边距保触区
                 Text('›')
                   .fontSize(16)
-                  .fontColor('#9CA3AF')
+                  .fontColor($r('app.color.reasoning_muted'))
                   .fontWeight(FontWeight.Medium)
                   .margin({ left: 4 })
+                  .padding({ left: 12, right: 12, top: 8, bottom: 8 })
                   .rotate({ angle: this.isReasonCollapsed(msg.id) ? 0 : 90 })
                   .animation({ duration: 250, curve: Curve.FastOutSlowIn })
               }
               .alignItems(VerticalAlign.Center)
-              .padding({ top: 4, bottom: 6 })
+              .width('100%')
+              .padding({ top: 10, bottom: 10 })
               .onClick(() => {
                 this.toggleReason(msg.id);
               })
@@ -3257,14 +3421,14 @@ export struct ChatView {
               Row() {
                 Column()
                   .width(2)
-                  .backgroundColor('#E5E7EB')
+                  .backgroundColor($r('app.color.reasoning_bar'))
                   .borderRadius(1)
                   .margin({ right: 10, top: 4, bottom: 4 })
 
-                Scroll() {
+                Scroll(this.thinkScrollerFor(msg.id)) {
                   Text(msg.reasoningContent)
                     .fontSize(13 * this.appFontScale)
-                    .fontColor('#6B7280')
+                    .fontColor($r('app.color.reasoning_text'))
                     .lineHeight(20 * this.appFontScale)
                     .width('100%')
                 }
@@ -3310,7 +3474,11 @@ export struct ChatView {
                 this.onMarkdownImage(src);
               },
               onMdResize: () => {
-                this.scheduleAnchor();
+                // 门控在 scheduleAnchor 内：非生成态/已接管/已锚定一律直接返回，不拽视口。
+                this.scheduleAnchor(msg.id);
+              },
+              onTypingReady: () => {
+                this.onMarkdownReady(msg.id);
               },
             })
             .width('100%')
@@ -3352,29 +3520,29 @@ export struct ChatView {
     }
   }
 
-  // 分支切换控件：< i/n >，仅在存在多个版本时由调用方渲染。
+  // 分支切换控件：< i/n >，仅在存在多个版本时由调用方渲染；箭头加大内边距保触区。
   @Builder
   BranchSwitcher(msg: ChatMessage) {
     Row() {
       Text('‹')
         .fontSize(18)
         .fontColor('#4D6BFE')
-        .padding({ left: 10, right: 10 })
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
         .onClick(() => {
           this.switchBranch(msg, -1);
         })
       Text(`${this.branchIndex(msg) + 1}/${this.branchCount(msg)}`)
         .fontSize(12)
-        .fontColor('#666666')
+        .fontColor($r('app.color.text_secondary'))
       Text('›')
         .fontSize(18)
         .fontColor('#4D6BFE')
-        .padding({ left: 10, right: 10 })
+        .padding({ left: 16, right: 16, top: 10, bottom: 10 })
         .onClick(() => {
           this.switchBranch(msg, 1);
         })
     }
-    .backgroundColor('#FFFFFF')
+    .backgroundColor($r('app.color.surface'))
     .borderRadius(12)
   }
 }
