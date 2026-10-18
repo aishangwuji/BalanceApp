@@ -784,7 +784,12 @@ export struct ChatView {
     this.scrollToBottom();
   }
 
-  private async switchSession(sessionId: string): Promise<void> {
+  /**
+   * 切换当前会话。
+   * @param sessionId 目标任务会话 id。
+   * @param closeDrawer 是否收起历史抽屉（删除会话时为 false，便于连续删除）。
+   */
+  private async switchSession(sessionId: string, closeDrawer: boolean = true): Promise<void> {
     this.currentSessionId = sessionId;
     this.pendingMentions = [];
     this.showMentionPicker = false;
@@ -796,7 +801,9 @@ export struct ChatView {
       await this.reloadApiKey();
       await this.refreshModelList();
     }
-    this.showDrawer = false;
+    if (closeDrawer) {
+      this.showDrawer = false;
+    }
     this.initCollapsedReasons();
     this.anchoredForMsgId = '';
     this.anchorCaptured = false;
@@ -831,7 +838,8 @@ export struct ChatView {
       if (this.sessions.length > 0) {
         // Reason: 删除当前会话后必须像 switchSession 一样重同步 provider/model/key，
         //   否则头部仍显示被删会话的模型、发送会用错厂商（见 switchSession 同构逻辑）。
-        await this.switchSession(this.sessions[0].id);
+        //   传入 closeDrawer=false：删除后保留历史抽屉，便于用户连续删除其他会话。
+        await this.switchSession(this.sessions[0].id, false);
       } else {
         await this.createNewSession();
       }
