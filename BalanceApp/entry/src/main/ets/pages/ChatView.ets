@@ -91,7 +91,7 @@ export struct ChatView {
   // 角色卡长按操作
   @State charActionId: string = '';
   @State showCharDeleteConfirm: boolean = false;
-  // 新会话角色多选（选2个以上自动进入群聊）
+  // 新会话角色选择（单选，一次只绑定一个角色）
   @State pendingParticipants: string[] = [];
   // 角色卡面板模式：select=新会话选择，manage=角色管理
   @State characterSheetMode: 'select' | 'manage' = 'select';
@@ -842,28 +842,19 @@ export struct ChatView {
   // ── 角色卡选择与编辑 ──
 
   private togglePendingParticipant(id: string): void {
-    const next: string[] = [];
-    let found: boolean = false;
-    let i: number = 0;
-    while (i < this.pendingParticipants.length) {
-      if (this.pendingParticipants[i] === id) {
-        found = true;
-      } else {
-        next.push(this.pendingParticipants[i]);
-      }
-      i += 1;
+    // Business Rule: 群聊已下线，新会话只绑定单个角色（单选）；再次点已选中的角色即取消。
+    if (this.pendingParticipants.length === 1 && this.pendingParticipants[0] === id) {
+      this.pendingParticipants = [];
+    } else {
+      this.pendingParticipants = [id];
     }
-    if (!found) {
-      next.push(id);
-    }
-    this.pendingParticipants = next;
   }
 
   private isPendingParticipant(id: string): boolean {
     return this.pendingParticipants.includes(id);
   }
 
-  /** 确认建联：单选绑定角色（含开场白），多选进入群聊（空白开场，由用户先发言）。 */
+  /** 确认建联：绑定单个角色（含开场白）；群聊已下线，只支持单聊。 */
   private async confirmParticipants(): Promise<void> {
     if (this.pendingParticipants.length === 0) {
       return;
@@ -981,15 +972,9 @@ export struct ChatView {
       };
       nextChars.unshift(created);
       this.currentCharacterId = created.id;
-      // 选择模式下，新建角色自动加入本次建联选择，方便直接开始对话。
-      if (this.characterSheetMode === 'select' && !this.pendingParticipants.includes(created.id)) {
-        const withNew: string[] = [created.id];
-        let pi: number = 0;
-        while (pi < this.pendingParticipants.length) {
-          withNew.push(this.pendingParticipants[pi]);
-          pi += 1;
-        }
-        this.pendingParticipants = withNew;
+      // 选择模式下，新建角色直接作为本次建联选择（单选）。
+      if (this.characterSheetMode === 'select') {
+        this.pendingParticipants = [created.id];
       }
     }
 
@@ -2617,32 +2602,55 @@ export struct ChatView {
             })
 
           Column() {
+            // 顶部拖动条（视觉提示下拉关闭）
+            Row()
+              .width(36)
+              .height(4)
+              .backgroundColor($r('app.color.border_card'))
+              .borderRadius(2)
+              .margin({ top: 10, bottom: 14 })
+
             Row() {
               Column() {
                 Text(this.characterSheetMode === 'manage' ? '角色管理' : '选择角色')
-                  .fontSize(17)
+                  .fontSize(18)
                   .fontWeight(FontWeight.Bold)
-                if (this.characterSheetMode === 'select') {
-                  Text('可多选；选2个以上进入群聊')
-                    .fontSize(11)
-                    .fontColor($r('app.color.text_muted'))
-                    .margin({ top: 2 })
-                }
+                  .fontColor($r('app.color.text_title'))
+                Text(this.characterSheetMode === 'manage' ? '管理你的角色卡与身份' : '选择一个角色开始对话')
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_muted'))
+                  .margin({ top: 3 })
               }
               .alignItems(HorizontalAlign.Start)
-              Blank()
+              .layoutWeight(1)
+
               if (this.characterSheetMode === 'manage') {
                 Button('+ 新建角色')
                   .fontSize(12)
                   .height(30)
                   .borderRadius(15)
+                  .backgroundColor($r('app.color.accent_soft'))
+                  .fontColor('#4D6BFE')
+                  .margin({ right: 10 })
                   .onClick(() => {
                     this.openCharEdit();
                   })
               }
+              Text('✕')
+                .fontSize(15)
+                .fontColor($r('app.color.text_secondary'))
+                .width(30)
+                .height(30)
+                .textAlign(TextAlign.Center)
+                .backgroundColor($r('app.color.fill'))
+                .borderRadius(15)
+                .onClick(() => {
+                  this.showCharacterSheet = false;
+                })
             }
             .width('92%')
-            .margin({ top: 18, bottom: 14 })
+            .alignItems(VerticalAlign.Center)
+            .margin({ bottom: 14 })
 
             // 我扮演（可选，仅建联时选择；锁定后不可更改）
             if (this.characterSheetMode === 'select') {
@@ -2705,30 +2713,41 @@ export struct ChatView {
                     Column() {
                       Text(char.name)
                         .fontSize(15)
-                        .fontWeight(this.isPendingParticipant(char.id) ? FontWeight.Bold : FontWeight.Normal)
+                        .fontWeight(this.isPendingParticipant(char.id) ? FontWeight.Bold : FontWeight.Medium)
                         .fontColor(this.isPendingParticipant(char.id) ? '#4D6BFE' : $r('app.color.text_primary'))
-                      Text(char.description)
-                        .fontSize(12)
-                        .fontColor($r('app.color.text_secondary'))
-                        .margin({ top: 4 })
-                        .maxLines(2)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      if (char.description.trim().length > 0) {
+                        Text(char.description)
+                          .fontSize(12)
+                          .fontColor($r('app.color.text_secondary'))
+                          .margin({ top: 4 })
+                          .maxLines(2)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      }
                     }
                     .alignItems(HorizontalAlign.Start)
                     .layoutWeight(1)
 
-                    if (this.isPendingParticipant(char.id)) {
-                      Text('已选')
-                        .fontSize(12)
-                        .fontColor('#FFFFFF')
-                        .backgroundColor('#4D6BFE')
-                        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-                        .borderRadius(12)
-                        .margin({ left: 8 })
-                    } else {
+                    if (this.characterSheetMode === 'manage') {
                       Text('›')
                         .fontSize(20)
                         .fontColor($r('app.color.icon_muted'))
+                        .margin({ left: 8 })
+                    } else if (this.isPendingParticipant(char.id)) {
+                      Text('✓')
+                        .fontSize(13)
+                        .fontColor('#FFFFFF')
+                        .width(22)
+                        .height(22)
+                        .textAlign(TextAlign.Center)
+                        .backgroundColor('#4D6BFE')
+                        .borderRadius(11)
+                        .margin({ left: 8 })
+                    } else {
+                      Row()
+                        .width(22)
+                        .height(22)
+                        .borderRadius(11)
+                        .border({ width: 1.5, color: $r('app.color.border_card') })
                         .margin({ left: 8 })
                     }
                   }
@@ -2736,6 +2755,10 @@ export struct ChatView {
                   .padding(14)
                   .borderRadius(12)
                   .backgroundColor(this.isPendingParticipant(char.id) ? $r('app.color.accent_soft_selected') : $r('app.color.surface_alt'))
+                  .border({
+                    width: this.characterSheetMode === 'select' && this.isPendingParticipant(char.id) ? 1.5 : 0,
+                    color: '#4D6BFE'
+                  })
                   .onClick(() => {
                     if (this.characterSheetMode === 'manage') {
                       this.openCharEdit(char);
@@ -2827,22 +2850,21 @@ export struct ChatView {
             }
 
             if (this.characterSheetMode === 'select') {
-              Button(this.pendingParticipants.length > 0 ? `开始对话（${this.pendingParticipants.length}）` : '开始对话')
+              Button('开始对话')
                 .width('92%')
-                .backgroundColor('#4D6BFE')
-                .fontColor('#FFFFFF')
-                .margin({ top: 10 })
+                .height(46)
+                .fontSize(15)
+                .borderRadius(23)
+                .backgroundColor(this.pendingParticipants.length > 0 ? '#4D6BFE' : $r('app.color.fill'))
+                .fontColor(this.pendingParticipants.length > 0 ? '#FFFFFF' : $r('app.color.text_muted'))
+                .margin({ top: 12, bottom: 22 })
                 .enabled(this.pendingParticipants.length > 0)
                 .onClick(() => {
                   this.confirmParticipants();
                 })
+            } else {
+              Blank().height(22)
             }
-            Button('关闭')
-              .width('92%')
-              .margin({ top: 8, bottom: 20 })
-              .onClick(() => {
-                this.showCharacterSheet = false;
-              })
           }
           .width('100%')
           .height('70%')
