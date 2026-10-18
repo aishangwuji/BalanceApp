@@ -11,13 +11,25 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/pages/Settings.ets
   - BalanceApp/entry/src/main/ets/pages/Assets.ets
   - BalanceApp/entry/src/main/resources/base/profile/main_pages.json
-last_verified_commit: uncommitted (working tree 2026-10-05)
+last_verified_commit: bbf85ea
 ---
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
-> 状态：Phase 1 已落地（@ 确定性路由 + 群聊链式生成，无 Jev）；Phase 2（Jev）待 Phase 0 评估。
+> 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 
-## 群聊 Phase 1（2026-10-05，已落地）
+## 对话会话体验修正（2026-10-18，已落地，构建通过）
+
+- 输入框（ChatView）：单行 TextInput → 多行 TextArea；折叠态固定两行高（`INPUT_BASE_HEIGHT=68`，
+  超出内容由 TextArea 内部滚动），右下角为矢量展开/收起图标按钮（`ic_expand.svg`/`ic_collapse.svg`，
+  `inputExpanded` 状态切换 `INPUT_EXPANDED_HEIGHT=200` 查看全文）；发送后自动收起；移除
+  `onSubmit`，回车改为换行（不再直接发送）。动态资源名走三元分支两处字面量，符 $r 规范。
+- 新会话角色单选：群聊下线后 `togglePendingParticipant` 改单选（再点已选中的角色取消），
+  `confirmParticipants` 恒为单聊；选择弹窗重做（顶部拖动条 + 标题/副标题 + 圆形关闭按钮 +
+  右侧单选圆圈，去掉冗余“关闭”按钮）；新建角色自动选中。
+- 删除会话保留抽屉：`switchSession(sessionId, closeDrawer=true)` 新增开关，`deleteSession`
+  删除当前会话时传 false，删完抽屉不收起，可连续长按删除其他会话。
+
+## 群聊 Phase 1（2026-10-05，已落地；已被“群聊下线”取代，仅存档）
 
 - 数据：`ChatMessage.speakerId/mentionedIds`，`ChatSession.participantIds/sceneMode/joinMap`，
   `CharacterCard.knowledge`；存储归一化补缺省并兼容旧数据。
