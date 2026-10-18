@@ -27,6 +27,9 @@ import { MarkdownController, ETypingMode } from 'fluid-markdown';
 const DOMAIN = 0x0000;
 const TAG = 'ChatView';
 const PREFS_NAME = 'balance_prefs';
+// 输入框固定高度（折叠态默认两行内滚动）与展开态高度，超出部分由 TextArea 内部滚动查看。
+const INPUT_BASE_HEIGHT = 68;
+const INPUT_EXPANDED_HEIGHT = 200;
 
 /** 无角色卡时的中性兜底：不附带任何系统设定与开场白。 */
 const EMPTY_CHARACTER: CharacterCard = {
@@ -47,6 +50,8 @@ export struct ChatView {
 
   // 消息流与输入
   @State inputText: string = '';
+  // 输入框展开态：折叠时固定两行高度内滚动，展开后可查看更全面的输入内容。
+  @State inputExpanded: boolean = false;
   @State isGenerating: boolean = false;
   @State showJumpBottom: boolean = false;
   @State noticeText: string = '';
@@ -1522,6 +1527,7 @@ export struct ChatView {
     }
 
     this.inputText = '';
+    this.inputExpanded = false;
     this.noticeText = '';
 
     if (sess.title === '新对话') {
@@ -2176,21 +2182,37 @@ export struct ChatView {
                   this.showMentionPicker = true;
                 })
             }
-            TextInput({ placeholder: '输入您的问题...', text: this.inputText })
-              .layoutWeight(1)
-              .height(44)
-              .borderRadius(22)
-              .backgroundColor($r('app.color.input_bg'))
-              .padding({ left: 16, right: 16 })
-              .onChange((val: string) => {
-                this.inputText = val;
+            // 多行输入：折叠态默认两行高度、超出内滚动，展开态加高以查看更全面的内容
+            Stack({ alignContent: Alignment.BottomEnd }) {
+              TextArea({ placeholder: '输入您的问题...', text: this.inputText })
+                .width('100%')
+                .height(this.inputExpanded ? INPUT_EXPANDED_HEIGHT : INPUT_BASE_HEIGHT)
+                .borderRadius(this.inputExpanded ? 16 : 23)
+                .backgroundColor($r('app.color.input_bg'))
+                .fontSize(15)
+                .padding({ left: 16, right: 46, top: 12, bottom: 12 })
+                .onChange((val: string) => {
+                  this.inputText = val;
+                })
+                .onFocus(() => {
+                  this.onInputFocus();
+                })
+
+              Stack() {
+                Image(this.inputExpanded ? $r('app.media.ic_collapse') : $r('app.media.ic_expand'))
+                  .width(15)
+                  .height(15)
+              }
+              .width(26)
+              .height(26)
+              .backgroundColor($r('app.color.accent_soft'))
+              .borderRadius(13)
+              .margin({ right: 10, bottom: 10 })
+              .onClick(() => {
+                this.inputExpanded = !this.inputExpanded;
               })
-              .onFocus(() => {
-                this.onInputFocus();
-              })
-              .onSubmit(() => {
-                this.sendMessage();
-              })
+            }
+            .layoutWeight(1)
 
             if (this.isGenerating) {
               Button('停止')
@@ -2217,6 +2239,7 @@ export struct ChatView {
             }
           }
           .width('96%')
+          .alignItems(this.inputExpanded ? VerticalAlign.Bottom : VerticalAlign.Center)
 
           // 深度思考开关：复用通用 ThinkingButton 组件（支持 DeepSeek、小米 MiMo、Kimi 等）
           ThinkingButton({
