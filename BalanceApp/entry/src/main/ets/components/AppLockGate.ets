@@ -62,7 +62,7 @@ export struct AppLockGate {
     }
     const session: number = ++this.authSession;
     this.authenticating = true;
-    const ok: boolean = await AuthService.authenticate('解锁 BalanceApp', true);
+    const ok: boolean = await AuthService.authenticate('解锁 BalanceApp');
     if (session !== this.authSession) {
       return;
     }

@@ -24,12 +24,16 @@ last_verified_commit: bbf85ea
 
 ## 应用锁与保密会话（2026-10-19，已落地，构建通过）
 
-- 系统认证封装 `services/AuthService.ets`：`authenticate(title, allowPin)` 走
-  `@kit.UserAuthenticationKit` 的 `userAuth.getUserAuthInstance`（FACE+FINGERPRINT，
-  `allowPin` 时附加 PIN），`AuthTrustLevel.ATL2`，challenge 用
+- 系统认证封装 `services/AuthService.ets`：`authenticate(title)` 走
+  `@kit.UserAuthenticationKit` 的 `userAuth.getUserAuthInstance`，认证类型
+  **必须同时含 FACE+FINGERPRINT+PIN**，`AuthTrustLevel.ATL2`，challenge 用
   `cryptoFramework` 随机 16 字节；`inProgress` 静态位供生命周期判断，避免认证弹窗
   引起的切后台重复锁定。权限 `ohos.permission.ACCESS_BIOMETRIC`（system_grant/normal）
   已加 `module.json5`。
+  - 坑位（真机实测）：系统 UserAuth 组件**不支持「仅人脸+指纹」组合**，
+    `CheckAuthWidgetParam: only face+finger not support` → `start()` 直接返错码 8、
+    弹窗不出现，调用方只会看到「验证未通过」。故必须带 PIN，系统弹窗仍优先引导
+    指纹/人脸，用户可自选。
 - 应用锁：设置页「安全 > 应用锁」开关，`SettingsService.setAppLockEnabled` 持久化到
   `balance_prefs` 的 `app_lock_enabled`；`app_locked` 为运行态。`EntryAbility.onWindowStageCreate`
   先 `await SettingsService.init` 再 loadContent（冷启动锁定态在首帧前就绪，避免露内容）；
@@ -39,8 +43,8 @@ last_verified_commit: bbf85ea
 - 保密会话：`ChatSession.isPrivate`（ChatModels/ChatStorageService normalize 缺省 false）。
   历史抽屉长按菜单新增「保密 / 取消保密」；列表项带锁形图标（`ic_lock.svg`），
   ForEach key 追加 `isPrivate` 指纹。点开保密会话走 `openSessionWithPrivacy`
-  （人脸/指纹-only 认证，不给 PIN 后门）；取消保密也需先认证，防止「不打开会话即可
-  解保再打开」的绕过。删除当前会话时优先切首个非保密会话，全为保密则新建空白会话。
+  （系统身份认证）；取消保密也需先认证，防止「不打开会话即可解保再打开」的绕过。
+  删除当前会话时优先切首个非保密会话，全为保密则新建空白会话。
 - 启动默认新会话：`ChatView.aboutToAppear` 不再读取/恢复 `active_session_id`，每次
   应用重启均 `createNewSession()`；`hasSession()` 随之删除（`loadActiveSessionId`
   保留为存储 API 未再调用）。

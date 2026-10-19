@@ -1018,7 +1018,7 @@ export struct ChatView {
   /** 从历史抽屉打开会话：保密会话需先通过人脸/指纹认证。 */
   private async openSessionWithPrivacy(sess: ChatSession): Promise<void> {
     if (sess.isPrivate) {
-      const ok: boolean = await AuthService.authenticate('解锁保密对话', false);
+      const ok: boolean = await AuthService.authenticate('解锁保密对话');
       if (!ok) {
         this.toast('身份验证未通过，无法打开该对话');
         return;
@@ -1039,7 +1039,7 @@ export struct ChatView {
       return;
     }
     if (target.isPrivate) {
-      const ok: boolean = await AuthService.authenticate('取消保密需要验证身份', false);
+      const ok: boolean = await AuthService.authenticate('取消保密需要验证身份');
       if (!ok) {
         this.toast('身份验证未通过');
         return;
@@ -1048,7 +1048,7 @@ export struct ChatView {
       this.toast('已取消保密');
     } else {
       target.isPrivate = true;
-      this.toast('已设为保密会话，下次打开需人脸或指纹验证');
+      this.toast('已设为保密会话，下次打开需验证身份');
     }
     this.sessActionId = '';
     this.rebuildSessionReference();

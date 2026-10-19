@@ -23,23 +23,26 @@ export class AuthService {
   }
 
   /**
-   * 拉起系统身份认证面板。
+   * 拉起系统身份认证面板（人脸/指纹/锁屏密码，由系统弹窗内自选）。
+   *
    * @param title 认证面板标题。
-   * @param allowPin true=允许锁屏密码（应用锁）；false=仅人脸/指纹（保密会话）。
    * @returns 认证是否通过；取消、失败或能力不可用均返回 false。
+   *
+   * Business Rule: 认证类型必须包含 PIN。系统 UserAuth 组件明确拒绝「仅人脸+指纹」
+   *   的组合（真机日志 `CheckAuthWidgetParam: only face+finger not support`，start 直接
+   *   返回错误码 8），会导致弹窗不出现、直接判定失败。带上 PIN 后系统弹窗仍优先引导
+   *   指纹/人脸，用户可自选，语义上满足「人脸或指纹」。
    */
-  public static authenticate(title: string, allowPin: boolean): Promise<boolean> {
+  public static authenticate(title: string): Promise<boolean> {
     if (AuthService.inProgress) {
       return Promise.resolve(false);
     }
 
     const authTypes: userAuth.UserAuthType[] = [
       userAuth.UserAuthType.FACE,
-      userAuth.UserAuthType.FINGERPRINT
+      userAuth.UserAuthType.FINGERPRINT,
+      userAuth.UserAuthType.PIN
     ];
-    if (allowPin) {
-      authTypes.push(userAuth.UserAuthType.PIN);
-    }
 
     let challenge: Uint8Array = new Uint8Array(0);
     try {

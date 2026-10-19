@@ -7,8 +7,11 @@
   `ChatSession.isPrivate` 本身也不带密钥保护。
 - 影响范围：`services/ChatStorageService.ets`、`pages/ChatView.ets`、`models/ChatModels.ets`；
   不涉及网络协议本身。
-- 安全现状（补偿）：保密会话打开/取消保密均须人脸或指纹认证；取消保密也要求认证，
+- 安全现状（补偿）：保密会话打开/取消保密均须系统身份认证；取消保密也要求认证，
   避免绕过；应用锁开启后切后台即遮挡内容。但具备 root/备份导出能力的一方仍可读取
   明文消息，UI 门禁不构成静态加密。
+- 平台约束：系统 UserAuth 组件不支持「仅人脸+指纹」，认证类型必须含 PIN
+  （真机 `only face+finger not support`）；因此保密会话的弹窗也可用锁屏密码完成认证，
+  无法在系统层面强制「仅生物识别」。
 - 追踪：与 TD-001（API Key 明文）一并评估迁移到 AssetStore 或加密数据库；
   迁移时按 `isPrivate` 决定是否整段加密，并做一次性数据搬迁。
