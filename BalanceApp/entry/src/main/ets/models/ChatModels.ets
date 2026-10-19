@@ -74,6 +74,8 @@ export interface ChatSession {
   joinMap: Record<string, string>;
   /** 本会话用户扮演的身份卡 id；''=普通用户。选定后锁定。 */
   userIdentityId: string;
+  /** 保密会话：打开该会话记录前必须通过人脸/指纹认证。 */
+  isPrivate: boolean;
 }
 
 export interface ModelInfo {

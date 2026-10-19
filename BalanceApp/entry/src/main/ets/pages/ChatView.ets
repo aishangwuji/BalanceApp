@@ -17,6 +17,7 @@ import {
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
+import { AuthService } from '../services/AuthService';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
@@ -156,24 +157,9 @@ export struct ChatView {
 
       // 加载会话
       this.sessions = await ChatStorageService.loadSessions();
-      const lastSessionId: string = await ChatStorageService.loadActiveSessionId();
-      if (lastSessionId.length > 0 && this.hasSession(lastSessionId)) {
-        this.currentSessionId = lastSessionId;
-        const cur: ChatSession | undefined = this.getCurrentSession();
-        if (cur) {
-          this.currentProviderId = cur.providerId;
-          this.currentModelId = cur.modelId;
-          this.currentCharacterId = cur.characterId;
-        }
-      } else if (this.sessions.length > 0) {
-        this.currentSessionId = this.sessions[0].id;
-        this.currentProviderId = this.sessions[0].providerId;
-        this.currentModelId = this.sessions[0].modelId;
-        this.currentCharacterId = this.sessions[0].characterId;
-      } else {
-        // 创建初始默认会话
-        await this.createNewSession();
-      }
+      // Business Rule: 每次应用重启都进入一个全新的空白会话，不再自动恢复上次会话；
+      //   保密会话（isPrivate）也因此不会在启动时被直接展开。
+      await this.createNewSession();
 
       // 历史会话思考过程初始化默认折叠
       this.initCollapsedReasons();
@@ -188,17 +174,6 @@ export struct ChatView {
   }
 
   // ── 数据辅助逻辑 ──
-
-  private hasSession(id: string): boolean {
-    let i: number = 0;
-    while (i < this.sessions.length) {
-      if (this.sessions[i].id === id) {
-        return true;
-      }
-      i += 1;
-    }
-    return false;
-  }
 
   private getCurrentSession(): ChatSession | undefined {
     let i: number = 0;
@@ -765,6 +740,7 @@ export struct ChatView {
       sceneMode: 'single',
       joinMap: {},
       userIdentityId: '',
+      isPrivate: false,
     };
     this.currentCharacterId = '';
 
@@ -835,16 +811,30 @@ export struct ChatView {
     this.sessions = nextList;
 
     if (this.currentSessionId === sessionId) {
-      if (this.sessions.length > 0) {
+      // Business Rule: 保密会话不能在删除当前会话后被自动展开（绕过认证）；
+      //   优先切到最近的非保密会话，若全部为保密则新建空白会话。
+      const nextId: string = this.firstNonPrivateSessionId();
+      if (nextId.length > 0) {
         // Reason: 删除当前会话后必须像 switchSession 一样重同步 provider/model/key，
         //   否则头部仍显示被删会话的模型、发送会用错厂商（见 switchSession 同构逻辑）。
         //   传入 closeDrawer=false：删除后保留历史抽屉，便于用户连续删除其他会话。
-        await this.switchSession(this.sessions[0].id, false);
+        await this.switchSession(nextId, false);
       } else {
         await this.createNewSession();
       }
     }
     await this.saveState();
+  }
+
+  private firstNonPrivateSessionId(): string {
+    let i: number = 0;
+    while (i < this.sessions.length) {
+      if (!this.sessions[i].isPrivate) {
+        return this.sessions[i].id;
+      }
+      i += 1;
+    }
+    return '';
   }
 
   // ── 角色卡选择与编辑 ──
@@ -1005,14 +995,64 @@ export struct ChatView {
   }
 
   private sessActionTitle(): string {
+    const target: ChatSession | undefined = this.sessionById(this.sessActionId);
+    return target !== undefined ? target.title : '';
+  }
+
+  private sessionById(id: string): ChatSession | undefined {
     let i: number = 0;
     while (i < this.sessions.length) {
-      if (this.sessions[i].id === this.sessActionId) {
-        return this.sessions[i].title;
+      if (this.sessions[i].id === id) {
+        return this.sessions[i];
       }
       i += 1;
     }
-    return '';
+    return undefined;
+  }
+
+  private sessActionIsPrivate(): boolean {
+    const target: ChatSession | undefined = this.sessionById(this.sessActionId);
+    return target !== undefined ? target.isPrivate : false;
+  }
+
+  /** 从历史抽屉打开会话：保密会话需先通过人脸/指纹认证。 */
+  private async openSessionWithPrivacy(sess: ChatSession): Promise<void> {
+    if (sess.isPrivate) {
+      const ok: boolean = await AuthService.authenticate('解锁保密对话', false);
+      if (!ok) {
+        this.toast('身份验证未通过，无法打开该对话');
+        return;
+      }
+    }
+    await this.switchSession(sess.id);
+  }
+
+  /**
+   * 切换会话保密标记。
+   * Business Rule: 关闭保密必须重新通过人脸/指纹认证，否则可在不打开会话的前提下
+   *   直接解除保密再打开，形成绕过路径；开启保密无需认证。
+   */
+  private async toggleSessPrivacy(): Promise<void> {
+    const target: ChatSession | undefined = this.sessionById(this.sessActionId);
+    if (target === undefined) {
+      this.sessActionId = '';
+      return;
+    }
+    if (target.isPrivate) {
+      const ok: boolean = await AuthService.authenticate('取消保密需要验证身份', false);
+      if (!ok) {
+        this.toast('身份验证未通过');
+        return;
+      }
+      target.isPrivate = false;
+      this.toast('已取消保密');
+    } else {
+      target.isPrivate = true;
+      this.toast('已设为保密会话，下次打开需人脸或指纹验证');
+    }
+    this.sessActionId = '';
+    this.rebuildSessionReference();
+    await this.saveState();
   }
 
   private beginRename(): void {
@@ -2341,12 +2381,22 @@ export struct ChatView {
                   ListItem() {
                     Row() {
                       Column() {
-                        Text(sess.title)
-                          .fontSize(15)
-                          .fontWeight(sess.id === this.currentSessionId ? FontWeight.Bold : FontWeight.Normal)
-                          .fontColor(sess.id === this.currentSessionId ? '#4D6BFE' : $r('app.color.text_primary'))
-                          .maxLines(1)
-                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        Row() {
+                          if (sess.isPrivate) {
+                            Image($r('app.media.ic_lock'))
+                              .width(13)
+                              .height(13)
+                              .margin({ right: 4 })
+                          }
+                          Text(sess.title)
+                            .fontSize(15)
+                            .fontWeight(sess.id === this.currentSessionId ? FontWeight.Bold : FontWeight.Normal)
+                            .fontColor(sess.id === this.currentSessionId ? '#4D6BFE' : $r('app.color.text_primary'))
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .layoutWeight(1)
+                        }
+                        .width('100%')
                         Text(`${this.getProviderName(sess.providerId)} · ${sess.messages.length} 条消息`)
                           .fontSize(11)
                           .fontColor($r('app.color.text_muted'))
@@ -2364,14 +2414,14 @@ export struct ChatView {
                     .backgroundColor(sess.id === this.currentSessionId ? $r('app.color.accent_soft_selected') : $r('app.color.surface'))
                     .borderRadius(10)
                     .onClick(() => {
-                      this.switchSession(sess.id);
+                      this.openSessionWithPrivacy(sess);
                     })
                     .gesture(LongPressGesture({ repeat: false }).onAction(() => {
                       this.openSessActions(sess.id);
                     }))
                   }
                   .margin({ bottom: 6 })
-                }, (sess: ChatSession) => `${sess.id}_${sess.title}_${sess.updatedAt}`)
+                }, (sess: ChatSession) => `${sess.id}_${sess.title}_${sess.updatedAt}_${sess.isPrivate ? 1 : 0}`)
               }
               .width('94%')
               .layoutWeight(1)
@@ -3143,6 +3193,9 @@ export struct ChatView {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .margin({ top: 18, bottom: 10 })
+            this.MsgActionRow(this.sessActionIsPrivate() ? '取消保密' : '保密', () => {
+              this.toggleSessPrivacy();
+            })
             this.MsgActionRow('重命名', () => {
               this.beginRename();
             })

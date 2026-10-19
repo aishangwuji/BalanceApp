@@ -293,6 +293,7 @@ export class ChatStorageService {
         sceneMode: sceneMode,
         joinMap: joinMap,
         userIdentityId: typeof rec['userIdentityId'] === 'string' ? rec['userIdentityId'] as string : '',
+        isPrivate: rec['isPrivate'] === true,
       };
       out.push(session);
     }
