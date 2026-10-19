@@ -17,14 +17,16 @@ import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want 
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { I18nService } from '../services/I18nService';
-import { SettingsService, KEY_APP_APPEARANCE, KEY_APP_DARK } from '../services/SettingsService';
+import {
+  SettingsService, KEY_APP_APPEARANCE, KEY_APP_DARK, KEY_APP_LOCK_ENABLED, KEY_APP_LOCKED
+} from '../services/SettingsService';
+import { AuthService } from '../services/AuthService';
 
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     I18nService.init(this.context);
-    SettingsService.init(this.context);
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
   }
 
@@ -41,9 +43,12 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
 
-  onWindowStageCreate(windowStage: window.WindowStage): void {
+  async onWindowStageCreate(windowStage: window.WindowStage): Promise<void> {
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
+
+    // Business Rule: 必须等设置加载完成（决定冷启动是否处于锁定态）再渲染首页，避免短暂露出内容。
+    await SettingsService.init(this.context);
 
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
@@ -67,5 +72,10 @@ export default class EntryAbility extends UIAbility {
   onBackground(): void {
     // Ability has back to background
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onBackground');
+    // Business Rule: 开启应用锁后，离开前台即进入锁定态；认证弹窗自身引起的切后台不重复锁定。
+    const lockEnabled: boolean = AppStorage.get<boolean>(KEY_APP_LOCK_ENABLED) === true;
+    if (lockEnabled && !AuthService.isInProgress()) {
+      AppStorage.setOrCreate<boolean>(KEY_APP_LOCKED, true);
+    }
   }
 }

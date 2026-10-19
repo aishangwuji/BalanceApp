@@ -7,6 +7,7 @@
 
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { ChatView } from './ChatView';
+import { AppLockGate } from '../components/AppLockGate';
 
 @Entry
 @Component
@@ -18,8 +19,15 @@ struct Index {
   }
 
   build() {
-    Column() {
-      ChatView()
+    Stack() {
+      Column() {
+        ChatView()
+      }
+      .width('100%')
+      .height('100%')
+
+      // 应用锁覆盖层：锁定态时全屏遮挡对话内容。
+      AppLockGate()
     }
     .width('100%')
     .height('100%')

@@ -23,6 +23,10 @@ export const KEY_AUTO_COLLAPSE_THINKING = 'auto_collapse_thinking'; // boolean�
  *   故此处统一落一个已解析值，避免 system+系统深色时正文配色与背景不一致（隐形）。
  */
 export const KEY_APP_DARK = 'app_dark'; // boolean
+/** 应用锁开关（离开应用后需验证锁屏密码/指纹/人脸）。 */
+export const KEY_APP_LOCK_ENABLED = 'app_lock_enabled'; // boolean
+/** 当前应用是否处于锁定态；由 EntryAbility 切后台时置 true，认证通过后置 false。 */
+export const KEY_APP_LOCKED = 'app_locked'; // boolean
 
 // 7 档字体缩放系数，第 3 档为标准大小 (1.0)
 export const FONT_SCALE_LEVELS: number[] = [0.85, 0.92, 1.0, 1.08, 1.16, 1.25, 1.35];
@@ -67,8 +71,22 @@ export class SettingsService {
       }
       AppStorage.setOrCreate<boolean>(KEY_AUTO_COLLAPSE_THINKING, autoCollapse);
 
-      hilog.info(DOMAIN, TAG, 'SettingsService initialized successfully: appearance=%{public}s, fontLevel=%{public}d, autoCollapse=%{public}s',
-        appearance, fontLevel, String(autoCollapse));
+      // 4. 应用锁：仅在首次初始化时决定是否直接锁定，避免页面再次 init 时把已解锁状态重置。
+      const lockVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_APP_LOCK_ENABLED, false);
+      let appLockEnabled: boolean = false;
+      if (typeof lockVal === 'boolean') {
+        appLockEnabled = lockVal;
+      }
+      AppStorage.setOrCreate<boolean>(KEY_APP_LOCK_ENABLED, appLockEnabled);
+      const existingLocked: boolean | undefined = AppStorage.get<boolean>(KEY_APP_LOCKED);
+      if (appLockEnabled && existingLocked === undefined) {
+        AppStorage.setOrCreate<boolean>(KEY_APP_LOCKED, true);
+      } else if (!appLockEnabled) {
+        AppStorage.setOrCreate<boolean>(KEY_APP_LOCKED, false);
+      }
+
+      hilog.info(DOMAIN, TAG, 'SettingsService initialized successfully: appearance=%{public}s, fontLevel=%{public}d, autoCollapse=%{public}s, appLock=%{public}s',
+        appearance, fontLevel, String(autoCollapse), String(appLockEnabled));
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'SettingsService init failed: %{public}s', String(err));
     }
@@ -157,6 +175,27 @@ export class SettingsService {
       await SettingsService.prefsInstance.flush();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'setFontSizeLevel save failed: %{public}s', String(err));
+    }
+  }
+
+  /**
+   * 设置应用锁开关并持久化。
+   * Business Rule: 关闭时立即清除当前锁定态；开启后不立即锁定，待应用离开后台时生效。
+   */
+  public static async setAppLockEnabled(context: common.UIAbilityContext, enabled: boolean): Promise<void> {
+    AppStorage.setOrCreate<boolean>(KEY_APP_LOCK_ENABLED, enabled);
+    if (!enabled) {
+      AppStorage.setOrCreate<boolean>(KEY_APP_LOCKED, false);
+    }
+
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      await SettingsService.prefsInstance.put(KEY_APP_LOCK_ENABLED, enabled);
+      await SettingsService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setAppLockEnabled save failed: %{public}s', String(err));
     }
   }
 

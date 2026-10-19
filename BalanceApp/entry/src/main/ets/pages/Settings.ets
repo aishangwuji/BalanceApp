@@ -15,7 +15,8 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
 import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../services/I18nService';
 import {
-  SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING
+  SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
+  KEY_APP_LOCK_ENABLED
 } from '../services/SettingsService';
 
 const DOMAIN = 0x0000;
@@ -39,12 +40,14 @@ struct Settings {
   @StorageProp(KEY_APP_APPEARANCE) currentAppearance: string = 'system';
   @StorageProp(KEY_FONT_SIZE_LEVEL) currentFontLevel: number = 3;
   @StorageProp(KEY_AUTO_COLLAPSE_THINKING) autoCollapseThinking: boolean = true;
+  @StorageProp(KEY_APP_LOCK_ENABLED) appLockEnabled: boolean = false;
 
   // 底部弹框控制
   @State showLanguageSheet: boolean = false;
   @State showAppearanceSheet: boolean = false;
   @State showFontSizeSheet: boolean = false;
   @State showPersonalizeSheet: boolean = false;
+  @State showAppLockSheet: boolean = false;
 
   // 字体大小滑块临时滑动值 (1 ~ 7)
   @State tempFontLevel: number = 3;
@@ -132,6 +135,20 @@ struct Settings {
     }
   }
 
+  private async toggleAppLock(enabled: boolean): Promise<void> {
+    try {
+      const uiCtx = this.getUIContext();
+      const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
+      await SettingsService.setAppLockEnabled(hostCtx, enabled);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'toggleAppLock failed: %{public}s', String(err));
+    }
+  }
+
+  private currentAppLockDisplay(): string {
+    return this.appLockEnabled ? this.t('settings_app_lock_on') : this.t('settings_app_lock_off');
+  }
+
   private goBack(): void {
     try {
       this.getUIContext().getRouter().back();
@@ -200,6 +217,22 @@ struct Settings {
             .backgroundColor($r('app.color.surface'))
             .borderRadius(14)
 
+            // ── 安全 ──
+            Text(this.t('settings_section_security'))
+              .fontSize(12)
+              .fontColor($r('app.color.text_muted'))
+              .width('92%')
+              .margin({ top: 20, bottom: 6 })
+
+            Column() {
+              this.SettingRow($r('app.media.ic_lock'), '#EF4444', this.t('settings_app_lock'), this.currentAppLockDisplay(), true, () => {
+                this.showAppLockSheet = true;
+              })
+            }
+            .width('92%')
+            .backgroundColor($r('app.color.surface'))
+            .borderRadius(14)
+
             // ── 数据 ──
             Text(this.t('settings_section_data'))
               .fontSize(12)
@@ -250,6 +283,11 @@ struct Settings {
       // 底部弹框：个性化面板
       if (this.showPersonalizeSheet) {
         this.PersonalizeSheet()
+      }
+
+      // 底部弹框：应用锁面板
+      if (this.showAppLockSheet) {
+        this.AppLockSheet()
       }
     }
     .width('100%')
@@ -556,6 +594,83 @@ struct Settings {
               .switchPointColor('#FFFFFF')
               .onChange((isOn: boolean) => {
                 this.toggleAutoCollapse(isOn);
+              })
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+        }
+        .width('92%')
+        .backgroundColor($r('app.color.surface_alt'))
+        .borderRadius(12)
+        .borderWidth(1)
+        .borderColor($r('app.color.border_card'))
+        .margin({ top: 10, bottom: 24 })
+
+        Blank().height(20)
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.surface'))
+      .borderRadius({ topLeft: 20, topRight: 20 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 5. 应用锁 Sheet ──
+  @Builder
+  AppLockSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill('#66000000')
+        .onClick(() => {
+          this.showAppLockSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_app_lock_title'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor($r('app.color.text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showAppLockSheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 12 })
+
+        // 应用锁卡片
+        Column() {
+          Row() {
+            Column() {
+              Text(this.t('settings_app_lock'))
+                .fontSize(15)
+                .fontColor($r('app.color.text_primary'))
+                .fontWeight(FontWeight.Medium)
+              Text(this.t('settings_app_lock_desc'))
+                .fontSize(12)
+                .fontColor($r('app.color.text_muted'))
+                .margin({ top: 4 })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+
+            Toggle({ type: ToggleType.Switch, isOn: this.appLockEnabled })
+              .selectedColor('#4D6BFE')
+              .switchPointColor('#FFFFFF')
+              .onChange((isOn: boolean) => {
+                this.toggleAppLock(isOn);
               })
           }
           .width('100%')
