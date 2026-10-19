@@ -44,6 +44,12 @@ export struct ChatView {
   // ── 核心状态 ──
   @State sessions: ChatSession[] = [];
   @State currentSessionId: string = '';
+  /**
+   * 草稿会话：应用启动 / 点「+ 新会话」时使用，尚未写入历史。
+   * Business Rule: 空会话不落盘、不进历史抽屉；一旦产生消息（attach）立即提升为正式会话并持久化，
+   *   这样「每次启动默认新会话」不会在历史里堆一堆空「新对话」。
+   */
+  private draftSession: ChatSession | undefined = undefined;
   @State characters: CharacterCard[] = [];
   @State currentCharacterId: string = '';
   @State currentProviderId: string = 'deepseek';
@@ -159,9 +165,21 @@ export struct ChatView {
       // 加载用户身份卡
       this.identities = await ChatStorageService.loadIdentities();
 
-      // 加载会话
-      this.sessions = await ChatStorageService.loadSessions();
-      // Business Rule: 每次应用重启都进入一个全新的空白会话，不再自动恢复上次会话；
+      // 加载会话，并清理旧版本遗留的空会话（历史曾因「每次启动新建」堆入空「新对话」）。
+      const loaded: ChatSession[] = await ChatStorageService.loadSessions();
+      const kept: ChatSession[] = [];
+      let si: number = 0;
+      while (si < loaded.length) {
+        if (loaded[si].messages.length > 0) {
+          kept.push(loaded[si]);
+        }
+        si += 1;
+      }
+      this.sessions = kept;
+      if (kept.length !== loaded.length) {
+        await ChatStorageService.saveSessions(kept);
+      }
+      // Business Rule: 每次应用重启都进入一个全新的空白会话（草稿，不落盘），不再自动恢复上次会话；
       //   保密会话（isPrivate）也因此不会在启动时被直接展开。
       await this.createNewSession();
 
@@ -180,6 +198,10 @@ export struct ChatView {
   // ── 数据辅助逻辑 ──
 
   private getCurrentSession(): ChatSession | undefined {
+    const draft: ChatSession | undefined = this.draftSession;
+    if (draft !== undefined && draft.id === this.currentSessionId) {
+      return draft;
+    }
     let i: number = 0;
     while (i < this.sessions.length) {
       if (this.sessions[i].id === this.currentSessionId) {
@@ -307,8 +329,29 @@ export struct ChatView {
     };
   }
 
+  /**
+   * 草稿转正：首次写入消息时把草稿会话加入历史并落盘。
+   * Reason: 空会话不应进历史；只有真正产生内容的会话才值得持久化。
+   */
+  private promoteDraftIfNeeded(sess: ChatSession): void {
+    const draft: ChatSession | undefined = this.draftSession;
+    if (draft === undefined || draft.id !== sess.id) {
+      return;
+    }
+    this.draftSession = undefined;
+    const nextList: ChatSession[] = [sess];
+    let i: number = 0;
+    while (i < this.sessions.length) {
+      nextList.push(this.sessions[i]);
+      i += 1;
+    }
+    this.sessions = nextList;
+    this.saveState();
+  }
+
   /** 将 node 挂到 parent 之下并激活该分支（parent 为空则作为新根）。 */
   private attach(sess: ChatSession, node: ChatMessage): void {
+    this.promoteDraftIfNeeded(sess);
     sess.messages.push(node);
     if (node.parentId.length === 0) {
       sess.rootIds.push(node.id);
@@ -748,20 +791,14 @@ export struct ChatView {
     };
     this.currentCharacterId = '';
 
-    const nextList: ChatSession[] = [newSession];
-    let i: number = 0;
-    while (i < this.sessions.length) {
-      nextList.push(this.sessions[i]);
-      i += 1;
-    }
-    this.sessions = nextList;
+    // Business Rule: 空会话作为草稿存在，不进历史、不落盘；产生首条消息时才转正（见 promoteDraftIfNeeded）。
+    this.draftSession = newSession;
     this.currentSessionId = newId;
     this.pendingMentions = [];
     this.showMentionPicker = false;
     this.anchoredForMsgId = '';
     this.anchorCaptured = false;
     this.syncMessageSource();
-    await this.saveState();
     this.scrollToBottom();
   }
 
@@ -771,6 +808,10 @@ export struct ChatView {
    * @param closeDrawer 是否收起历史抽屉（删除会话时为 false，便于连续删除）。
    */
   private async switchSession(sessionId: string, closeDrawer: boolean = true): Promise<void> {
+    // 切到正式会话时丢弃未使用的空草稿（有内容的草稿已在 attach 时转正）。
+    if (this.draftSession !== undefined && this.draftSession.id !== sessionId) {
+      this.draftSession = undefined;
+    }
     this.currentSessionId = sessionId;
     this.pendingMentions = [];
     this.showMentionPicker = false;

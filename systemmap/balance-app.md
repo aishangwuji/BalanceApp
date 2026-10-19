@@ -65,9 +65,12 @@ last_verified_commit: bbf85ea
   ForEach key 追加 `isPrivate` 指纹。点开保密会话走 `openSessionWithPrivacy`
   （系统身份认证）；取消保密也需先认证，防止「不打开会话即可解保再打开」的绕过。
   删除当前会话时优先切首个非保密会话，全为保密则新建空白会话。
-- 启动默认新会话：`ChatView.aboutToAppear` 不再读取/恢复 `active_session_id`，每次
-  应用重启均 `createNewSession()`；`hasSession()` 随之删除（`loadActiveSessionId`
-  保留为存储 API 未再调用）。
+- 启动默认新会话 + 草稿会话：`ChatView.aboutToAppear` 不再读取/恢复 `active_session_id`，
+  每次重启都进入新会话；但空会话以**草稿**（`draftSession`，不入 `sessions`、不落盘）
+  存在，`getCurrentSession()` 优先返回草稿，`attach()` 首次写入消息时
+  `promoteDraftIfNeeded()` 才转正并持久化。这样既满足「启动新会话」，又不会在历史里
+  堆一堆空「新对话」。启动时顺带清理旧版本遗留的空会话（`messages.length===0`）。
+  `createNewSession` 不再 `saveState`（草稿不落盘），`switchSession` 丢弃未使用的草稿。
 - 待办：保密标记仅做 UI 门禁，Preferences 内消息仍为明文，见
   `techdebt/TD-003-private-session-plaintext.md`。
 
