@@ -13,6 +13,7 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/AuthService.ets
   - BalanceApp/entry/src/main/ets/services/SettingsService.ets
   - BalanceApp/entry/src/main/ets/services/ChatStorageService.ets
+  - BalanceApp/entry/src/main/ets/services/ChatMessageDataSource.ets
   - BalanceApp/entry/src/main/ets/components/AppLockGate.ets
   - BalanceApp/entry/src/main/ets/entryability/EntryAbility.ets
   - BalanceApp/entry/src/main/resources/base/profile/main_pages.json
@@ -21,6 +22,25 @@ last_verified_commit: bbf85ea
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
+
+## 消息列表 LazyForEach 迁移（2026-10-19，已落地，构建通过）
+
+- 问题：`List + ForEach(this.activePath())` 会**一次性实例化整条激活分支**。实测 55 条
+  的会话开会话时同时 `new BaseEngine()` × 55 并触发 55 次异步 Markdown 解析：主线程卡顿，
+  且可见的尾部消息排在最晚解析 → 内容长时间空白。
+- 方案：新增 `services/ChatMessageDataSource.ets`（实现 `IDataSource`），
+  消息流改 `LazyForEach(this.msgSource, ...)` + `.cachedCount(2)`，只为视口附近消息建实例。
+- 同步策略（关键，避免破坏流式）：
+  - `sync(next, nextKeys)` 判定「数量/顺序/消息 id 变化」= 结构性 → `onDataReloaded()`；
+  - 否则统计 key 变化面：≥8 条（折叠态/字号/主题等全表 key 变化）→ 整表 reload；
+    1~7 条（流式思考字数 `R<n>`、status 切换）→ 逐条 `onDataChanged(index)` 精确刷新；
+  - 正文出现后 key 恒为 `C`，`sync` 不动 → 实例不重建，增量仍由 `MarkdownController` 驱动
+    （保持原「同 key 不刷新、靠 controller 喂 token」的机制）。
+- 接线：`msgRenderKey(msg)` 同时用于 `LazyForEach` key 与数据源键；`rebuildSessionReference()`
+  末尾统一 `syncMessageSource()`；`createNewSession`/`switchSession` 各自补一次 sync。
+  索引语义不变（数据源顺序 == `activePath()`），故 `scrollToIndex`/`onScrollIndex` 锚定逻辑无需改。
+- 结果：开会话只挂载视口内几条消息，卡顿与「空白等渲染」大幅缓解；
+  `TD-002` 第 1 项（LazyForEach）落地，`@Reusable` 实例复用仍待做。
 
 ## 应用锁与保密会话（2026-10-19，已落地，构建通过）
 

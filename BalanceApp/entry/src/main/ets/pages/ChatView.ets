@@ -18,6 +18,7 @@ import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
 import { AuthService } from '../services/AuthService';
+import { ChatMessageDataSource } from '../services/ChatMessageDataSource';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
@@ -120,6 +121,9 @@ export struct ChatView {
   @State editingCharPrompt: string = '';
   @State editingCharFirstMsg: string = '';
   @State editingCharTemp: number = 0.7;
+
+  // 消息流数据源：LazyForEach 只为视口内消息创建 Markdown 实例（见 ChatMessageDataSource 注释）。
+  private msgSource: ChatMessageDataSource = new ChatMessageDataSource();
 
   // 滚动控制器
   private scroller: Scroller = new Scroller();
@@ -756,6 +760,7 @@ export struct ChatView {
     this.showMentionPicker = false;
     this.anchoredForMsgId = '';
     this.anchorCaptured = false;
+    this.syncMessageSource();
     await this.saveState();
     this.scrollToBottom();
   }
@@ -783,6 +788,7 @@ export struct ChatView {
     this.initCollapsedReasons();
     this.anchoredForMsgId = '';
     this.anchorCaptured = false;
+    this.syncMessageSource();
     await ChatStorageService.saveActiveSessionId(sessionId);
     this.scrollToBottom();
   }
@@ -1305,6 +1311,29 @@ export struct ChatView {
       i += 1;
     }
     this.sessions = list;
+    this.syncMessageSource();
+  }
+
+  /**
+   * 单条消息的渲染键：ForEach 时代决定同 key 复用旧快照、异 key 重建；
+   * LazyForEach 时代同时作为数据源增量刷新的判据（见 ChatMessageDataSource.sync）。
+   * Business Rule: 有正文后恒为 'C' 稳定实例，流式增量交给 MarkdownController，不重建防闪。
+   */
+  private msgRenderKey(msg: ChatMessage): string {
+    const collapsed: string = this.isReasonCollapsed(msg.id) ? 'c' : 'e';
+    return `${msg.id}_${msg.status}_${collapsed}_${this.reasonVersion}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
+  }
+
+  /** 把当前激活分支与渲染键推给 LazyForEach 数据源（结构性/局部刷新由数据源内部判定）。 */
+  private syncMessageSource(): void {
+    const path: ChatMessage[] = this.activePath();
+    const keys: string[] = [];
+    let i: number = 0;
+    while (i < path.length) {
+      keys.push(this.msgRenderKey(path[i]));
+      i += 1;
+    }
+    this.msgSource.sync(path, keys);
   }
 
   // ── Markdown 渲染接入（FluidMarkdown） ──
@@ -2141,18 +2170,19 @@ export struct ChatView {
 
         Divider().color($r('app.color.divider')).width('100%')
 
-        // 对话气泡消息流（仅渲染当前激活分支）
+        // 对话气泡消息流（仅渲染当前激活分支；LazyForEach 只为视口内消息建 Markdown 实例）
         List({ scroller: this.scroller }) {
-          ForEach(this.activePath(), (msg: ChatMessage) => {
+          LazyForEach(this.msgSource, (msg: ChatMessage) => {
             ListItem() {
               this.MessageBubble(msg)
             }
             .margin({ top: 10, bottom: 10 })
-            }, (msg: ChatMessage) => `${msg.id}_${msg.status}_${this.isReasonCollapsed(msg.id) ? 'c' : 'e'}_${this.reasonVersion}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`)
+          }, (msg: ChatMessage) => this.msgRenderKey(msg))
         }
         .width('100%')
         .layoutWeight(1)
         .padding({ left: 14, right: 14 })
+        .cachedCount(2)
         .scrollBar(BarState.Off)
         .onScrollIndex((start: number, end: number) => {
           this.handleScrollIndex(start, end);
