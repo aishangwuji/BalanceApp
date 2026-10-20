@@ -16,10 +16,11 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ChatMessage, TopicGateMask } from '../models/ChatModels';
-import { JevService } from './JevService';
+import { JevService, findSystemOneChannel, SystemOneChannel } from './JevService';
 import {
-  KEY_TOPIC_GATE_ENABLED, KEY_TOPIC_GATE_API_KEY, KEY_TOPIC_GATE_THRESHOLD,
-  KEY_TOPIC_GATE_ENDPOINT, KEY_TOPIC_GATE_MODEL, DEFAULT_TOPIC_GATE_THRESHOLD
+  KEY_TOPIC_GATE_ENABLED, KEY_TOPIC_GATE_CHANNEL, KEY_TOPIC_GATE_THRESHOLD,
+  KEY_SYSTEM_ONE_KEY_TYPESAFE, KEY_SYSTEM_ONE_KEY_OPENROUTER,
+  SYSTEM_ONE_CHANNEL_TYPESAFE, SYSTEM_ONE_CHANNEL_OPENROUTER, DEFAULT_TOPIC_GATE_THRESHOLD
 } from './SettingsService';
 
 const DOMAIN = 0x0000;
@@ -39,6 +40,7 @@ const SEGMENT_BOUNDARIES = '。！？!?；;\n';
 
 export interface TopicGateConfig {
   enabled: boolean;
+  channel: string;
   apiKey: string;
   threshold: number;
   endpoint: string;
@@ -107,6 +109,7 @@ export class TopicGateService {
   public static async loadConfig(context: common.UIAbilityContext): Promise<TopicGateConfig> {
     const config: TopicGateConfig = {
       enabled: false,
+      channel: SYSTEM_ONE_CHANNEL_TYPESAFE,
       apiKey: '',
       threshold: DEFAULT_TOPIC_GATE_THRESHOLD,
       endpoint: JevService.DEFAULT_ENDPOINT,
@@ -122,22 +125,27 @@ export class TopicGateService {
       if (typeof enabledVal === 'boolean') {
         config.enabled = enabledVal as boolean;
       }
-      const keyVal: preferences.ValueType = await prefs.get(KEY_TOPIC_GATE_API_KEY, '');
+      // 渠道决定端点、模型与该渠道专属的 Key（两个渠道的 Key 互不复用）。
+      const channelVal: preferences.ValueType =
+        await prefs.get(KEY_TOPIC_GATE_CHANNEL, SYSTEM_ONE_CHANNEL_TYPESAFE);
+      const channelId: string = typeof channelVal === 'string' && (channelVal as string) === SYSTEM_ONE_CHANNEL_OPENROUTER
+        ? SYSTEM_ONE_CHANNEL_OPENROUTER : SYSTEM_ONE_CHANNEL_TYPESAFE;
+      config.channel = channelId;
+      const keyPref: string = channelId === SYSTEM_ONE_CHANNEL_OPENROUTER
+        ? KEY_SYSTEM_ONE_KEY_OPENROUTER : KEY_SYSTEM_ONE_KEY_TYPESAFE;
+      const keyVal: preferences.ValueType = await prefs.get(keyPref, '');
       if (typeof keyVal === 'string') {
         config.apiKey = keyVal as string;
+      }
+      const channel: SystemOneChannel | undefined = findSystemOneChannel(channelId);
+      if (channel !== undefined) {
+        config.endpoint = channel.endpoint;
+        config.model = channel.model;
       }
       const thresholdVal: preferences.ValueType =
         await prefs.get(KEY_TOPIC_GATE_THRESHOLD, DEFAULT_TOPIC_GATE_THRESHOLD);
       if (typeof thresholdVal === 'number' && thresholdVal >= 0 && thresholdVal <= 1) {
         config.threshold = thresholdVal as number;
-      }
-      const endpointVal: preferences.ValueType = await prefs.get(KEY_TOPIC_GATE_ENDPOINT, '');
-      if (typeof endpointVal === 'string' && (endpointVal as string).trim().length > 0) {
-        config.endpoint = (endpointVal as string).trim();
-      }
-      const modelVal: preferences.ValueType = await prefs.get(KEY_TOPIC_GATE_MODEL, '');
-      if (typeof modelVal === 'string' && (modelVal as string).trim().length > 0) {
-        config.model = (modelVal as string).trim();
       }
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'loadConfig failed: %{public}s', String(err));

@@ -17,8 +17,47 @@ const TAG = 'JevService';
 const CONNECT_TIMEOUT = 10000;
 const READ_TIMEOUT = 20000;
 
+export interface SystemOneChannel {
+  id: string;
+  label: string;
+  endpoint: string;
+  model: string;
+}
+
+/**
+ * System One 仅支持两个渠道，端点与模型按官方文档固定：
+ * - TypeSafe 官方：POST https://api.typesafe.ai/v1/systemone，model `jev-latest`
+ * - OpenRouter：POST https://openrouter.ai/api/v1/systemone，model `~typesafe/jev-latest`
+ *   （OpenRouter 的 System One 兼容面，Key 为 OpenRouter Key，与官方 Key 不通用）
+ */
+export const SYSTEM_ONE_CHANNELS: SystemOneChannel[] = [
+  {
+    id: 'typesafe',
+    label: 'Jev 官方',
+    endpoint: 'https://api.typesafe.ai/v1/systemone',
+    model: 'jev-latest'
+  },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    endpoint: 'https://openrouter.ai/api/v1/systemone',
+    model: '~typesafe/jev-latest'
+  }
+];
+
+export function findSystemOneChannel(id: string): SystemOneChannel | undefined {
+  let i: number = 0;
+  while (i < SYSTEM_ONE_CHANNELS.length) {
+    if (SYSTEM_ONE_CHANNELS[i].id === id) {
+      return SYSTEM_ONE_CHANNELS[i];
+    }
+    i += 1;
+  }
+  return undefined;
+}
+
 export class JevService {
-  /** 默认 System One 端点与模型；设置页可覆盖。 */
+  /** 默认 System One 端点与模型（Jev 官方直连）。 */
   public static readonly DEFAULT_ENDPOINT: string = 'https://api.typesafe.ai/v1/systemone';
   public static readonly DEFAULT_MODEL: string = 'jev-latest';
 
