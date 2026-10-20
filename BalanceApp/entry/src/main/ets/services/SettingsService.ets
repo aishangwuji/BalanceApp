@@ -27,6 +27,16 @@ export const KEY_APP_DARK = 'app_dark'; // boolean
 export const KEY_APP_LOCK_ENABLED = 'app_lock_enabled'; // boolean
 /** 当前应用是否处于锁定态；由 EntryAbility 切后台时置 true，认证通过后置 false。 */
 export const KEY_APP_LOCKED = 'app_locked'; // boolean
+/** 上下文净化（Jev topic gate）开关；关闭时不发起任何判定。 */
+export const KEY_TOPIC_GATE_ENABLED = 'topic_gate_enabled'; // boolean
+/** Jev（TypeSafe System One）Key；与生成 Key 分开存储。 */
+export const KEY_TOPIC_GATE_API_KEY = 'key_jev'; // string
+/** 切题概率阈值，低于该值的分段不参与回放。 */
+export const KEY_TOPIC_GATE_THRESHOLD = 'topic_gate_threshold'; // number 0~1
+/** 端点与模型覆盖项；缺省用 JevService 的官方默认值。 */
+export const KEY_TOPIC_GATE_ENDPOINT = 'topic_gate_endpoint'; // string
+export const KEY_TOPIC_GATE_MODEL = 'topic_gate_model'; // string
+export const DEFAULT_TOPIC_GATE_THRESHOLD: number = 0.5;
 
 // 7 档字体缩放系数，第 3 档为标准大小 (1.0)
 export const FONT_SCALE_LEVELS: number[] = [0.85, 0.92, 1.0, 1.08, 1.16, 1.25, 1.35];
@@ -84,6 +94,22 @@ export class SettingsService {
       } else if (!appLockEnabled) {
         AppStorage.setOrCreate<boolean>(KEY_APP_LOCKED, false);
       }
+
+      // 5. 上下文净化：启用态与阈值进 AppStorage，Key/端点留 Preferences（不扩散）。
+      const gateVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_TOPIC_GATE_ENABLED, false);
+      let gateEnabled: boolean = false;
+      if (typeof gateVal === 'boolean') {
+        gateEnabled = gateVal;
+      }
+      AppStorage.setOrCreate<boolean>(KEY_TOPIC_GATE_ENABLED, gateEnabled);
+
+      const thresholdVal: preferences.ValueType =
+        await SettingsService.prefsInstance.get(KEY_TOPIC_GATE_THRESHOLD, DEFAULT_TOPIC_GATE_THRESHOLD);
+      let threshold: number = DEFAULT_TOPIC_GATE_THRESHOLD;
+      if (typeof thresholdVal === 'number' && thresholdVal >= 0 && thresholdVal <= 1) {
+        threshold = thresholdVal;
+      }
+      AppStorage.setOrCreate<number>(KEY_TOPIC_GATE_THRESHOLD, threshold);
 
       hilog.info(DOMAIN, TAG, 'SettingsService initialized successfully: appearance=%{public}s, fontLevel=%{public}d, autoCollapse=%{public}s, appLock=%{public}s',
         appearance, fontLevel, String(autoCollapse), String(appLockEnabled));
@@ -213,6 +239,69 @@ export class SettingsService {
       await SettingsService.prefsInstance.flush();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'setAutoCollapseThinking save failed: %{public}s', String(err));
+    }
+  }
+
+  /**
+   * 上下文净化开关。
+   * Business Rule: 关闭时立即停止判定与回放投影，已写入历史的掩码保留但不生效（可随时重开）。
+   */
+  public static async setTopicGateEnabled(context: common.UIAbilityContext, enabled: boolean): Promise<void> {
+    AppStorage.setOrCreate<boolean>(KEY_TOPIC_GATE_ENABLED, enabled);
+
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      await SettingsService.prefsInstance.put(KEY_TOPIC_GATE_ENABLED, enabled);
+      await SettingsService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setTopicGateEnabled save failed: %{public}s', String(err));
+    }
+  }
+
+  /** 切题概率阈值（0~1，越严格越高）。 */
+  public static async setTopicGateThreshold(context: common.UIAbilityContext, threshold: number): Promise<void> {
+    const valid: number = Math.max(0, Math.min(1, threshold));
+    AppStorage.setOrCreate<number>(KEY_TOPIC_GATE_THRESHOLD, valid);
+
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      await SettingsService.prefsInstance.put(KEY_TOPIC_GATE_THRESHOLD, valid);
+      await SettingsService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setTopicGateThreshold save failed: %{public}s', String(err));
+    }
+  }
+
+  /** 保存 Jev Key；传空字符串表示清除。Key 只落本机 Preferences，不进日志。 */
+  public static async setTopicGateApiKey(context: common.UIAbilityContext, apiKey: string): Promise<void> {
+    const trimmed: string = apiKey.trim();
+
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      await SettingsService.prefsInstance.put(KEY_TOPIC_GATE_API_KEY, trimmed);
+      await SettingsService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setTopicGateApiKey save failed: %{public}s', String(err));
+    }
+  }
+
+  /** 读取 Jev Key（设置页回显与判定服务共用）。 */
+  public static async getTopicGateApiKey(context: common.UIAbilityContext): Promise<string> {
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      const val: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_TOPIC_GATE_API_KEY, '');
+      return typeof val === 'string' ? val as string : '';
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'getTopicGateApiKey failed: %{public}s', String(err));
+      return '';
     }
   }
 }

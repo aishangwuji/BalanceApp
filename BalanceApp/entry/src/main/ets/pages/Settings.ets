@@ -16,7 +16,7 @@ import { common } from '@kit.AbilityKit';
 import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../services/I18nService';
 import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
-  KEY_APP_LOCK_ENABLED
+  KEY_APP_LOCK_ENABLED, KEY_TOPIC_GATE_ENABLED, KEY_TOPIC_GATE_THRESHOLD, DEFAULT_TOPIC_GATE_THRESHOLD
 } from '../services/SettingsService';
 
 const DOMAIN = 0x0000;
@@ -41,6 +41,8 @@ struct Settings {
   @StorageProp(KEY_FONT_SIZE_LEVEL) currentFontLevel: number = 3;
   @StorageProp(KEY_AUTO_COLLAPSE_THINKING) autoCollapseThinking: boolean = true;
   @StorageProp(KEY_APP_LOCK_ENABLED) appLockEnabled: boolean = false;
+  @StorageProp(KEY_TOPIC_GATE_ENABLED) topicGateEnabled: boolean = false;
+  @StorageProp(KEY_TOPIC_GATE_THRESHOLD) topicGateThreshold: number = DEFAULT_TOPIC_GATE_THRESHOLD;
 
   // 底部弹框控制
   @State showLanguageSheet: boolean = false;
@@ -48,6 +50,13 @@ struct Settings {
   @State showFontSizeSheet: boolean = false;
   @State showPersonalizeSheet: boolean = false;
   @State showAppLockSheet: boolean = false;
+  @State showTopicGateSheet: boolean = false;
+
+  // 上下文净化草稿态：Key 只写不读，页面上仅回显「是否已配置」。
+  @State topicGateKeyInput: string = '';
+  @State topicGateHasKey: boolean = false;
+  @State topicGateError: string = '';
+  @State tempTopicThreshold: number = DEFAULT_TOPIC_GATE_THRESHOLD;
 
   // 字体大小滑块临时滑动值 (1 ~ 7)
   @State tempFontLevel: number = 3;
@@ -58,6 +67,18 @@ struct Settings {
     I18nService.init(hostCtx);
     SettingsService.init(hostCtx);
     this.tempFontLevel = this.currentFontLevel;
+    this.tempTopicThreshold = this.topicGateThreshold;
+    this.loadTopicGateKey();
+  }
+
+  private async loadTopicGateKey(): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const key: string = await SettingsService.getTopicGateApiKey(hostCtx);
+      this.topicGateHasKey = key.length > 0;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'loadTopicGateKey failed: %{public}s', String(err));
+    }
   }
 
   private t(key: string): string {
@@ -149,6 +170,63 @@ struct Settings {
     return this.appLockEnabled ? this.t('settings_app_lock_on') : this.t('settings_app_lock_off');
   }
 
+  private topicGateDisplay(): string {
+    return this.topicGateEnabled ? this.t('settings_topic_gate_on') : this.t('settings_topic_gate_off');
+  }
+
+  private async toggleTopicGate(enabled: boolean): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SettingsService.setTopicGateEnabled(hostCtx, enabled);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'toggleTopicGate failed: %{public}s', String(err));
+    }
+  }
+
+  private async applyTopicGateThreshold(value: number): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SettingsService.setTopicGateThreshold(hostCtx, value);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'applyTopicGateThreshold failed: %{public}s', String(err));
+    }
+  }
+
+  /** 保存 Key：留空表示保持不变（清除走单独的「清除 Key」入口）。 */
+  private async saveTopicGateKey(): Promise<void> {
+    const text: string = this.topicGateKeyInput.trim();
+    if (text.length === 0 && !this.topicGateHasKey) {
+      this.topicGateError = this.t('settings_topic_gate_need_key');
+      return;
+    }
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      if (text.length > 0) {
+        await SettingsService.setTopicGateApiKey(hostCtx, text);
+        this.topicGateHasKey = true;
+      }
+      this.topicGateKeyInput = '';
+      this.topicGateError = '';
+      this.showTopicGateSheet = false;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'saveTopicGateKey failed: %{public}s', String(err));
+    }
+  }
+
+  private async clearTopicGateKey(): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SettingsService.setTopicGateApiKey(hostCtx, '');
+      // 没有 Key 时判定必然失败，顺带关闭开关，避免留下一个永远空转的启用态。
+      await SettingsService.setTopicGateEnabled(hostCtx, false);
+      this.topicGateHasKey = false;
+      this.topicGateKeyInput = '';
+      this.topicGateError = '';
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'clearTopicGateKey failed: %{public}s', String(err));
+    }
+  }
+
   private goBack(): void {
     try {
       this.getUIContext().getRouter().back();
@@ -211,6 +289,22 @@ struct Settings {
               })
               this.SettingRow($r('app.media.ic_personalize'), '#8B5CF6', this.t('settings_personalize'), '', true, () => {
                 this.showPersonalizeSheet = true;
+              })
+            }
+            .width('92%')
+            .backgroundColor($r('app.color.surface'))
+            .borderRadius(14)
+
+            // ── 对话 ──
+            Text(this.t('settings_section_chat'))
+              .fontSize(12)
+              .fontColor($r('app.color.text_muted'))
+              .width('92%')
+              .margin({ top: 20, bottom: 6 })
+
+            Column() {
+              this.SettingRow($r('app.media.ic_character'), '#6366F1', this.t('settings_topic_gate'), this.topicGateDisplay(), true, () => {
+                this.showTopicGateSheet = true;
               })
             }
             .width('92%')
@@ -288,6 +382,11 @@ struct Settings {
       // 底部弹框：应用锁面板
       if (this.showAppLockSheet) {
         this.AppLockSheet()
+      }
+
+      // 底部弹框：上下文净化面板
+      if (this.showTopicGateSheet) {
+        this.TopicGateSheet()
       }
     }
     .width('100%')
@@ -684,6 +783,191 @@ struct Settings {
         .margin({ top: 10, bottom: 24 })
 
         Blank().height(20)
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.surface'))
+      .borderRadius({ topLeft: 20, topRight: 20 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 6. 上下文净化（Jev）Sheet ──
+  @Builder
+  TopicGateSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill('#66000000')
+        .onClick(() => {
+          this.showTopicGateSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_topic_gate_title'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor($r('app.color.text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showTopicGateSheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 12 })
+
+        // 开关
+        Column() {
+          Row() {
+            Column() {
+              Text(this.t('settings_topic_gate'))
+                .fontSize(15)
+                .fontColor($r('app.color.text_primary'))
+                .fontWeight(FontWeight.Medium)
+              Text(this.t('settings_topic_gate_desc'))
+                .fontSize(12)
+                .fontColor($r('app.color.text_muted'))
+                .margin({ top: 4 })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+
+            Toggle({ type: ToggleType.Switch, isOn: this.topicGateEnabled })
+              .selectedColor('#4D6BFE')
+              .switchPointColor('#FFFFFF')
+              .onChange((isOn: boolean) => {
+                this.toggleTopicGate(isOn);
+              })
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 16, bottom: 16 })
+        }
+        .width('92%')
+        .backgroundColor($r('app.color.surface_alt'))
+        .borderRadius(12)
+        .borderWidth(1)
+        .borderColor($r('app.color.border_card'))
+        .margin({ top: 4, bottom: 16 })
+
+        // Key
+        Column() {
+          Text(this.t('settings_topic_gate_key'))
+            .fontSize(13)
+            .fontColor($r('app.color.text_secondary'))
+            .width('100%')
+            .margin({ bottom: 8 })
+
+          TextInput({ placeholder: this.t('settings_topic_gate_key_placeholder'), text: this.topicGateKeyInput })
+            .type(InputType.Password)
+            .width('100%')
+            .height(42)
+            .onChange((value: string) => {
+              this.topicGateKeyInput = value;
+              this.topicGateError = '';
+            })
+
+          if (this.topicGateHasKey) {
+            Text(this.t('settings_topic_gate_key_saved'))
+              .fontSize(11)
+              .fontColor($r('app.color.text_muted'))
+              .width('100%')
+              .margin({ top: 6 })
+          }
+          if (this.topicGateError.length > 0) {
+            Text(this.topicGateError)
+              .fontSize(11)
+              .fontColor($r('app.color.danger_text'))
+              .width('100%')
+              .margin({ top: 6 })
+          }
+
+          Row() {
+            if (this.topicGateHasKey) {
+              Button(this.t('settings_topic_gate_clear_key'))
+                .fontSize(13)
+                .layoutWeight(1)
+                .backgroundColor($r('app.color.surface'))
+                .fontColor($r('app.color.text_secondary'))
+                .onClick(() => {
+                  this.clearTopicGateKey();
+                })
+            }
+            Button(this.t('settings_topic_gate_save'))
+              .fontSize(13)
+              .layoutWeight(1)
+              .margin({ left: this.topicGateHasKey ? 8 : 0 })
+              .onClick(() => {
+                this.saveTopicGateKey();
+              })
+          }
+          .width('100%')
+          .margin({ top: 12 })
+        }
+        .width('92%')
+        .padding(16)
+        .backgroundColor($r('app.color.surface_alt'))
+        .borderRadius(12)
+        .borderWidth(1)
+        .borderColor($r('app.color.border_card'))
+        .margin({ bottom: 16 })
+
+        // 阈值
+        Column() {
+          Row() {
+            Text(this.t('settings_topic_gate_threshold'))
+              .fontSize(13)
+              .fontColor($r('app.color.text_secondary'))
+            Blank()
+            Text(this.tempTopicThreshold.toFixed(2))
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#4D6BFE')
+          }
+          .width('100%')
+
+          Slider({
+            value: this.tempTopicThreshold,
+            min: 0.1,
+            max: 0.9,
+            step: 0.05,
+            style: SliderStyle.InSet
+          })
+            .blockColor('#4D6BFE')
+            .trackColor('#E2E8F0')
+            .selectedColor('#4D6BFE')
+            .width('100%')
+            .margin({ top: 4 })
+            .onChange((value: number, mode: SliderChangeMode) => {
+              this.tempTopicThreshold = value;
+              if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+                this.applyTopicGateThreshold(value);
+              }
+            })
+
+          Text(this.t('settings_topic_gate_threshold_hint'))
+            .fontSize(11)
+            .fontColor($r('app.color.text_muted'))
+            .width('100%')
+            .margin({ top: 4 })
+        }
+        .width('92%')
+        .padding(16)
+        .backgroundColor($r('app.color.surface_alt'))
+        .borderRadius(12)
+        .borderWidth(1)
+        .borderColor($r('app.color.border_card'))
+
+        Blank().height(24)
       }
       .width('100%')
       .backgroundColor($r('app.color.surface'))

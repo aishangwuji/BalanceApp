@@ -8,7 +8,7 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { CharacterCard, ChatMessage, ChatSession, MessageRole, UserIdentityCard } from '../models/ChatModels';
+import { CharacterCard, ChatMessage, ChatSession, MessageRole, TopicGateMask, UserIdentityCard } from '../models/ChatModels';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatStorageService';
@@ -345,6 +345,7 @@ export class ChatStorageService {
       activeChildId: '',
       speakerId: typeof rec['speakerId'] === 'string' ? rec['speakerId'] as string : '',
       mentionedIds: mentionedIds,
+      topicMask: ChatStorageService.normalizeTopicMask(rec['topicMask']),
     };
     const childRaw: ESObject = rec['childIds'];
     if (Array.isArray(childRaw)) {
@@ -359,6 +360,30 @@ export class ChatStorageService {
     }
     msg.activeChildId = typeof rec['activeChildId'] === 'string' ? rec['activeChildId'] as string : '';
     return msg;
+  }
+
+  /**
+   * 边界校验：历史掩码可能来自旧版本或被外部改写，结构不符一律丢弃（回放 fail-open）。
+   * Business Rule: topic 缺失或 keep 非布尔数组时视为无掩码，而不是当作「全部删除」。
+   */
+  private static normalizeTopicMask(raw: ESObject): TopicGateMask | undefined {
+    if (raw === null || typeof raw !== 'object') {
+      return undefined;
+    }
+    const rec: Record<string, ESObject> = raw as Record<string, ESObject>;
+    const topicVal: ESObject = rec['topic'];
+    const keepRaw: ESObject = rec['keep'];
+    if (typeof topicVal !== 'string' || !Array.isArray(keepRaw)) {
+      return undefined;
+    }
+    const keepArr: ESObject[] = keepRaw as ESObject[];
+    const keep: boolean[] = [];
+    let i: number = 0;
+    while (i < keepArr.length) {
+      keep.push(keepArr[i] === true);
+      i += 1;
+    }
+    return { topic: topicVal as string, keep: keep };
   }
 
   private static messageExists(pool: ChatMessage[], id: string): boolean {

@@ -20,6 +20,7 @@ import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ChatMessage } from '../models/ChatModels';
 import { findProvider, ProviderDefinition } from './ProviderRegistry';
+import { applyTopicMask } from './TopicGateService';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatService';
@@ -281,12 +282,15 @@ export class ChatService {
       if (m.role !== 'user' && m.role !== 'assistant') {
         continue;
       }
-      if (m.content.length === 0 && !(m.reasoningContent && m.reasoningContent.length > 0)) {
+      // 写时净化：助手历史按持久化掩码投影（原文与界面不变，仅影响本次请求）。
+      // 掩码缺失/长度不符时 applyTopicMask 原样返回，故旧数据无需迁移。
+      const replayContent: string = m.role === 'assistant' ? applyTopicMask(m.content, m.topicMask) : m.content;
+      if (replayContent.length === 0 && !(m.reasoningContent && m.reasoningContent.length > 0)) {
         continue;
       }
       const item: Record<string, string> = {
         'role': m.role,
-        'content': m.content
+        'content': replayContent
       };
       // 保留式思考（Preserved Thinking）：Kimi/小米 MiMo 回传 reasoning_content 保多轮思维连贯；
       // DeepSeek 等无 tools 场景传了也被忽略，统一回传无害。

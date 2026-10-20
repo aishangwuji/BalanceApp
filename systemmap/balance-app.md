@@ -3,6 +3,8 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/BalanceService.ets
   - BalanceApp/entry/src/main/ets/services/ProviderRegistry.ets
   - BalanceApp/entry/src/main/ets/services/ChatService.ets
+  - BalanceApp/entry/src/main/ets/services/TopicGateService.ets
+  - BalanceApp/entry/src/main/ets/services/JevService.ets
   - BalanceApp/entry/src/main/ets/services/MarkdownService.ets
   - BalanceApp/entry/src/main/ets/components/MarkdownBody.ets
   - BalanceApp/entry/src/main/ets/models/ChatModels.ets
@@ -17,11 +19,39 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/components/AppLockGate.ets
   - BalanceApp/entry/src/main/ets/entryability/EntryAbility.ets
   - BalanceApp/entry/src/main/resources/base/profile/main_pages.json
-last_verified_commit: bbf85ea
+last_verified_commit: 8529d7c
 ---
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
+
+## 上下文净化 Topic Gate（2026-10-20，已落地，构建通过）
+
+> 融合自 nanobot 的写时 topic gate；与本项目「Jev 是裁判、不是生成器」的定位一致（见 group-chat-design）。
+
+- 动机：长会话中离题内容被反复回灌会挤占主线；流式原文已交付用户、无法回收，
+  故不在接收端拦截，只在「消息写入历史后」判定一次，影响后续请求。
+- 切段 `services/TopicGateService.ets`：按 `。！？!?；;` 与换行切分，保持无损
+  （`join(segments) === 原文`），否则掩码与回放文本无法对齐。
+- 判定 `services/JevService.ets`：TypeSafe System One，`POST https://api.typesafe.ai/v1/systemone`，
+  一次请求合并本消息所有分段，每段一个 Noul 问句：
+  `{model, state:{topic, segments:{segment_i}}, questions:{segment_i:{type:'noul',instructions}}}`，
+  读 `answers.segment_i.noul`（切题概率）；默认模型 `jev-latest`。
+- 写时接线（ChatView）：`generateReply` 的 `onComplete` 与 `stopGenerating` 落库后调用 `gateTopic`，
+  **topic 取产生该回复的用户消息（parentMsg.content），不是当前会话主题**，避免会话漂移后误删
+  当时切题的内容；判定异步执行，不阻塞回复交付。
+- 掩码即缓存：`ChatMessage.topicMask {topic, keep[]}` 随消息持久化，同一段永不重复判定，
+  回放 token 序列因此稳定；已带掩码的消息直接跳过。
+- 回放 `ChatService.buildApiMessages`：仅对 assistant 历史按掩码投影；掩码缺省或
+  `keep.length !== 切段数` 时 fail-open 返回原文。界面与原文存储不变。
+- 持久化边界 `ChatStorageService.normalizeTopicMask`：topic 必须为字符串、keep 必须为数组，
+  否则视为无掩码（不是「全删」）。
+- 配置：设置 > 对话 > 上下文净化（Jev）：开关 + Key + 切题阈值（默认 0.5，范围 0.1~0.9）。
+  Key 存 `balance_prefs` 的 `key_jev`，只落 Preferences、不上 AppStorage、不进日志；
+  清除 Key 会同时关闭开关（避免永远空转的启用态）。
+- 失败语义：未启用/无 Key/网络错误/非 200/结构非法/条数不符/不足两段 → 保留全部（fail-open）。
+- 已知边界：切段含换行，代码块内单行被判定剔除时可能留下残块（与 nanobot 行为一致）；
+  判定晚于本轮交付，若下一轮在判定完成前开始，该条会以未净化形式参与一次请求。
 
 ## 消息列表 LazyForEach 迁移（2026-10-19，已落地，构建通过）
 

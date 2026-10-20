@@ -7,6 +7,17 @@
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
+/**
+ * 写时上下文净化掩码（topic gate）。
+ * Business Rule: 判定只在消息写入历史时做一次，之后回放按 keep 投影；
+ *   topic 记录该消息产生时的主题（非当前主题），避免会话漂移后误删当时切题的内容。
+ *   keep 与切段结果一一对应，长度不符时回放 fail-open（保留全文）。
+ */
+export interface TopicGateMask {
+  topic: string;
+  keep: boolean[];
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -27,6 +38,8 @@ export interface ChatMessage {
   speakerId: string;
   /** 本条用户消息 @ 的角色卡 id（助手消息为空）。 */
   mentionedIds: string[];
+  /** 助手消息的上下文净化掩码；未判定/不适用时缺省。 */
+  topicMask?: TopicGateMask;
 }
 
 export interface CharacterCard {
