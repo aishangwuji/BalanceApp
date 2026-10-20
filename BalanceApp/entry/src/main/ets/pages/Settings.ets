@@ -16,8 +16,11 @@ import { common } from '@kit.AbilityKit';
 import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../services/I18nService';
 import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
-  KEY_APP_LOCK_ENABLED, KEY_TOPIC_GATE_ENABLED, KEY_TOPIC_GATE_THRESHOLD, DEFAULT_TOPIC_GATE_THRESHOLD
+  KEY_APP_LOCK_ENABLED, KEY_TOPIC_GATE_ENABLED, KEY_TOPIC_GATE_THRESHOLD, DEFAULT_TOPIC_GATE_THRESHOLD,
+  SYSTEM_ONE_CHANNEL_TYPESAFE, SYSTEM_ONE_CHANNEL_OPENROUTER
 } from '../services/SettingsService';
+import { findSystemOneChannel, SystemOneChannel } from '../services/JevService';
+import { PROVIDERS, ProviderDefinition } from '../services/ProviderRegistry';
 
 const DOMAIN = 0x0000;
 const TAG = 'Settings';
@@ -52,9 +55,14 @@ struct Settings {
   @State showAppLockSheet: boolean = false;
   @State showTopicGateSheet: boolean = false;
 
-  // 上下文净化草稿态：Key 只写不读，页面上仅回显「是否已配置」。
-  @State topicGateKeyInput: string = '';
-  @State topicGateHasKey: boolean = false;
+  // 上下文净化：两个 tab 分别配置 System One（判定）与 System Two（生成）渠道。
+  @State topicTab: number = 0;
+  @State systemOneChannel: string = SYSTEM_ONE_CHANNEL_TYPESAFE;
+  @State systemOneKeyInput: string = '';
+  @State systemOneHasKey: boolean = false;
+  @State systemTwoProviderId: string = 'deepseek';
+  @State systemTwoKeyInput: string = '';
+  @State systemTwoHasKey: boolean = false;
   @State topicGateError: string = '';
   @State tempTopicThreshold: number = DEFAULT_TOPIC_GATE_THRESHOLD;
 
@@ -68,16 +76,46 @@ struct Settings {
     SettingsService.init(hostCtx);
     this.tempFontLevel = this.currentFontLevel;
     this.tempTopicThreshold = this.topicGateThreshold;
-    this.loadTopicGateKey();
+    this.loadTopicGateState();
   }
 
-  private async loadTopicGateKey(): Promise<void> {
+  private async loadTopicGateState(): Promise<void> {
     try {
       const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const key: string = await SettingsService.getTopicGateApiKey(hostCtx);
-      this.topicGateHasKey = key.length > 0;
+      this.systemOneChannel = await SettingsService.getTopicGateChannel(hostCtx);
+      const oneKey: string = await SettingsService.getSystemOneKey(hostCtx, this.systemOneChannel);
+      this.systemOneHasKey = oneKey.length > 0;
+      const twoKey: string = await SettingsService.getProviderKey(hostCtx, this.systemTwoProviderId);
+      this.systemTwoHasKey = twoKey.length > 0;
     } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'loadTopicGateKey failed: %{public}s', String(err));
+      hilog.warn(DOMAIN, TAG, 'loadTopicGateState failed: %{public}s', String(err));
+    }
+  }
+
+  private async selectSystemOneChannel(channel: string): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SettingsService.setTopicGateChannel(hostCtx, channel);
+      this.systemOneChannel = channel;
+      this.systemOneKeyInput = '';
+      this.topicGateError = '';
+      const key: string = await SettingsService.getSystemOneKey(hostCtx, channel);
+      this.systemOneHasKey = key.length > 0;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'selectSystemOneChannel failed: %{public}s', String(err));
+    }
+  }
+
+  private async selectSystemTwoProvider(providerId: string): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      this.systemTwoProviderId = providerId;
+      this.systemTwoKeyInput = '';
+      this.topicGateError = '';
+      const key: string = await SettingsService.getProviderKey(hostCtx, providerId);
+      this.systemTwoHasKey = key.length > 0;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'selectSystemTwoProvider failed: %{public}s', String(err));
     }
   }
 
@@ -174,6 +212,12 @@ struct Settings {
     return this.topicGateEnabled ? this.t('settings_topic_gate_on') : this.t('settings_topic_gate_off');
   }
 
+  /** 当前 System One 渠道实际下发的模型 id（端点与模型由官方文档固定）。 */
+  private systemOneModelLabel(): string {
+    const channel: SystemOneChannel | undefined = findSystemOneChannel(this.systemOneChannel);
+    return channel === undefined ? '' : channel.model;
+  }
+
   private async toggleTopicGate(enabled: boolean): Promise<void> {
     try {
       const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -192,38 +236,67 @@ struct Settings {
     }
   }
 
-  /** 保存 Key：留空表示保持不变（清除走单独的「清除 Key」入口）。 */
-  private async saveTopicGateKey(): Promise<void> {
-    const text: string = this.topicGateKeyInput.trim();
-    if (text.length === 0 && !this.topicGateHasKey) {
+  /** System One：留空表示保持不变（清除走单独的「清除 Key」入口）。 */
+  private async saveSystemOneKey(): Promise<void> {
+    const text: string = this.systemOneKeyInput.trim();
+    if (text.length === 0 && !this.systemOneHasKey) {
       this.topicGateError = this.t('settings_topic_gate_need_key');
       return;
     }
     try {
       const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
       if (text.length > 0) {
-        await SettingsService.setTopicGateApiKey(hostCtx, text);
-        this.topicGateHasKey = true;
+        await SettingsService.setSystemOneKey(hostCtx, this.systemOneChannel, text);
+        this.systemOneHasKey = true;
       }
-      this.topicGateKeyInput = '';
+      this.systemOneKeyInput = '';
       this.topicGateError = '';
-      this.showTopicGateSheet = false;
     } catch (err) {
-      hilog.error(DOMAIN, TAG, 'saveTopicGateKey failed: %{public}s', String(err));
+      hilog.error(DOMAIN, TAG, 'saveSystemOneKey failed: %{public}s', String(err));
     }
   }
 
-  private async clearTopicGateKey(): Promise<void> {
+  private async clearSystemOneKey(): Promise<void> {
     try {
       const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      await SettingsService.setTopicGateApiKey(hostCtx, '');
-      // 没有 Key 时判定必然失败，顺带关闭开关，避免留下一个永远空转的启用态。
+      await SettingsService.setSystemOneKey(hostCtx, this.systemOneChannel, '');
+      // 当前渠道没有 Key 时判定必然失败，顺带关闭开关，避免留下永远空转的启用态。
       await SettingsService.setTopicGateEnabled(hostCtx, false);
-      this.topicGateHasKey = false;
-      this.topicGateKeyInput = '';
+      this.systemOneHasKey = false;
+      this.systemOneKeyInput = '';
       this.topicGateError = '';
     } catch (err) {
-      hilog.error(DOMAIN, TAG, 'clearTopicGateKey failed: %{public}s', String(err));
+      hilog.error(DOMAIN, TAG, 'clearSystemOneKey failed: %{public}s', String(err));
+    }
+  }
+
+  /** System Two：写入与资产监控共用的 `key_<providerId>`。 */
+  private async saveSystemTwoKey(): Promise<void> {
+    const text: string = this.systemTwoKeyInput.trim();
+    if (text.length === 0) {
+      this.topicGateError = this.t('settings_topic_gate_need_key');
+      return;
+    }
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SettingsService.setProviderKey(hostCtx, this.systemTwoProviderId, text);
+      this.systemTwoHasKey = true;
+      this.systemTwoKeyInput = '';
+      this.topicGateError = '';
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'saveSystemTwoKey failed: %{public}s', String(err));
+    }
+  }
+
+  private async clearSystemTwoKey(): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SettingsService.setProviderKey(hostCtx, this.systemTwoProviderId, '');
+      this.systemTwoHasKey = false;
+      this.systemTwoKeyInput = '';
+      this.topicGateError = '';
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'clearSystemTwoKey failed: %{public}s', String(err));
     }
   }
 
@@ -826,6 +899,32 @@ struct Settings {
         .width('100%')
         .padding({ left: 20, right: 20, top: 16, bottom: 12 })
 
+        // 两个 tab：System One（判定）与 System Two（生成）分开配置，Key 互不复用。
+        Row() {
+          Button(this.t('settings_system_one'))
+            .fontSize(13)
+            .layoutWeight(1)
+            .backgroundColor(this.topicTab === 0 ? '#4D6BFE' : '#E2E8F0')
+            .fontColor(this.topicTab === 0 ? '#FFFFFF' : '#475569')
+            .onClick(() => {
+              this.topicTab = 0;
+              this.topicGateError = '';
+            })
+          Button(this.t('settings_system_two'))
+            .fontSize(13)
+            .layoutWeight(1)
+            .margin({ left: 8 })
+            .backgroundColor(this.topicTab === 1 ? '#4D6BFE' : '#E2E8F0')
+            .fontColor(this.topicTab === 1 ? '#FFFFFF' : '#475569')
+            .onClick(() => {
+              this.topicTab = 1;
+              this.topicGateError = '';
+            })
+        }
+        .width('92%')
+        .margin({ bottom: 14 })
+
+        if (this.topicTab === 0) {
         // 开关
         Column() {
           Row() {
@@ -859,59 +958,55 @@ struct Settings {
         .borderColor($r('app.color.border_card'))
         .margin({ top: 4, bottom: 16 })
 
-        // Key
+        // 渠道：官方 / OpenRouter（端点与模型按官方文档固定）
         Column() {
-          Text(this.t('settings_topic_gate_key'))
+          Text(this.t('settings_channel'))
             .fontSize(13)
             .fontColor($r('app.color.text_secondary'))
             .width('100%')
             .margin({ bottom: 8 })
 
-          TextInput({ placeholder: this.t('settings_topic_gate_key_placeholder'), text: this.topicGateKeyInput })
-            .type(InputType.Password)
-            .width('100%')
-            .height(42)
-            .onChange((value: string) => {
-              this.topicGateKeyInput = value;
-              this.topicGateError = '';
-            })
-
-          if (this.topicGateHasKey) {
-            Text(this.t('settings_topic_gate_key_saved'))
-              .fontSize(11)
-              .fontColor($r('app.color.text_muted'))
-              .width('100%')
-              .margin({ top: 6 })
-          }
-          if (this.topicGateError.length > 0) {
-            Text(this.topicGateError)
-              .fontSize(11)
-              .fontColor($r('app.color.danger_text'))
-              .width('100%')
-              .margin({ top: 6 })
-          }
-
           Row() {
-            if (this.topicGateHasKey) {
-              Button(this.t('settings_topic_gate_clear_key'))
-                .fontSize(13)
-                .layoutWeight(1)
-                .backgroundColor($r('app.color.surface'))
-                .fontColor($r('app.color.text_secondary'))
-                .onClick(() => {
-                  this.clearTopicGateKey();
-                })
-            }
-            Button(this.t('settings_topic_gate_save'))
-              .fontSize(13)
+            Button(this.t('settings_channel_typesafe'))
+              .fontSize(12)
               .layoutWeight(1)
-              .margin({ left: this.topicGateHasKey ? 8 : 0 })
+              .backgroundColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_TYPESAFE ? '#4D6BFE' : '#E2E8F0')
+              .fontColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_TYPESAFE ? '#FFFFFF' : '#475569')
               .onClick(() => {
-                this.saveTopicGateKey();
+                this.selectSystemOneChannel(SYSTEM_ONE_CHANNEL_TYPESAFE);
+              })
+            Button('OpenRouter')
+              .fontSize(12)
+              .layoutWeight(1)
+              .margin({ left: 8 })
+              .backgroundColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_OPENROUTER ? '#4D6BFE' : '#E2E8F0')
+              .fontColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_OPENROUTER ? '#FFFFFF' : '#475569')
+              .onClick(() => {
+                this.selectSystemOneChannel(SYSTEM_ONE_CHANNEL_OPENROUTER);
               })
           }
           .width('100%')
-          .margin({ top: 12 })
+
+          Text(this.systemOneModelLabel())
+            .fontSize(11)
+            .fontColor($r('app.color.text_muted'))
+            .width('100%')
+            .margin({ top: 6 })
+
+          this.KeyEditor(
+            this.systemOneKeyInput,
+            this.systemOneHasKey,
+            (v: string) => {
+              this.systemOneKeyInput = v;
+              this.topicGateError = '';
+            },
+            () => {
+              this.saveSystemOneKey();
+            },
+            () => {
+              this.clearSystemOneKey();
+            }
+          )
         }
         .width('92%')
         .padding(16)
@@ -967,6 +1062,12 @@ struct Settings {
         .borderWidth(1)
         .borderColor($r('app.color.border_card'))
 
+        }
+
+        if (this.topicTab === 1) {
+          this.SystemTwoPane()
+        }
+
         Blank().height(24)
       }
       .width('100%')
@@ -979,6 +1080,120 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
+  }
+
+  // ── System One / System Two 共用的 Key 编辑器 ──
+  @Builder
+  KeyEditor(value: string, hasKey: boolean, onChange: (v: string) => void, onSave: () => void, onClear: () => void) {
+    Text(this.t('settings_topic_gate_key'))
+      .fontSize(13)
+      .fontColor($r('app.color.text_secondary'))
+      .width('100%')
+      .margin({ top: 12, bottom: 8 })
+
+    TextInput({ placeholder: this.t('settings_topic_gate_key_placeholder'), text: value })
+      .type(InputType.Password)
+      .width('100%')
+      .height(42)
+      .onChange((v: string) => {
+        onChange(v);
+      })
+
+    if (hasKey) {
+      Text(this.t('settings_topic_gate_key_saved'))
+        .fontSize(11)
+        .fontColor($r('app.color.text_muted'))
+        .width('100%')
+        .margin({ top: 6 })
+    }
+    if (this.topicGateError.length > 0) {
+      Text(this.topicGateError)
+        .fontSize(11)
+        .fontColor($r('app.color.danger_text'))
+        .width('100%')
+        .margin({ top: 6 })
+    }
+
+    Row() {
+      if (hasKey) {
+        Button(this.t('settings_topic_gate_clear_key'))
+          .fontSize(13)
+          .layoutWeight(1)
+          .backgroundColor($r('app.color.surface'))
+          .fontColor($r('app.color.text_secondary'))
+          .onClick(() => {
+            onClear();
+          })
+      }
+      Button(this.t('settings_topic_gate_save'))
+        .fontSize(13)
+        .layoutWeight(1)
+        .margin({ left: hasKey ? 8 : 0 })
+        .onClick(() => {
+          onSave();
+        })
+    }
+    .width('100%')
+    .margin({ top: 12 })
+  }
+
+  // ── System Two：生成模型渠道（复用资产监控的服务商 Key） ──
+  @Builder
+  SystemTwoPane() {
+    Column() {
+      Text(this.t('settings_system_two_desc'))
+        .fontSize(12)
+        .fontColor($r('app.color.text_muted'))
+        .width('100%')
+        .margin({ bottom: 12 })
+
+      Text(this.t('settings_provider'))
+        .fontSize(13)
+        .fontColor($r('app.color.text_secondary'))
+        .width('100%')
+        .margin({ bottom: 8 })
+
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(PROVIDERS, (p: ProviderDefinition) => {
+          Button(p.name)
+            .fontSize(12)
+            .margin({ right: 8, bottom: 8 })
+            .backgroundColor(this.systemTwoProviderId === p.id ? '#4D6BFE' : '#E2E8F0')
+            .fontColor(this.systemTwoProviderId === p.id ? '#FFFFFF' : '#475569')
+            .onClick(() => {
+              this.selectSystemTwoProvider(p.id);
+            })
+        }, (p: ProviderDefinition) => p.id)
+      }
+      .width('100%')
+
+      this.KeyEditor(
+        this.systemTwoKeyInput,
+        this.systemTwoHasKey,
+        (v: string) => {
+          this.systemTwoKeyInput = v;
+          this.topicGateError = '';
+        },
+        () => {
+          this.saveSystemTwoKey();
+        },
+        () => {
+          this.clearSystemTwoKey();
+        }
+      )
+
+      Text(this.t('settings_system_two_shared'))
+        .fontSize(11)
+        .fontColor($r('app.color.text_muted'))
+        .width('100%')
+        .margin({ top: 10 })
+    }
+    .width('92%')
+    .padding(16)
+    .backgroundColor($r('app.color.surface_alt'))
+    .borderRadius(12)
+    .borderWidth(1)
+    .borderColor($r('app.color.border_card'))
   }
 
   @Builder
