@@ -19,7 +19,7 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/components/AppLockGate.ets
   - BalanceApp/entry/src/main/ets/entryability/EntryAbility.ets
   - BalanceApp/entry/src/main/resources/base/profile/main_pages.json
-last_verified_commit: 8529d7c
+last_verified_commit: 7450db8
 ---
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
@@ -33,10 +33,13 @@ last_verified_commit: 8529d7c
   故不在接收端拦截，只在「消息写入历史后」判定一次，影响后续请求。
 - 切段 `services/TopicGateService.ets`：按 `。！？!?；;` 与换行切分，保持无损
   （`join(segments) === 原文`），否则掩码与回放文本无法对齐。
-- 判定 `services/JevService.ets`：TypeSafe System One，`POST https://api.typesafe.ai/v1/systemone`，
+- 判定 `services/JevService.ets`：System One 只有两个渠道，端点/模型按官方文档固定：
+  `typesafe` → `POST https://api.typesafe.ai/v1/systemone`，模型 `jev-latest`；
+  `openrouter` → `POST https://openrouter.ai/api/v1/systemone`，模型 `~typesafe/jev-latest`，
+  且必须使用 OpenRouter 自己的 Key（与官方 Key 不通用）。
   一次请求合并本消息所有分段，每段一个 Noul 问句：
   `{model, state:{topic, segments:{segment_i}}, questions:{segment_i:{type:'noul',instructions}}}`，
-  读 `answers.segment_i.noul`（切题概率）；默认模型 `jev-latest`。
+  读 `answers.segment_i.noul`（切题概率）。
 - 写时接线（ChatView）：`generateReply` 的 `onComplete` 与 `stopGenerating` 落库后调用 `gateTopic`，
   **topic 取产生该回复的用户消息（parentMsg.content），不是当前会话主题**，避免会话漂移后误删
   当时切题的内容；判定异步执行，不阻塞回复交付。
@@ -46,9 +49,12 @@ last_verified_commit: 8529d7c
   `keep.length !== 切段数` 时 fail-open 返回原文。界面与原文存储不变。
 - 持久化边界 `ChatStorageService.normalizeTopicMask`：topic 必须为字符串、keep 必须为数组，
   否则视为无掩码（不是「全删」）。
-- 配置：设置 > 对话 > 上下文净化（Jev）：开关 + Key + 切题阈值（默认 0.5，范围 0.1~0.9）。
-  Key 存 `balance_prefs` 的 `key_jev`，只落 Preferences、不上 AppStorage、不进日志；
-  清除 Key 会同时关闭开关（避免永远空转的启用态）。
+- 配置：设置 > 对话 > 上下文净化，两个 tab：
+  - System One（判定）：渠道二选一 + 该渠道专属 Key + 切题阈值（默认 0.5，0.1~0.9）+ 开关。
+    Key 分存 `key_jev_typesafe` / `key_jev_openrouter`，只落 Preferences、不上 AppStorage、不进日志；
+    清除当前渠道 Key 会同时关闭开关（避免永远空转的启用态）。
+  - System Two（生成）：渠道即 `ProviderRegistry` 现有服务商，Key 复用资产监控的 `key_<id>`，
+    不另存第二份（同一偏好键，两处入口改动即时同步）。
 - 失败语义：未启用/无 Key/网络错误/非 200/结构非法/条数不符/不足两段 → 保留全部（fail-open）。
 - 已知边界：切段含换行，代码块内单行被判定剔除时可能留下残块（与 nanobot 行为一致）；
   判定晚于本轮交付，若下一轮在判定完成前开始，该条会以未净化形式参与一次请求。
