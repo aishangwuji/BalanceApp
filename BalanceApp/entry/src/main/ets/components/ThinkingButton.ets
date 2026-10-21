@@ -1,7 +1,7 @@
 /*
  * ThinkingButton.ets
  *
- * 深度思考开关组件 —— 纯净对齐官方设计规范。
+ * 深度思考开关组件 —— 采用全局温润中性色与墨金强调。
  * 1. 严格禁用所有 Emoji 表情符与额外修饰文本（无表情、无 ON 标签）；
  * 2. 纯粹「深度思考」胶囊切换：开启时淡蓝紫背景加细边框，关闭时素灰背景；
  * 3. 自动感应当前服务商与模型（DeepSeek、小米 MiMo、Kimi 等）支持性。
@@ -28,14 +28,14 @@ export struct ThinkingButton {
         Row() {
           Text('深度思考')
             .fontSize(13)
-            .fontColor(this.isEnabled ? '#4D6BFE' : $r('app.color.text_secondary'))
+            .fontColor(this.isEnabled ? $r('app.color.accent') : $r('app.color.text_secondary'))
             .fontWeight(this.isEnabled ? FontWeight.Medium : FontWeight.Normal)
         }
         .padding({ left: 14, right: 14, top: 6, bottom: 6 })
         .backgroundColor(this.isEnabled ? $r('app.color.accent_soft') : $r('app.color.fill'))
         .borderRadius(16)
         .borderWidth(1)
-        .borderColor(this.isEnabled ? '#C7D2FE' : '#00000000')
+        .borderColor(this.isEnabled ? $r('app.color.accent_outline') : '#00000000')
         .animation({ duration: 200, curve: Curve.FastOutSlowIn })
         .onClick(() => {
           const nextState: boolean = !this.isEnabled;

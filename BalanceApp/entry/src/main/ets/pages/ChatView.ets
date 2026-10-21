@@ -1,7 +1,7 @@
 /*
  * ChatView.ets
  *
- * 智能对话主界面（类似独立 DeepSeek / 智额 客户端体验）
+ * 智能对话主界面（温润静奢主题）
  * 1. 禁用所有 Emoji 表情符，采用纯文本及标准图形；
  * 2. 隐藏滚动条（.scrollBar(BarState.Off)），滑动干净无多余条框；
  * 3. 严格使用厂商官方实时接口拉取真实可用模型列表。
@@ -2174,6 +2174,11 @@ export struct ChatView {
     return def ? def.name : id;
   }
 
+  private currentSessionTitle(): string {
+    const session: ChatSession | undefined = this.getCurrentSession();
+    return session !== undefined ? session.title : '新对话';
+  }
+
   // ── UI 渲染 ──
 
   build() {
@@ -2198,23 +2203,38 @@ export struct ChatView {
             this.showDrawer = true;
           })
 
-          Blank()
+          Column() {
+            Text(this.currentSessionTitle())
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor($r('app.color.text_title'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(this.getProviderName(this.currentProviderId))
+              .fontSize(10)
+              .fontColor($r('app.color.text_muted'))
+              .margin({ top: 2 })
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Center)
+          .padding({ left: 8, right: 8 })
 
           // 右侧：模型选择器入口
           Row() {
             Text(this.currentModelId.length > 0 ? this.currentModelId : '选择模型')
               .fontSize(12)
-              .fontColor('#4D6BFE')
+              .fontColor($r('app.color.accent'))
               .fontWeight(FontWeight.Medium)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             Text(' 选模型')
               .fontSize(10)
-              .fontColor('#7C3AED')
+              .fontColor($r('app.color.text_muted'))
               .margin({ left: 4 })
           }
           .padding({ left: 10, right: 10, top: 7, bottom: 7 })
           .backgroundColor($r('app.color.accent_soft'))
+          .border({ width: 1, color: $r('app.color.accent_outline') })
           .borderRadius(16)
           .onClick(async () => {
             await this.loadConfiguredProviders();
@@ -2229,20 +2249,61 @@ export struct ChatView {
           Row() {
             Text(this.noticeText)
               .fontSize(11)
-              .fontColor('#EF4444')
+              .fontColor($r('app.color.danger_text'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
               .textAlign(TextAlign.Center)
           }
           .width('94%')
+          .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+          .backgroundColor($r('app.color.danger_fill'))
+          .borderRadius(14)
           .margin({ bottom: 6 })
         }
 
-        Divider().color($r('app.color.divider')).width('100%')
+        Divider().color($r('app.color.border_soft')).width('100%')
 
         // 对话气泡消息流（仅渲染当前激活分支；LazyForEach 只为视口内消息建 Markdown 实例）
         List({ scroller: this.scroller }) {
+          if (this.activePath().length === 0) {
+            ListItem() {
+              Column() {
+                Row() {
+                  Row()
+                    .width(24)
+                    .height(1)
+                    .backgroundColor($r('app.color.accent'))
+                  Text('  BALANCE  /  AI')
+                    .fontSize(10)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor($r('app.color.accent'))
+                    .letterSpacing(1.2)
+                  Row()
+                    .width(24)
+                    .height(1)
+                    .backgroundColor($r('app.color.accent'))
+                }
+                .alignItems(VerticalAlign.Center)
+
+                Text('让想法慢慢展开')
+                  .fontSize(27)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor($r('app.color.text_title'))
+                  .margin({ top: 20 })
+
+                Text('从一个问题开始，开启一段清晰的对话。')
+                  .fontSize(14)
+                  .fontColor($r('app.color.text_muted'))
+                  .lineHeight(23)
+                  .margin({ top: 9 })
+              }
+              .width('100%')
+              .height(340)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(HorizontalAlign.Center)
+            }
+          }
           LazyForEach(this.msgSource, (msg: ChatMessage) => {
             ListItem() {
               this.MessageBubble(msg)
@@ -2252,7 +2313,7 @@ export struct ChatView {
         }
         .width('100%')
         .layoutWeight(1)
-        .padding({ left: 14, right: 14 })
+        .padding({ left: 18, right: 18 })
         .cachedCount(2)
         .scrollBar(BarState.Off)
         .onScrollIndex((start: number, end: number) => {
@@ -2277,7 +2338,7 @@ export struct ChatView {
                   Row() {
                     Text(`@${this.characterName(mid)}`)
                       .fontSize(12)
-                      .fontColor('#4D6BFE')
+                      .fontColor($r('app.color.accent'))
                     Text('  ×')
                       .fontSize(12)
                       .fontColor($r('app.color.text_muted'))
@@ -2305,11 +2366,12 @@ export struct ChatView {
               Text('@')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor('#4D6BFE')
+                .fontColor($r('app.color.accent'))
                 .width(40)
                 .height(40)
                 .textAlign(TextAlign.Center)
-                .backgroundColor($r('app.color.accent_soft'))
+                .backgroundColor($r('app.color.icon_tile'))
+                .border({ width: 1, color: $r('app.color.accent_outline') })
                 .borderRadius(20)
                 .margin({ right: 8 })
                 .onClick(() => {
@@ -2321,8 +2383,9 @@ export struct ChatView {
               TextArea({ placeholder: '输入您的问题...', text: this.inputText })
                 .width('100%')
                 .height(this.inputExpanded ? INPUT_EXPANDED_HEIGHT : INPUT_BASE_HEIGHT)
-                .borderRadius(this.inputExpanded ? 16 : 23)
+                .borderRadius(this.inputExpanded ? 20 : 24)
                 .backgroundColor($r('app.color.input_bg'))
+                .border({ width: 1, color: $r('app.color.border_card') })
                 .fontSize(15)
                 .padding({ left: 16, right: 46, top: 12, bottom: 12 })
                 .onChange((val: string) => {
@@ -2339,7 +2402,8 @@ export struct ChatView {
               }
               .width(26)
               .height(26)
-              .backgroundColor($r('app.color.accent_soft'))
+              .backgroundColor($r('app.color.icon_tile'))
+              .border({ width: 1, color: $r('app.color.accent_outline') })
               .borderRadius(13)
               .margin({ right: 10, bottom: 10 })
               .onClick(() => {
@@ -2350,22 +2414,26 @@ export struct ChatView {
 
             if (this.isGenerating) {
               Button('停止')
-                .fontSize(13)
-                .backgroundColor('#EF4444')
+                .fontSize(12)
+                .backgroundColor($r('app.color.danger_text'))
                 .fontColor('#FFFFFF')
-                .height(40)
-                .borderRadius(20)
+                .width(58)
+                .height(48)
+                .borderRadius(18)
                 .margin({ left: 8 })
                 .onClick(() => {
                   this.stopGenerating();
                 })
             } else {
-              Button('发送')
-                .fontSize(13)
-                .backgroundColor('#4D6BFE')
-                .fontColor('#FFFFFF')
-                .height(40)
-                .borderRadius(20)
+              Button('↑')
+                .fontSize(21)
+                .fontWeight(FontWeight.Medium)
+                .backgroundColor($r('app.color.accent_solid'))
+                .fontColor($r('app.color.accent_contrast'))
+                .width(48)
+                .height(48)
+                .borderRadius(24)
+                .opacity(this.inputText.trim().length > 0 ? 1 : 0.52)
                 .margin({ left: 8 })
                 .onClick(() => {
                   this.sendMessage();
@@ -2387,7 +2455,7 @@ export struct ChatView {
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)
-        .padding({ top: 8, bottom: 12 })
+        .padding({ top: 12, bottom: 14 })
       }
       .width('100%')
       .height('100%')
@@ -2419,7 +2487,7 @@ export struct ChatView {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('#99000000')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 0. 回到底部浮动按钮（视口离开底部时优雅浮现） ──
@@ -2427,19 +2495,19 @@ export struct ChatView {
         Row() {
           Text('↓')
             .fontSize(13)
-            .fontColor('#4D6BFE')
+            .fontColor($r('app.color.accent'))
             .fontWeight(FontWeight.Bold)
             .margin({ right: 4 })
           Text('回到底部')
             .fontSize(12)
-            .fontColor('#4D6BFE')
+            .fontColor($r('app.color.accent'))
             .fontWeight(FontWeight.Medium)
         }
         .padding({ left: 12, right: 14, top: 7, bottom: 7 })
-        .borderRadius(18)
+        .borderRadius(20)
         .backgroundColor($r('app.color.surface'))
-        .border({ width: 1, color: '#E0E7FF' })
-        .shadow({ radius: 10, color: 'rgba(77,107,254,0.15)', offsetX: 0, offsetY: 3 })
+        .border({ width: 1, color: $r('app.color.accent_outline') })
+        .shadow({ radius: 12, color: 'rgba(35,30,20,0.12)', offsetX: 0, offsetY: 4 })
         .position({ right: 16, bottom: 135 })
         .transition(TransitionEffect.opacity(0).combine(TransitionEffect.translate({ y: 16 })).animation({ duration: 200, curve: Curve.FastOutSlowIn }))
         .onClick(() => {
@@ -2460,8 +2528,10 @@ export struct ChatView {
                 Blank()
                 Button('+ 新会话')
                   .fontSize(12)
-                  .height(30)
-                  .borderRadius(15)
+                  .height(36)
+                  .backgroundColor($r('app.color.accent_solid'))
+                  .fontColor($r('app.color.accent_contrast'))
+                  .borderRadius(18)
                   .onClick(async () => {
                     await this.createNewSession();
                     this.showDrawer = false;
@@ -2474,7 +2544,7 @@ export struct ChatView {
               .width('90%')
               .margin({ top: 20, bottom: 14 })
 
-              Divider().color($r('app.color.divider')).width('100%')
+              Divider().color($r('app.color.border_soft')).width('100%')
 
               // 会话列表
               List() {
@@ -2492,7 +2562,7 @@ export struct ChatView {
                           Text(sess.title)
                             .fontSize(15)
                             .fontWeight(sess.id === this.currentSessionId ? FontWeight.Bold : FontWeight.Normal)
-                            .fontColor(sess.id === this.currentSessionId ? '#4D6BFE' : $r('app.color.text_primary'))
+                            .fontColor(sess.id === this.currentSessionId ? $r('app.color.accent') : $r('app.color.text_primary'))
                             .maxLines(1)
                             .textOverflow({ overflow: TextOverflow.Ellipsis })
                             .layoutWeight(1)
@@ -2511,9 +2581,10 @@ export struct ChatView {
                         .fontColor($r('app.color.icon_muted'))
                     }
                     .width('100%')
-                    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+                    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
                     .backgroundColor(sess.id === this.currentSessionId ? $r('app.color.accent_soft_selected') : $r('app.color.surface'))
-                    .borderRadius(10)
+                    .border({ width: sess.id === this.currentSessionId ? 1 : 0, color: $r('app.color.accent_outline') })
+                    .borderRadius(16)
                     .onClick(() => {
                       this.openSessionWithPrivacy(sess);
                     })
@@ -2530,11 +2601,14 @@ export struct ChatView {
               .scrollBar(BarState.Off)
 
               // 底部：角色管理 + 设置入口
-              Divider().color($r('app.color.divider')).width('100%')
+              Divider().color($r('app.color.border_soft')).width('100%')
               Row() {
                 Image($r('app.media.ic_character'))
-                  .width(20)
-                  .height(20)
+                  .width(18)
+                  .height(18)
+                  .padding(8)
+                  .backgroundColor($r('app.color.icon_tile'))
+                  .borderRadius(17)
                 Text('角色管理')
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
@@ -2545,7 +2619,7 @@ export struct ChatView {
                   .fontColor($r('app.color.icon_muted'))
               }
               .width('90%')
-              .padding({ top: 14, bottom: 6 })
+              .padding({ top: 12, bottom: 8 })
               .onClick(() => {
                 this.showDrawer = false;
                 this.characterSheetMode = 'manage';
@@ -2554,8 +2628,11 @@ export struct ChatView {
               })
               Row() {
                 Image($r('app.media.ic_settings'))
-                  .width(20)
-                  .height(20)
+                  .width(18)
+                  .height(18)
+                  .padding(8)
+                  .backgroundColor($r('app.color.icon_tile'))
+                  .borderRadius(17)
                 Text('设置')
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
@@ -2566,7 +2643,7 @@ export struct ChatView {
                   .fontColor($r('app.color.icon_muted'))
               }
               .width('90%')
-              .padding({ top: 6, bottom: 18 })
+              .padding({ top: 8, bottom: 18 })
               .onClick(() => {
                 this.showDrawer = false;
                 this.openSettings();
@@ -2575,8 +2652,9 @@ export struct ChatView {
             .width('80%')
             .height('100%')
             .backgroundColor($r('app.color.surface'))
-            .shadow({ radius: 20, color: 'rgba(0,0,0,0.1)' })
-            .transition(TransitionEffect.translate({ x: -260 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
+            .borderRadius({ topRight: 28, bottomRight: 28 })
+            .shadow({ radius: 28, color: 'rgba(20,18,14,0.16)', offsetX: 8, offsetY: 0 })
+            .transition(TransitionEffect.translate({ x: -320 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
 
             // 蒙层空白点击收回
             Blank()
@@ -2591,7 +2669,7 @@ export struct ChatView {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.45)')
+        .backgroundColor($r('app.color.overlay_scrim'))
         .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
@@ -2613,11 +2691,11 @@ export struct ChatView {
               if (this.fetchingModels) {
                 Text('拉取中...')
                   .fontSize(12)
-                  .fontColor('#4D6BFE')
+                  .fontColor($r('app.color.accent'))
               } else {
                 Text('刷新列表')
                   .fontSize(12)
-                  .fontColor('#4D6BFE')
+                  .fontColor($r('app.color.accent'))
                   .onClick(async () => {
                     await this.loadConfiguredProviders();
                     await this.refreshModelList();
@@ -2641,8 +2719,9 @@ export struct ChatView {
                     Button(p.name)
                       .fontSize(12)
                       .height(32)
-                      .backgroundColor(p.id === this.currentProviderId ? '#4D6BFE' : $r('app.color.fill'))
-                      .fontColor(p.id === this.currentProviderId ? '#FFFFFF' : $r('app.color.text_primary'))
+                      .backgroundColor(p.id === this.currentProviderId ? $r('app.color.accent_solid') : $r('app.color.fill'))
+                      .fontColor(p.id === this.currentProviderId ? $r('app.color.accent_contrast') : $r('app.color.text_primary'))
+                      .borderRadius(16)
                       .margin({ right: 8 })
                       .onClick(async () => {
                         this.currentProviderId = p.id;
@@ -2689,14 +2768,14 @@ export struct ChatView {
                     Row() {
                       Text(m.id)
                         .fontSize(14)
-                        .fontColor(m.id === this.currentModelId ? '#4D6BFE' : $r('app.color.text_primary'))
+                        .fontColor(m.id === this.currentModelId ? $r('app.color.accent') : $r('app.color.text_primary'))
                         .fontWeight(m.id === this.currentModelId ? FontWeight.Bold : FontWeight.Normal)
                         .layoutWeight(1)
 
                       if (isThinkingSupported(this.currentProviderId, m.id)) {
                         Text('深度思考')
                           .fontSize(10)
-                          .fontColor('#4D6BFE')
+                          .fontColor($r('app.color.accent'))
                           .backgroundColor($r('app.color.accent_soft'))
                           .padding({ left: 6, right: 6, top: 2, bottom: 2 })
                           .borderRadius(8)
@@ -2706,13 +2785,14 @@ export struct ChatView {
                       if (m.id === this.currentModelId) {
                         Text('已选')
                           .fontSize(12)
-                          .fontColor('#4D6BFE')
+                          .fontColor($r('app.color.accent'))
                       }
                     }
                     .width('100%')
-                    .padding({ top: 12, bottom: 12, left: 16, right: 16 })
-                    .borderRadius(8)
+                    .padding({ top: 14, bottom: 14, left: 16, right: 16 })
+                    .borderRadius(16)
                     .backgroundColor(m.id === this.currentModelId ? $r('app.color.accent_soft_selected') : $r('app.color.surface'))
+                    .border({ width: m.id === this.currentModelId ? 1 : 0, color: $r('app.color.accent_outline') })
                     .onClick(() => {
                       this.currentModelId = m.id;
                       const cur: ChatSession | undefined = this.getCurrentSession();
@@ -2736,6 +2816,10 @@ export struct ChatView {
 
             Button('关闭')
               .width('92%')
+              .height(46)
+              .backgroundColor($r('app.color.fill'))
+              .fontColor($r('app.color.text_primary'))
+              .borderRadius(16)
               .margin({ bottom: 20 })
               .onClick(() => {
                 this.showModelPicker = false;
@@ -2744,11 +2828,12 @@ export struct ChatView {
           .width('100%')
           .height('65%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 3. 角色卡配置抽屉 ──
@@ -2786,10 +2871,11 @@ export struct ChatView {
               if (this.characterSheetMode === 'manage') {
                 Button('+ 新建角色')
                   .fontSize(12)
-                  .height(30)
-                  .borderRadius(15)
+                  .height(34)
+                  .borderRadius(17)
                   .backgroundColor($r('app.color.accent_soft'))
-                  .fontColor('#4D6BFE')
+                  .fontColor($r('app.color.accent'))
+                  .border({ width: 1, color: $r('app.color.accent_outline') })
                   .margin({ right: 10 })
                   .onClick(() => {
                     this.openCharEdit();
@@ -2822,9 +2908,9 @@ export struct ChatView {
                 Row() {
                   Text('无')
                     .fontSize(12)
-                    .fontColor(this.pendingIdentityId.length === 0 ? '#FFFFFF' : $r('app.color.text_primary'))
+                    .fontColor(this.pendingIdentityId.length === 0 ? $r('app.color.accent_contrast') : $r('app.color.text_primary'))
                     .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-                    .backgroundColor(this.pendingIdentityId.length === 0 ? '#4D6BFE' : $r('app.color.fill'))
+                    .backgroundColor(this.pendingIdentityId.length === 0 ? $r('app.color.accent_solid') : $r('app.color.fill'))
                     .borderRadius(12)
                     .margin({ right: 6 })
                     .onClick(() => {
@@ -2833,9 +2919,9 @@ export struct ChatView {
                   ForEach(this.identities, (idn: UserIdentityCard) => {
                     Text(idn.name)
                       .fontSize(12)
-                      .fontColor(this.pendingIdentityId === idn.id ? '#FFFFFF' : $r('app.color.text_primary'))
+                      .fontColor(this.pendingIdentityId === idn.id ? $r('app.color.accent_contrast') : $r('app.color.text_primary'))
                       .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-                      .backgroundColor(this.pendingIdentityId === idn.id ? '#4D6BFE' : $r('app.color.fill'))
+                      .backgroundColor(this.pendingIdentityId === idn.id ? $r('app.color.accent_solid') : $r('app.color.fill'))
                       .borderRadius(12)
                       .margin({ right: 6 })
                       .onClick(() => {
@@ -2867,13 +2953,24 @@ export struct ChatView {
             } else {
             List() {
               ForEach(this.characters, (char: CharacterCard) => {
-                ListItem() {
-                  Row() {
-                    Column() {
-                      Text(char.name)
+                  ListItem() {
+                    Row() {
+                      Text(char.name.length > 0 ? char.name.substring(0, 1) : '·')
+                        .fontSize(16)
+                        .fontWeight(FontWeight.Medium)
+                        .fontColor($r('app.color.accent'))
+                        .width(38)
+                        .height(38)
+                        .textAlign(TextAlign.Center)
+                        .backgroundColor($r('app.color.icon_tile'))
+                        .border({ width: 1, color: $r('app.color.accent_outline') })
+                        .borderRadius(19)
+                        .margin({ right: 12 })
+                      Column() {
+                        Text(char.name)
                         .fontSize(15)
                         .fontWeight(this.isPendingParticipant(char.id) ? FontWeight.Bold : FontWeight.Medium)
-                        .fontColor(this.isPendingParticipant(char.id) ? '#4D6BFE' : $r('app.color.text_primary'))
+                        .fontColor(this.isPendingParticipant(char.id) ? $r('app.color.accent') : $r('app.color.text_primary'))
                       if (char.description.trim().length > 0) {
                         Text(char.description)
                           .fontSize(12)
@@ -2894,11 +2991,11 @@ export struct ChatView {
                     } else if (this.isPendingParticipant(char.id)) {
                       Text('✓')
                         .fontSize(13)
-                        .fontColor('#FFFFFF')
+                        .fontColor($r('app.color.accent_contrast'))
                         .width(22)
                         .height(22)
                         .textAlign(TextAlign.Center)
-                        .backgroundColor('#4D6BFE')
+                        .backgroundColor($r('app.color.accent_solid'))
                         .borderRadius(11)
                         .margin({ left: 8 })
                     } else {
@@ -2916,7 +3013,7 @@ export struct ChatView {
                   .backgroundColor(this.isPendingParticipant(char.id) ? $r('app.color.accent_soft_selected') : $r('app.color.surface_alt'))
                   .border({
                     width: this.characterSheetMode === 'select' && this.isPendingParticipant(char.id) ? 1.5 : 0,
-                    color: '#4D6BFE'
+                    color: $r('app.color.accent_outline')
                   })
                   .onClick(() => {
                     if (this.characterSheetMode === 'manage') {
@@ -2947,8 +3044,11 @@ export struct ChatView {
                 Blank()
                 Button('+ 新建身份')
                   .fontSize(12)
-                  .height(30)
-                  .borderRadius(15)
+                  .height(34)
+                  .borderRadius(17)
+                  .backgroundColor($r('app.color.accent_soft'))
+                  .fontColor($r('app.color.accent'))
+                  .border({ width: 1, color: $r('app.color.accent_outline') })
                   .onClick(() => {
                     this.openIdentityEdit();
                   })
@@ -3014,8 +3114,8 @@ export struct ChatView {
                 .height(46)
                 .fontSize(15)
                 .borderRadius(23)
-                .backgroundColor(this.pendingParticipants.length > 0 ? '#4D6BFE' : $r('app.color.fill'))
-                .fontColor(this.pendingParticipants.length > 0 ? '#FFFFFF' : $r('app.color.text_muted'))
+                .backgroundColor(this.pendingParticipants.length > 0 ? $r('app.color.accent_solid') : $r('app.color.fill'))
+                .fontColor(this.pendingParticipants.length > 0 ? $r('app.color.accent_contrast') : $r('app.color.text_muted'))
                 .margin({ top: 12, bottom: 22 })
                 .enabled(this.pendingParticipants.length > 0)
                 .onClick(() => {
@@ -3028,11 +3128,12 @@ export struct ChatView {
           .width('100%')
           .height('70%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 4. 角色卡新建/编辑弹窗 ──
@@ -3059,6 +3160,10 @@ export struct ChatView {
                   .margin({ bottom: 4 })
                 TextInput({ placeholder: '例如: 编程助手', text: this.editingCharName })
                   .width('92%')
+                  .height(46)
+                  .backgroundColor($r('app.color.input_bg'))
+                  .borderRadius(14)
+                  .border({ width: 1, color: $r('app.color.border_card') })
                   .margin({ bottom: 12 })
                   .onChange((v: string) => {
                     this.editingCharName = v;
@@ -3072,6 +3177,9 @@ export struct ChatView {
                 TextArea({ placeholder: '设定角色的语气、行为模式、知识范畴...', text: this.editingCharPrompt })
                   .width('92%')
                   .height(110)
+                  .backgroundColor($r('app.color.input_bg'))
+                  .borderRadius(16)
+                  .border({ width: 1, color: $r('app.color.border_card') })
                   .margin({ bottom: 12 })
                   .onChange((v: string) => {
                     this.editingCharPrompt = v;
@@ -3084,6 +3192,10 @@ export struct ChatView {
                   .margin({ bottom: 4 })
                 TextInput({ placeholder: '第一句主动打招呼的消息', text: this.editingCharFirstMsg })
                   .width('92%')
+                  .height(46)
+                  .backgroundColor($r('app.color.input_bg'))
+                  .borderRadius(14)
+                  .border({ width: 1, color: $r('app.color.border_card') })
                   .margin({ bottom: 16 })
                   .onChange((v: string) => {
                     this.editingCharFirstMsg = v;
@@ -3105,8 +3217,8 @@ export struct ChatView {
                 })
               Button('保存')
                 .layoutWeight(1)
-                .backgroundColor('#4D6BFE')
-                .fontColor('#FFFFFF')
+                .backgroundColor($r('app.color.accent_solid'))
+                .fontColor($r('app.color.accent_contrast'))
                 .onClick(() => {
                   this.saveCharacterEdit();
                 })
@@ -3117,11 +3229,12 @@ export struct ChatView {
           .width('100%')
           .height('80%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.45)')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 5. 消息长按操作菜单 ──
@@ -3151,6 +3264,10 @@ export struct ChatView {
             })
             Button('取消')
               .width('92%')
+              .height(44)
+              .backgroundColor($r('app.color.fill'))
+              .fontColor($r('app.color.text_primary'))
+              .borderRadius(14)
               .margin({ top: 8, bottom: 16 })
               .onClick(() => {
                 this.closeMsgActions();
@@ -3158,12 +3275,13 @@ export struct ChatView {
           }
           .width('100%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
+        .backgroundColor($r('app.color.overlay_scrim'))
         .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
@@ -3186,13 +3304,13 @@ export struct ChatView {
                     Text(pc.name)
                       .fontSize(14)
                       .fontWeight(this.pendingMentions.includes(pc.id) ? FontWeight.Bold : FontWeight.Normal)
-                      .fontColor(this.pendingMentions.includes(pc.id) ? '#4D6BFE' : $r('app.color.text_primary'))
+                      .fontColor(this.pendingMentions.includes(pc.id) ? $r('app.color.accent') : $r('app.color.text_primary'))
                       .layoutWeight(1)
                     if (this.pendingMentions.includes(pc.id)) {
                       Text('✓')
                         .fontSize(16)
                         .fontWeight(FontWeight.Bold)
-                        .fontColor('#4D6BFE')
+                        .fontColor($r('app.color.accent'))
                     }
                   }
                   .width('100%')
@@ -3210,6 +3328,10 @@ export struct ChatView {
             .constraintSize({ maxHeight: 260 })
             Button('完成')
               .width('90%')
+              .height(44)
+              .backgroundColor($r('app.color.accent_solid'))
+              .fontColor($r('app.color.accent_contrast'))
+              .borderRadius(14)
               .margin({ top: 8, bottom: 14 })
               .onClick(() => {
                 this.showMentionPicker = false;
@@ -3222,7 +3344,7 @@ export struct ChatView {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 6. 编辑并重发弹窗 ──
@@ -3245,6 +3367,9 @@ export struct ChatView {
             TextArea({ placeholder: '修改消息内容...', text: this.editMsgText })
               .width('92%')
               .height(120)
+              .backgroundColor($r('app.color.input_bg'))
+              .borderRadius(16)
+              .border({ width: 1, color: $r('app.color.border_card') })
               .margin({ bottom: 16 })
               .onChange((v: string) => {
                 this.editMsgText = v;
@@ -3260,8 +3385,8 @@ export struct ChatView {
                 })
               Button('发送')
                 .layoutWeight(1)
-                .backgroundColor('#4D6BFE')
-                .fontColor('#FFFFFF')
+                .backgroundColor($r('app.color.accent_solid'))
+                .fontColor($r('app.color.accent_contrast'))
                 .enabled(this.editMsgText.trim().length > 0)
                 .onClick(() => {
                   this.confirmEdit();
@@ -3272,11 +3397,12 @@ export struct ChatView {
           }
           .width('100%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.45)')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 8. 历史会话长按操作菜单 ──
@@ -3305,6 +3431,10 @@ export struct ChatView {
             })
             Button('取消')
               .width('92%')
+              .height(44)
+              .backgroundColor($r('app.color.fill'))
+              .fontColor($r('app.color.text_primary'))
+              .borderRadius(14)
               .margin({ top: 8, bottom: 16 })
               .onClick(() => {
                 this.closeSessActions();
@@ -3312,12 +3442,13 @@ export struct ChatView {
           }
           .width('100%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
+        .backgroundColor($r('app.color.overlay_scrim'))
         .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
@@ -3332,6 +3463,10 @@ export struct ChatView {
               .margin({ top: 20, bottom: 12 })
             TextInput({ placeholder: '输入新名称', text: this.renameText })
               .width('90%')
+              .height(46)
+              .backgroundColor($r('app.color.input_bg'))
+              .borderRadius(14)
+              .border({ width: 1, color: $r('app.color.border_card') })
               .margin({ bottom: 16 })
               .onChange((v: string) => {
                 this.renameText = v;
@@ -3347,8 +3482,8 @@ export struct ChatView {
                 })
               Button('保存')
                 .layoutWeight(1)
-                .backgroundColor('#4D6BFE')
-                .fontColor('#FFFFFF')
+                .backgroundColor($r('app.color.accent_solid'))
+                .fontColor($r('app.color.accent_contrast'))
                 .enabled(this.renameText.trim().length > 0)
                 .onClick(() => {
                   this.confirmRename();
@@ -3364,7 +3499,7 @@ export struct ChatView {
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 10. 会话删除二次确认（复用组件） ──
@@ -3403,6 +3538,10 @@ export struct ChatView {
             })
             Button('取消')
               .width('92%')
+              .height(44)
+              .backgroundColor($r('app.color.fill'))
+              .fontColor($r('app.color.text_primary'))
+              .borderRadius(14)
               .margin({ top: 8, bottom: 16 })
               .onClick(() => {
                 this.closeCharActions();
@@ -3410,12 +3549,13 @@ export struct ChatView {
           }
           .width('100%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.4)')
+        .backgroundColor($r('app.color.overlay_scrim'))
         .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
@@ -3458,6 +3598,10 @@ export struct ChatView {
               .margin({ bottom: 4 })
             TextInput({ placeholder: '例如: 林晚', text: this.editingIdentityName })
               .width('92%')
+              .height(46)
+              .backgroundColor($r('app.color.input_bg'))
+              .borderRadius(14)
+              .border({ width: 1, color: $r('app.color.border_card') })
               .margin({ bottom: 12 })
               .onChange((v: string) => {
                 this.editingIdentityName = v;
@@ -3470,6 +3614,9 @@ export struct ChatView {
             TextArea({ placeholder: '背景、性格、职业……', text: this.editingIdentityPersona })
               .width('92%')
               .height(90)
+              .backgroundColor($r('app.color.input_bg'))
+              .borderRadius(16)
+              .border({ width: 1, color: $r('app.color.border_card') })
               .margin({ bottom: 16 })
               .onChange((v: string) => {
                 this.editingIdentityPersona = v;
@@ -3485,8 +3632,8 @@ export struct ChatView {
                 })
               Button('保存')
                 .layoutWeight(1)
-                .backgroundColor('#4D6BFE')
-                .fontColor('#FFFFFF')
+                .backgroundColor($r('app.color.accent_solid'))
+                .fontColor($r('app.color.accent_contrast'))
                 .enabled(this.editingIdentityName.trim().length > 0)
                 .onClick(() => {
                   this.saveIdentityEdit();
@@ -3497,11 +3644,12 @@ export struct ChatView {
           }
           .width('100%')
           .backgroundColor($r('app.color.surface'))
-          .borderRadius({ topLeft: 24, topRight: 24 })
+          .borderRadius({ topLeft: 28, topRight: 28 })
+          .border({ width: 1, color: $r('app.color.border_soft') })
         }
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.45)')
+        .backgroundColor($r('app.color.overlay_scrim'))
       }
 
       // ── 13. 身份卡删除二次确认（复用组件） ──
@@ -3556,14 +3704,15 @@ export struct ChatView {
               .fontColor($r('app.color.reasoning_muted'))
               .margin({ bottom: 4 })
           }
-          // 用户气泡：DeepSeek 风格淡蓝紫色圆润胶囊气泡 (#EEF2FF) + 深灰蓝文本
+          // 用户气泡采用暖中性色与轻描边，避免大色块打断长对话阅读。
           Text(msg.content)
             .fontSize(15 * this.appFontScale)
             .fontColor($r('app.color.user_bubble_text'))
             .lineHeight(22 * this.appFontScale)
             .padding({ left: 16, right: 16, top: 11, bottom: 11 })
             .backgroundColor($r('app.color.accent_soft'))
-            .borderRadius(18)
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.accent_outline') })
           // @ 对象
           if (msg.mentionedIds.length > 0) {
             Text(this.mentionText(msg))
@@ -3591,7 +3740,7 @@ export struct ChatView {
     } else {
       Row() {
         Column() {
-          // 深度思考折叠条（纯净 DeepSeek 风格：灰字「已思考（用时 X 秒）」+ 旋转小三角 + 展开左侧竖线装饰）
+          // 深度思考折叠条以轻量文字层级与细线装饰，保持长对话阅读节奏。
           if (msg.reasoningContent && msg.reasoningContent.length > 0) {
             Column() {
               // 标题栏：整行可点（44px 级触区），负责状态展示和点击切换
@@ -3692,7 +3841,7 @@ export struct ChatView {
             .width('100%')
           } else if (msg.status === 'streaming') {
             Row() {
-              LoadingProgress().width(18).height(18).color('#4D6BFE')
+              LoadingProgress().width(18).height(18).color($r('app.color.accent'))
               Text('  思考中...')
                 .fontSize(13)
                 .fontColor($r('app.color.reasoning_text'))
@@ -3703,7 +3852,10 @@ export struct ChatView {
           if (msg.status === 'error' && msg.errorMessage) {
             Text(`失败: ${msg.errorMessage}`)
               .fontSize(12)
-              .fontColor('#EF4444')
+              .fontColor($r('app.color.danger_text'))
+              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+              .backgroundColor($r('app.color.danger_fill'))
+              .borderRadius(10)
               .margin({ top: 6 })
           }
 
@@ -3734,7 +3886,7 @@ export struct ChatView {
     Row() {
       Text('‹')
         .fontSize(18)
-        .fontColor('#4D6BFE')
+        .fontColor($r('app.color.accent'))
         .padding({ left: 16, right: 16, top: 10, bottom: 10 })
         .onClick(() => {
           this.switchBranch(msg, -1);
@@ -3744,13 +3896,14 @@ export struct ChatView {
         .fontColor($r('app.color.text_secondary'))
       Text('›')
         .fontSize(18)
-        .fontColor('#4D6BFE')
+        .fontColor($r('app.color.accent'))
         .padding({ left: 16, right: 16, top: 10, bottom: 10 })
         .onClick(() => {
           this.switchBranch(msg, 1);
         })
     }
     .backgroundColor($r('app.color.surface'))
-    .borderRadius(12)
+    .border({ width: 1, color: $r('app.color.border_soft') })
+    .borderRadius(14)
   }
 }

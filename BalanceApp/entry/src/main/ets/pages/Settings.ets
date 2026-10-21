@@ -1,7 +1,7 @@
 /*
  * Settings.ets —— 设置页
  *
- * 参考 DeepSeek 设置页形式：分组列表 + 行内左侧图标 + 右侧当前值/箭头。
+ * 以温润静奢为全局视觉基调：留白分组、柔和表面与克制的墨金强调。
  * 支持：
  * 1. 语言：中文（简体）/ English 动态切换与持久化；
  * 2. 外观：系统 / 浅色 / 深色 动态切换与持久化；
@@ -324,102 +324,114 @@ struct Settings {
         // 顶部导航栏
         Row() {
           Text('‹')
-            .fontSize(24)
+            .fontSize(28)
             .fontColor($r('app.color.text_primary'))
-            .width(44)
+            .width(42)
+            .height(42)
             .textAlign(TextAlign.Center)
+            .backgroundColor($r('app.color.surface_alt'))
+            .borderRadius(21)
             .onClick(() => {
               this.goBack();
             })
           Text(this.t('settings_title'))
-            .fontSize(17)
+            .fontSize(20)
             .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+            .margin({ left: 8 })
           Blank()
-          Text('').width(44)
         }
-        .width('100%')
-        .height(48)
+        .width('92%')
+        .height(58)
 
         Scroll() {
           Column() {
             // ── 应用 ──
             Text(this.t('settings_section_app'))
-              .fontSize(12)
+              .fontSize(11)
+              .letterSpacing(0.4)
               .fontColor($r('app.color.text_muted'))
               .width('92%')
-              .margin({ top: 8, bottom: 6 })
+              .margin({ top: 22, bottom: 10 })
 
             Column() {
-              this.SettingRow($r('app.media.ic_language'), '#4D6BFE', this.t('settings_language'), this.currentLanguageDisplay(), false, () => {
+              this.SettingRow($r('app.media.ic_language'), this.t('settings_language'), this.currentLanguageDisplay(), false, () => {
                 this.showLanguageSheet = true;
               })
-              this.SettingRow($r('app.media.ic_appearance'), '#F59E0B', this.t('settings_appearance'), this.currentAppearanceDisplay(), false, () => {
+              this.SettingRow($r('app.media.ic_appearance'), this.t('settings_appearance'), this.currentAppearanceDisplay(), false, () => {
                 this.showAppearanceSheet = true;
               })
-              this.SettingRow($r('app.media.ic_font'), '#10B981', this.t('settings_font_size'), this.currentFontSizeDisplay(), false, () => {
+              this.SettingRow($r('app.media.ic_font'), this.t('settings_font_size'), this.currentFontSizeDisplay(), false, () => {
                 this.tempFontLevel = this.currentFontLevel;
                 this.showFontSizeSheet = true;
               })
-              this.SettingRow($r('app.media.ic_personalize'), '#8B5CF6', this.t('settings_personalize'), '', true, () => {
+              this.SettingRow($r('app.media.ic_personalize'), this.t('settings_personalize'), '', true, () => {
                 this.showPersonalizeSheet = true;
               })
             }
             .width('92%')
             .backgroundColor($r('app.color.surface'))
-            .borderRadius(14)
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
 
             // ── 对话 ──
             Text(this.t('settings_section_chat'))
-              .fontSize(12)
+              .fontSize(11)
+              .letterSpacing(0.4)
               .fontColor($r('app.color.text_muted'))
               .width('92%')
-              .margin({ top: 20, bottom: 6 })
+              .margin({ top: 24, bottom: 10 })
 
             Column() {
-              this.SettingRow($r('app.media.ic_character'), '#6366F1', this.t('settings_topic_gate'), this.topicGateDisplay(), true, () => {
+              this.SettingRow($r('app.media.ic_character'), this.t('settings_topic_gate'), this.topicGateDisplay(), true, () => {
                 this.showTopicGateSheet = true;
               })
             }
             .width('92%')
             .backgroundColor($r('app.color.surface'))
-            .borderRadius(14)
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
 
             // ── 安全 ──
             Text(this.t('settings_section_security'))
-              .fontSize(12)
+              .fontSize(11)
+              .letterSpacing(0.4)
               .fontColor($r('app.color.text_muted'))
               .width('92%')
-              .margin({ top: 20, bottom: 6 })
+              .margin({ top: 24, bottom: 10 })
 
             Column() {
-              this.SettingRow($r('app.media.ic_lock'), '#EF4444', this.t('settings_app_lock'), this.currentAppLockDisplay(), true, () => {
+              this.SettingRow($r('app.media.ic_lock'), this.t('settings_app_lock'), this.currentAppLockDisplay(), true, () => {
                 this.showAppLockSheet = true;
               })
             }
             .width('92%')
             .backgroundColor($r('app.color.surface'))
-            .borderRadius(14)
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
 
             // ── 数据 ──
             Text(this.t('settings_section_data'))
-              .fontSize(12)
+              .fontSize(11)
+              .letterSpacing(0.4)
               .fontColor($r('app.color.text_muted'))
               .width('92%')
-              .margin({ top: 20, bottom: 6 })
+              .margin({ top: 24, bottom: 10 })
 
             Column() {
-              this.SettingRow($r('app.media.ic_assets'), '#0EA5E9', this.t('settings_assets'), this.t('settings_assets_desc'), true, () => {
+              this.SettingRow($r('app.media.ic_assets'), this.t('settings_assets'), this.t('settings_assets_desc'), true, () => {
                 this.openAssets();
               })
             }
             .width('92%')
             .backgroundColor($r('app.color.surface'))
-            .borderRadius(14)
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
 
             Text(this.t('settings_version'))
               .fontSize(12)
               .fontColor($r('app.color.text_faint'))
-              .margin({ top: 24 })
+              .margin({ top: 30, bottom: 18 })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Center)
@@ -473,7 +485,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill('#66000000')
+        .fill($r('app.color.overlay_scrim'))
         .onClick(() => {
           this.showLanguageSheet = false;
         })
@@ -502,7 +514,7 @@ struct Settings {
               Text(item.nativeName)
                 .fontSize(15)
                 .fontWeight(this.currentLang === item.code ? FontWeight.Medium : FontWeight.Regular)
-                .fontColor(this.currentLang === item.code ? '#4D6BFE' : $r('app.color.text_primary'))
+                .fontColor(this.currentLang === item.code ? $r('app.color.accent') : $r('app.color.text_primary'))
               if (item.code !== 'en-US') {
                 Text(item.name)
                   .fontSize(12)
@@ -517,7 +529,7 @@ struct Settings {
               Text('✓')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor('#4D6BFE')
+                .fontColor($r('app.color.accent'))
             }
           }
           .width('100%')
@@ -532,7 +544,9 @@ struct Settings {
       }
       .width('100%')
       .backgroundColor($r('app.color.surface'))
-      .borderRadius({ topLeft: 20, topRight: 20 })
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.border_soft') })
+      .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
         TransitionEffect.move(TransitionEdge.BOTTOM)
@@ -549,7 +563,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill('#66000000')
+        .fill($r('app.color.overlay_scrim'))
         .onClick(() => {
           this.showAppearanceSheet = false;
         })
@@ -577,14 +591,14 @@ struct Settings {
             Text(this.t(opt.nameKey))
               .fontSize(15)
               .fontWeight(this.currentAppearance === opt.key ? FontWeight.Medium : FontWeight.Regular)
-              .fontColor(this.currentAppearance === opt.key ? '#4D6BFE' : $r('app.color.text_primary'))
+              .fontColor(this.currentAppearance === opt.key ? $r('app.color.accent') : $r('app.color.text_primary'))
               .layoutWeight(1)
 
             if (this.currentAppearance === opt.key) {
               Text('✓')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor('#4D6BFE')
+                .fontColor($r('app.color.accent'))
             }
           }
           .width('100%')
@@ -599,7 +613,9 @@ struct Settings {
       }
       .width('100%')
       .backgroundColor($r('app.color.surface'))
-      .borderRadius({ topLeft: 20, topRight: 20 })
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.border_soft') })
+      .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
         TransitionEffect.move(TransitionEdge.BOTTOM)
@@ -616,7 +632,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill('#66000000')
+        .fill($r('app.color.overlay_scrim'))
         .onClick(() => {
           this.showFontSizeSheet = false;
         })
@@ -670,7 +686,7 @@ struct Settings {
           Text(this.tempFontLevel === 3 ? this.t('settings_font_size_standard') : `${this.tempFontLevel} / 7`)
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#4D6BFE')
+            .fontColor($r('app.color.accent'))
           Blank()
           Text('A')
             .fontSize(20)
@@ -688,9 +704,9 @@ struct Settings {
           step: 1,
           style: SliderStyle.InSet
         })
-          .blockColor('#4D6BFE')
-          .trackColor('#E2E8F0')
-          .selectedColor('#4D6BFE')
+          .blockColor($r('app.color.accent_solid'))
+          .trackColor($r('app.color.border_card'))
+          .selectedColor($r('app.color.accent_solid'))
           .showSteps(true)
           .width('90%')
           .onChange((value: number, mode: SliderChangeMode) => {
@@ -705,7 +721,9 @@ struct Settings {
       }
       .width('100%')
       .backgroundColor($r('app.color.surface'))
-      .borderRadius({ topLeft: 20, topRight: 20 })
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.border_soft') })
+      .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
         TransitionEffect.move(TransitionEdge.BOTTOM)
@@ -722,7 +740,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill('#66000000')
+        .fill($r('app.color.overlay_scrim'))
         .onClick(() => {
           this.showPersonalizeSheet = false;
         })
@@ -762,7 +780,7 @@ struct Settings {
             .layoutWeight(1)
 
             Toggle({ type: ToggleType.Switch, isOn: this.autoCollapseThinking })
-              .selectedColor('#4D6BFE')
+              .selectedColor($r('app.color.accent_solid'))
               .switchPointColor('#FFFFFF')
               .onChange((isOn: boolean) => {
                 this.toggleAutoCollapse(isOn);
@@ -782,7 +800,9 @@ struct Settings {
       }
       .width('100%')
       .backgroundColor($r('app.color.surface'))
-      .borderRadius({ topLeft: 20, topRight: 20 })
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.border_soft') })
+      .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
         TransitionEffect.move(TransitionEdge.BOTTOM)
@@ -799,7 +819,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill('#66000000')
+        .fill($r('app.color.overlay_scrim'))
         .onClick(() => {
           this.showAppLockSheet = false;
         })
@@ -839,7 +859,7 @@ struct Settings {
             .layoutWeight(1)
 
             Toggle({ type: ToggleType.Switch, isOn: this.appLockEnabled })
-              .selectedColor('#4D6BFE')
+              .selectedColor($r('app.color.accent_solid'))
               .switchPointColor('#FFFFFF')
               .onChange((isOn: boolean) => {
                 this.toggleAppLock(isOn);
@@ -859,7 +879,9 @@ struct Settings {
       }
       .width('100%')
       .backgroundColor($r('app.color.surface'))
-      .borderRadius({ topLeft: 20, topRight: 20 })
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.border_soft') })
+      .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
         TransitionEffect.move(TransitionEdge.BOTTOM)
@@ -876,7 +898,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill('#66000000')
+        .fill($r('app.color.overlay_scrim'))
         .onClick(() => {
           this.showTopicGateSheet = false;
         })
@@ -904,8 +926,9 @@ struct Settings {
           Button(this.t('settings_system_one'))
             .fontSize(13)
             .layoutWeight(1)
-            .backgroundColor(this.topicTab === 0 ? '#4D6BFE' : '#E2E8F0')
-            .fontColor(this.topicTab === 0 ? '#FFFFFF' : '#475569')
+            .backgroundColor(this.topicTab === 0 ? $r('app.color.accent_solid') : $r('app.color.fill'))
+            .fontColor(this.topicTab === 0 ? $r('app.color.accent_contrast') : $r('app.color.text_secondary'))
+            .borderRadius(14)
             .onClick(() => {
               this.topicTab = 0;
               this.topicGateError = '';
@@ -914,8 +937,9 @@ struct Settings {
             .fontSize(13)
             .layoutWeight(1)
             .margin({ left: 8 })
-            .backgroundColor(this.topicTab === 1 ? '#4D6BFE' : '#E2E8F0')
-            .fontColor(this.topicTab === 1 ? '#FFFFFF' : '#475569')
+            .backgroundColor(this.topicTab === 1 ? $r('app.color.accent_solid') : $r('app.color.fill'))
+            .fontColor(this.topicTab === 1 ? $r('app.color.accent_contrast') : $r('app.color.text_secondary'))
+            .borderRadius(14)
             .onClick(() => {
               this.topicTab = 1;
               this.topicGateError = '';
@@ -942,7 +966,7 @@ struct Settings {
             .layoutWeight(1)
 
             Toggle({ type: ToggleType.Switch, isOn: this.topicGateEnabled })
-              .selectedColor('#4D6BFE')
+              .selectedColor($r('app.color.accent_solid'))
               .switchPointColor('#FFFFFF')
               .onChange((isOn: boolean) => {
                 this.toggleTopicGate(isOn);
@@ -970,8 +994,9 @@ struct Settings {
             Button(this.t('settings_channel_typesafe'))
               .fontSize(12)
               .layoutWeight(1)
-              .backgroundColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_TYPESAFE ? '#4D6BFE' : '#E2E8F0')
-              .fontColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_TYPESAFE ? '#FFFFFF' : '#475569')
+              .backgroundColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_TYPESAFE ? $r('app.color.accent_solid') : $r('app.color.fill'))
+              .fontColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_TYPESAFE ? $r('app.color.accent_contrast') : $r('app.color.text_secondary'))
+              .borderRadius(14)
               .onClick(() => {
                 this.selectSystemOneChannel(SYSTEM_ONE_CHANNEL_TYPESAFE);
               })
@@ -979,8 +1004,9 @@ struct Settings {
               .fontSize(12)
               .layoutWeight(1)
               .margin({ left: 8 })
-              .backgroundColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_OPENROUTER ? '#4D6BFE' : '#E2E8F0')
-              .fontColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_OPENROUTER ? '#FFFFFF' : '#475569')
+              .backgroundColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_OPENROUTER ? $r('app.color.accent_solid') : $r('app.color.fill'))
+              .fontColor(this.systemOneChannel === SYSTEM_ONE_CHANNEL_OPENROUTER ? $r('app.color.accent_contrast') : $r('app.color.text_secondary'))
+              .borderRadius(14)
               .onClick(() => {
                 this.selectSystemOneChannel(SYSTEM_ONE_CHANNEL_OPENROUTER);
               })
@@ -1026,7 +1052,7 @@ struct Settings {
             Text(this.tempTopicThreshold.toFixed(2))
               .fontSize(13)
               .fontWeight(FontWeight.Medium)
-              .fontColor('#4D6BFE')
+              .fontColor($r('app.color.accent'))
           }
           .width('100%')
 
@@ -1037,9 +1063,9 @@ struct Settings {
             step: 0.05,
             style: SliderStyle.InSet
           })
-            .blockColor('#4D6BFE')
-            .trackColor('#E2E8F0')
-            .selectedColor('#4D6BFE')
+            .blockColor($r('app.color.accent_solid'))
+            .trackColor($r('app.color.border_card'))
+            .selectedColor($r('app.color.accent_solid'))
             .width('100%')
             .margin({ top: 4 })
             .onChange((value: number, mode: SliderChangeMode) => {
@@ -1072,7 +1098,9 @@ struct Settings {
       }
       .width('100%')
       .backgroundColor($r('app.color.surface'))
-      .borderRadius({ topLeft: 20, topRight: 20 })
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.border_soft') })
+      .shadow({ radius: 28, color: 'rgba(20,18,14,0.18)', offsetX: 0, offsetY: 10 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
         TransitionEffect.move(TransitionEdge.BOTTOM)
@@ -1094,7 +1122,10 @@ struct Settings {
     TextInput({ placeholder: this.t('settings_topic_gate_key_placeholder'), text: value })
       .type(InputType.Password)
       .width('100%')
-      .height(42)
+      .height(46)
+      .backgroundColor($r('app.color.input_bg'))
+      .borderRadius(14)
+      .border({ width: 1, color: $r('app.color.border_card') })
       .onChange((v: string) => {
         onChange(v);
       })
@@ -1121,6 +1152,7 @@ struct Settings {
           .layoutWeight(1)
           .backgroundColor($r('app.color.surface'))
           .fontColor($r('app.color.text_secondary'))
+          .borderRadius(14)
           .onClick(() => {
             onClear();
           })
@@ -1128,6 +1160,9 @@ struct Settings {
       Button(this.t('settings_topic_gate_save'))
         .fontSize(13)
         .layoutWeight(1)
+        .backgroundColor($r('app.color.accent_solid'))
+        .fontColor($r('app.color.accent_contrast'))
+        .borderRadius(14)
         .margin({ left: hasKey ? 8 : 0 })
         .onClick(() => {
           onSave();
@@ -1158,8 +1193,9 @@ struct Settings {
           Button(p.name)
             .fontSize(12)
             .margin({ right: 8, bottom: 8 })
-            .backgroundColor(this.systemTwoProviderId === p.id ? '#4D6BFE' : '#E2E8F0')
-            .fontColor(this.systemTwoProviderId === p.id ? '#FFFFFF' : '#475569')
+            .backgroundColor(this.systemTwoProviderId === p.id ? $r('app.color.accent_solid') : $r('app.color.fill'))
+            .fontColor(this.systemTwoProviderId === p.id ? $r('app.color.accent_contrast') : $r('app.color.text_secondary'))
+            .borderRadius(14)
             .onClick(() => {
               this.selectSystemTwoProvider(p.id);
             })
@@ -1197,36 +1233,38 @@ struct Settings {
   }
 
   @Builder
-  SettingRow(icon: Resource, color: string, title: string, value: string, isLast: boolean, onTap: () => void) {
+  SettingRow(icon: Resource, title: string, value: string, isLast: boolean, onTap: () => void) {
     Row() {
       Row() {
         Image(icon)
-          .width(18)
-          .height(18)
-      }
-      .width(28)
-      .height(28)
+          .width(17)
+          .height(17)
+        }
+      .width(36)
+      .height(36)
       .justifyContent(FlexAlign.Center)
       .alignItems(VerticalAlign.Center)
-      .backgroundColor(color)
-      .borderRadius(8)
+      .backgroundColor($r('app.color.icon_tile'))
+      .border({ width: 1, color: $r('app.color.accent_outline') })
+      .borderRadius(12)
       Text(title)
         .fontSize(15)
+        .fontWeight(FontWeight.Medium)
         .fontColor($r('app.color.text_primary'))
-        .margin({ left: 12 })
+        .margin({ left: 14 })
         .layoutWeight(1)
       if (value.length > 0) {
         Text(value)
-          .fontSize(13)
+          .fontSize(12)
           .fontColor($r('app.color.text_muted'))
-          .margin({ right: 4 })
+          .margin({ right: 8 })
       }
       Text('›')
         .fontSize(20)
         .fontColor($r('app.color.icon_muted'))
     }
     .width('100%')
-    .padding({ left: 14, right: 14, top: 13, bottom: 13 })
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
     .border({ width: { bottom: isLast ? 0 : 1 }, color: $r('app.color.border_soft') })
     .onClick(onTap)
   }
