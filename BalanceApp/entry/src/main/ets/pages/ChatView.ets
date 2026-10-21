@@ -78,8 +78,7 @@ export struct ChatView {
   private lastRefreshAt: number = 0;
   private refreshPending: boolean = false;
   @State previewImage: string = '';
-  // 思考过程折叠（reasonVersion 变化强制 ForEach 按 key 刷新对应条目）
-  @State reasonVersion: number = 0;
+  // 思考折叠列表不是 @State；切换时通过 ChatMessageDataSource 精准刷新对应消息项。
   private collapsedReasons: string[] = [];
   @State enableThinking: boolean = true;
   @State availableModels: ModelInfo[] = [];
@@ -1386,7 +1385,7 @@ export struct ChatView {
    */
   private msgRenderKey(msg: ChatMessage): string {
     const collapsed: string = this.isReasonCollapsed(msg.id) ? 'c' : 'e';
-    return `${msg.id}_${msg.status}_${collapsed}_${this.reasonVersion}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
+    return `${msg.id}_${msg.status}_${collapsed}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
   }
 
   /** 把当前激活分支与渲染键推给 LazyForEach 数据源（结构性/局部刷新由数据源内部判定）。 */
@@ -1448,7 +1447,7 @@ export struct ChatView {
       return;
     }
     try {
-      // Reason: 思考文本经 ForEach key（R<n>）变化会重建条目，内嵌 Scroll 的滚动位置随之重置，
+      // Reason: 思考文本经 LazyForEach 渲染键（R<n>）变化会重建条目，内嵌 Scroll 的滚动位置随之重置，
       //   isAtEnd() 判断会误判为"不在底部"而放弃跟随，导致长思考沉底不可见。
       //   生成期间（本方法仅在 onToken 路径被调）统一贴底即可；生成结束不再调用，用户可自由翻阅。
       sc.scrollEdge(Edge.Bottom);
@@ -1797,8 +1796,7 @@ export struct ChatView {
               const elapsedSec: number = Math.max(1, Math.round((thinkingEndTime - thinkingStartTime) / 1000));
               assistantMsg.thinkingDuration = elapsedSec;
               // 思考完毕，正文开始：自动折叠为已思考
-              // Reason: 只 push 不 bump reasonVersion —— 折叠态 e→c 已在 ForEach key 中，
-              //   本条目照常刷新；bump 会改全表 key 致 List 整表重建、滚动归零（流式中跳顶）。
+              // Reason: 折叠态进入单条消息渲染键；下面的流式刷新同步数据源后只更新此消息项。
               if (this.autoCollapseThinking) {
                 if (!this.collapsedReasons.includes(assistantMsg.id)) {
                   this.collapsedReasons.push(assistantMsg.id);
@@ -1830,11 +1828,7 @@ export struct ChatView {
               }
             }
           }
-          // Reason: 此处不 bump reasonVersion —— status streaming→success 已在 ForEach key 中，
-          //   本条目会重建并切到 Normal 全量渲染；bump 会改全表 key 致 List 整表重建、
-          //   滚动归零到顶部、新回复沉底不可见（体感"回复消失"）。
-          //   注意 toggleReason 的 bump 必须保留：collapsedReasons 非 @State，
-          //   那里靠 reasonVersion 本身触发渲染（本两处都有 rebuildSessionReference 兜底）。
+          // Reason: status 与折叠态都进入单条消息渲染键；同步数据源可刷新当前项而不重建整表。
           this.rebuildSessionReference();
           this.saveState();
           // 写时上下文净化：判定在回复交付之后异步进行，不影响本轮输出。
@@ -2086,23 +2080,24 @@ export struct ChatView {
   }
 
   private toggleReason(id: string): void {
-    const idx: number = this.collapsedReasons.indexOf(id);
     try {
       this.getUIContext().animateTo({ duration: 250, curve: Curve.FastOutSlowIn }, () => {
+        const idx: number = this.collapsedReasons.indexOf(id);
         if (idx >= 0) {
           this.collapsedReasons.splice(idx, 1);
         } else {
           this.collapsedReasons.push(id);
         }
-        this.reasonVersion += 1;
+        this.syncMessageSource();
       });
     } catch (_e) {
+      const idx: number = this.collapsedReasons.indexOf(id);
       if (idx >= 0) {
         this.collapsedReasons.splice(idx, 1);
       } else {
         this.collapsedReasons.push(id);
       }
-      this.reasonVersion += 1;
+      this.syncMessageSource();
     }
 
     try {
@@ -2123,7 +2118,7 @@ export struct ChatView {
   }
 
   private handleScrollAnchorOnHeightChange(msgId: string, delta: number): void {
-    // Reason: 高度变化只做 offset 记账，不再 bump reasonVersion（否则 ForEach key 全变致整表重建、滚动跳变），
+    // Reason: 高度变化只做 offset 记账，避免让整表渲染键变化导致重建与滚动跳变，
     //   也不再每 token 重锚定（首 token 的一次性锚定已足够，重复 scrollToIndex 会与用户拖动互斥致页面拉不动）。
     //   参数保留签名供未来阈值策略使用（ArkTS 允许形参暂不读取）。
 
