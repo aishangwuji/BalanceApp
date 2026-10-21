@@ -17,9 +17,21 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/ChatStorageService.ets
   - BalanceApp/entry/src/main/ets/services/ChatMessageDataSource.ets
   - BalanceApp/entry/src/main/ets/components/AppLockGate.ets
+  - BalanceApp/entry/src/main/ets/components/ConfirmDialog.ets
+  - BalanceApp/entry/src/main/ets/components/ThinkingButton.ets
   - BalanceApp/entry/src/main/ets/entryability/EntryAbility.ets
   - BalanceApp/entry/src/main/resources/base/profile/main_pages.json
-last_verified_commit: 7450db8
+  - BalanceApp/entry/src/main/resources/base/element/color.json
+  - BalanceApp/entry/src/main/resources/dark/element/color.json
+  - BalanceApp/entry/src/main/resources/base/media/ic_appearance.svg
+  - BalanceApp/entry/src/main/resources/base/media/ic_assets.svg
+  - BalanceApp/entry/src/main/resources/base/media/ic_collapse.svg
+  - BalanceApp/entry/src/main/resources/base/media/ic_expand.svg
+  - BalanceApp/entry/src/main/resources/base/media/ic_font.svg
+  - BalanceApp/entry/src/main/resources/base/media/ic_language.svg
+  - BalanceApp/entry/src/main/resources/base/media/ic_personalize.svg
+last_verified_commit: 0b7f889a6622c2bb7753e4523c55d92e8bd404c2
+last_verified: 2026-10-20
 ---
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
@@ -68,13 +80,16 @@ last_verified_commit: 7450db8
   消息流改 `LazyForEach(this.msgSource, ...)` + `.cachedCount(2)`，只为视口附近消息建实例。
 - 同步策略（关键，避免破坏流式）：
   - `sync(next, nextKeys)` 判定「数量/顺序/消息 id 变化」= 结构性 → `onDataReloaded()`；
-  - 否则统计 key 变化面：≥8 条（折叠态/字号/主题等全表 key 变化）→ 整表 reload；
-    1~7 条（流式思考字数 `R<n>`、status 切换）→ 逐条 `onDataChanged(index)` 精确刷新；
+  - 否则统计 key 变化面：≥8 条（字号/主题等全表 key 变化）→ 整表 reload；
+    1~7 条（思考折叠、流式思考字数 `R<n>`、status 切换）→ 逐条 `onDataChanged(index)` 精确刷新；
   - 正文出现后 key 恒为 `C`，`sync` 不动 → 实例不重建，增量仍由 `MarkdownController` 驱动
     （保持原「同 key 不刷新、靠 controller 喂 token」的机制）。
 - 接线：`msgRenderKey(msg)` 同时用于 `LazyForEach` key 与数据源键；`rebuildSessionReference()`
   末尾统一 `syncMessageSource()`；`createNewSession`/`switchSession` 各自补一次 sync。
   索引语义不变（数据源顺序 == `activePath()`），故 `scrollToIndex`/`onScrollIndex` 锚定逻辑无需改。
+- 思考折叠：`collapsedReasons` 是普通数组，`msgRenderKey` 只包含该消息自身的折叠标记；
+  `toggleReason` 改变标记后必须调用 `syncMessageSource()`，让数据源通知该消息项刷新。
+  不使用全局版本号污染所有消息键，否则可能整表重建并破坏 LazyForEach 的缓存同步。
 - 结果：开会话只挂载视口内几条消息，卡顿与「空白等渲染」大幅缓解；
   `TD-002` 第 1 项（LazyForEach）落地，`@Reusable` 实例复用仍待做。
 
@@ -219,6 +234,18 @@ last_verified_commit: 7450db8
 - 数据模型：CharacterCard 移除 `tags`；ChatMessage 移除 `usage`，ChatUsage 接口删除
   （token 统计功能整体下线）。角色卡不再内置预设，DEFAULT_CHARACTERS=[]，无角色时用
   EMPTY_CHARACTER 兜底。
+
+## 全局视觉主题（2026-10-20）
+
+- 视觉方向为「温润静奢」：浅色采用暖纸白、墨色与克制的香槟金，深色采用温润墨黑与柔金；
+  两套资源在 `resources/base/element/color.json` 与 `resources/dark/element/color.json` 使用同名语义 token。
+- `accent` 用于文本强调，`accent_solid` / `accent_contrast` 负责主操作表面与对比文字，
+  `accent_soft` / `accent_soft_selected` 负责选中态，`hero_*` 固定深墨资产总览层级，
+  `overlay_scrim` 统一用于抽屉和弹层遮罩。Markdown 正文主题由 `MarkdownService.applyTheme()` 显式映射。
+- 主聊天入口与历史抽屉、模型/角色/消息弹层、设置、资产监控、确认对话框及应用锁共用该色板；
+  首页空态、消息气泡、输入区、资产 Hero 与设置卡片依颜色 token 建立统一层级。设置图标使用暖色底片，
+  对应 SVG 线色已调整为可读的深金色。
+- 本次只改变呈现和布局，不改变聊天发送、模型选择、会话持久化、资产查询、认证及设置保存流程。
 
 ## 消息分支、交互细化与锚定滚动（2026-10-05 第二批）
 
