@@ -4,6 +4,9 @@
 
 编码时严格遵守：agent-rules这个skill，每次编码都必须严格遵守编码规范。
 
+Jev模型文档："C:\Users\15216\Desktop\文档\jve模型.md"
+官方文档地址：https://docs.typesafe.ai/introduction
+
 ---
 
 ## 本项目开发经验（2026-10-04 BalanceApp 实战沉淀，后续 Agent 必读）
