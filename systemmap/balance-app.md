@@ -30,8 +30,8 @@ covered_paths:
   - BalanceApp/entry/src/main/resources/base/media/ic_font.svg
   - BalanceApp/entry/src/main/resources/base/media/ic_language.svg
   - BalanceApp/entry/src/main/resources/base/media/ic_personalize.svg
-last_verified_commit: 0b7f889a6622c2bb7753e4523c55d92e8bd404c2
-last_verified: 2026-10-20
+last_verified_commit: da8544e
+last_verified: 2026-10-23
 ---
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
