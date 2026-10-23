@@ -128,6 +128,8 @@ iOS target has been configured but not compiled. Required plist entry
 ## Known gaps
 
 - Release signing / store metadata / screenshots / privacy policy are not prepared.
+- Application id is still the placeholder `com.example.balanceapp`; replace it with your
+  own reverse-domain id before publishing (and keep Android/iOS in sync).
 - iOS has not been compiled on a Mac yet.
 - Chat/assets UI strings are Chinese-first; only the Settings page follows the
   language switch (matching the HarmonyOS behavior).

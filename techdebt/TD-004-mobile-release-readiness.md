@@ -26,6 +26,10 @@
    Keychain/Keystore，但会话正文尚未加密。
 8. **应用锁关闭路径无二次认证**：开启/关闭应用锁均直接改设置；鸿蒙端同样如此。
    若要防「拿到已解锁设备后关闭锁」，应在关闭前要求一次身份认证。
+9. **应用标识仍是占位值**：Android `applicationId` 与 iOS bundle id 均为
+   `com.example.balanceapp`。`com.example` 不能作为商店正式标识，上架前必须改为
+   自有域名反写（如 `com.yourcompany.balanceapp`），并同步修改
+   `MainActivity.kt` 包路径、iOS RunnerTests 标识与签名配置。
 
 ## 处置建议
 
