@@ -1,3 +1,4 @@
+import 'package:balance_app/app.dart';
 import 'package:balance_app/core/theme/app_theme.dart';
 import 'package:balance_app/data/services/auth_service.dart';
 import 'package:balance_app/data/services/chat_storage_service.dart';
@@ -14,8 +15,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<Widget> buildApp({required Widget home}) async {
-  SharedPreferences.setMockInitialValues(<String, Object>{});
+typedef Bootstrapped = ({
+  SettingsController settings,
+  AssetsController assets,
+  ChatController chat,
+});
+
+Future<Bootstrapped> bootstrap({
+  Map<String, Object> initial = const <String, Object>{},
+}) async {
+  SharedPreferences.setMockInitialValues(initial);
   final PreferencesService prefs = await PreferencesService.load();
   final KeyStore keyStore = KeyStore();
   final SettingsController settings = await SettingsController.load(
@@ -32,11 +41,19 @@ Future<Widget> buildApp({required Widget home}) async {
     keyStore: keyStore,
     auth: AuthService(),
   );
+  return (settings: settings, assets: assets, chat: chat);
+}
+
+Future<Widget> buildApp({
+  required Widget home,
+  Bootstrapped? controllers,
+}) async {
+  final Bootstrapped boot = controllers ?? await bootstrap();
   return MultiProvider(
     providers: [
-      ChangeNotifierProvider<SettingsController>.value(value: settings),
-      ChangeNotifierProvider<AssetsController>.value(value: assets),
-      ChangeNotifierProvider<ChatController>.value(value: chat),
+      ChangeNotifierProvider<SettingsController>.value(value: boot.settings),
+      ChangeNotifierProvider<AssetsController>.value(value: boot.assets),
+      ChangeNotifierProvider<ChatController>.value(value: boot.chat),
     ],
     child: MaterialApp(
       theme: AppTheme.light(),
@@ -46,6 +63,31 @@ Future<Widget> buildApp({required Widget home}) async {
 }
 
 void main() {
+  test('chat controller initializes from empty storage', () async {
+    final Bootstrapped boot = await bootstrap();
+    await boot.chat.init().timeout(const Duration(seconds: 5));
+    expect(boot.chat.initialized, true);
+    expect(boot.chat.sessions, isEmpty);
+  });
+
+  testWidgets('app lock overlay covers the entry when enabled', (
+    WidgetTester tester,
+  ) async {
+    final Bootstrapped boot = await bootstrap(
+      initial: <String, Object>{'app_lock_enabled': true},
+    );
+    await tester.pumpWidget(
+      BalanceApp(
+        settings: boot.settings,
+        assets: boot.assets,
+        chat: boot.chat,
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('应用已锁定'), findsOneWidget);
+  });
+
   testWidgets('chat page renders empty state and drawer', (
     WidgetTester tester,
   ) async {
