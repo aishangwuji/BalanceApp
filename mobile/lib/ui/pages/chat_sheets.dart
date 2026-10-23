@@ -476,13 +476,6 @@ class _CharacterSheetState extends State<_CharacterSheet> {
   Widget build(BuildContext context) {
     final AppColors c = context.colors;
     final ChatController chat = context.watch<ChatController>();
-    if (_selectedCharacter.isEmpty && chat.characters.isNotEmpty) {
-      final String preferred = chat.currentCharacterId;
-      _selectedCharacter = chat.characters
-              .any((CharacterCard card) => card.id == preferred)
-          ? preferred
-          : chat.characters.first.id;
-    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
       child: Column(
@@ -702,15 +695,17 @@ class _CharacterSheetState extends State<_CharacterSheet> {
                   child: SizedBox(
                     height: 46,
                     child: ElevatedButton(
-                      onPressed: () async {
-                        await chat.bindDraftParticipants(
-                          characterId: _selectedCharacter,
-                          identityId: _selectedIdentity,
-                        );
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                        }
-                      },
+                      onPressed: _selectedCharacter.isEmpty
+                          ? null
+                          : () async {
+                              await chat.bindDraftParticipants(
+                                characterId: _selectedCharacter,
+                                identityId: _selectedIdentity,
+                              );
+                              if (context.mounted) {
+                                Navigator.of(context).pop();
+                              }
+                            },
                       child: const Text('开始对话'),
                     ),
                   ),
