@@ -185,7 +185,10 @@ last_verified: 2026-10-20
 - 通用 bearer 引擎：responsePath 导航 + 数组求和 + 换算因子 + used 推导（BalanceService.ets，对齐智额 BearerBalanceAdapter；OpenRouter available 对称推导为本侧修正）
 - 本地持久化：Preferences `balance_prefs` 存 `addedIds` + `key_<id>`（Index.ets）
 - UI 状态：`records: ProviderRecord[]` + `refreshView()` 重建数组推刷新 + ForEach 数据指纹 key 防复用旧快照（Index.ets，ArkTS @State 深层观察不到的补偿）
-- 品牌图标：`resources/base/media/` 下 deepseek/kimi（取自智额）+ siliconflow/stepfun/openrouter/novita（Google favicons 128px）；`ProviderDefinition.icon` + `Index.providerIcon` 静态 $r 映射（$r 不支持动态拼接）
+- 品牌图标：`resources/base/media/` 下 deepseek/kimi/siliconflow/stepfun/openrouter/novita/mimo
+  已于 2026-10-23 统一替换为官方品牌资源（256×256 透明 PNG，来源为各官网 SVG/应用图标，
+  见 `mobile/README.md` 的 Provider icons）；`ProviderDefinition.icon` + `Index.providerIcon`
+  静态 $r 映射（$r 不支持动态拼接）
 
 ## 本次任务所涉现状
 

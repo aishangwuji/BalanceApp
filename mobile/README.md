@@ -69,6 +69,22 @@ Key design decisions:
 6. **Secrets.** API keys live in platform secure storage (Android Keystore / iOS
    Keychain). Logs never print raw keys; `maskKey` is the only display helper.
 
+## Provider icons
+
+Provider marks were re-fetched from the official brand sites / app icons and
+normalized to 256×256 transparent PNGs (no hotlinking):
+
+- DeepSeek: official whale mark
+- Kimi: official K mark with the blue dot
+- OpenRouter: official R glyph, black square removed
+- SiliconFlow: official purple mark extracted from `logo-new.svg`
+- StepFun: official pixel badge, recolored to the provider accent
+- Novita: official geometric mark
+- Xiaomi MiMo: official `MIMO` wordmark
+
+Trademarks remain the property of their respective owners; these assets are used
+only to identify the provider in the dashboard.
+
 ## Run
 
 ```bash

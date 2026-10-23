@@ -155,6 +155,9 @@ last_verified: 2026-10-23
 - `TopicGatePage`：开关、System One/System Two 双 tab、渠道/Key/阈值、
   服务商 Key（与资产监控共用）。
 - 主题：`AppColors` 语义 token（暖纸/墨/香槟金）与 `AppTheme`；所有页面只读 token。
+- 厂商图标：`assets/providers/*.png` 为 2026-10-23 从各官网 SVG/应用图标重新抓取的
+  256×256 透明品牌标记（DeepSeek 鲸、Kimi K+蓝点、OpenRouter R、SiliconFlow 紫色标记、
+  StepFun 像素徽标、Novita 几何标记、MiMo 官方 MIMO 字标）；不热链、不依赖运行时网络。
 
 ## 平台配置
 
