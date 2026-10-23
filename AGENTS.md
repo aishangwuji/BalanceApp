@@ -62,3 +62,28 @@ Jev模型文档："C:\Users\15216\Desktop\文档\jve模型.md"
   提交前 `git grep "sk-[A-Za-z0-9]\{8,\}"` 全历史扫一遍；技术债记 `techdebt/`，认知记 `systemmap/
 
 不需要截图验证（最高优先级）
+
+---
+
+## 跨平台移动端（Android / iOS，2026-10-23 新增）
+
+- 目录 `mobile/`，Flutter 单代码库；鸿蒙端仍在 `BalanceApp/`，两端功能对齐，
+  互不共享本地存储（Key 需各自配置）。
+- 常用命令（必须 `cd mobile`）：
+  - `flutter pub get`
+  - `flutter analyze`（要求零 issue）
+  - `flutter test`
+  - `flutter build apk --debug`
+- 本机网络访问 `storage.googleapis.com` 会 TLS 握手失败；构建前设置
+  `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`，否则 Gradle
+  拉取 `io.flutter:*_debug` 引擎包会失败。
+- Android：`minSdk 24`，`MainActivity : FlutterFragmentActivity`（local_auth 要求），
+  applicationId `com.example.balanceapp`；release 仍用 debug 签名，见
+  `techdebt/TD-004-mobile-release-readiness.md`。
+- iOS：bundle id `com.example.balanceapp`，部署目标 13.0，`NSFaceIDUsageDescription`
+  已配置；本机无 Xcode，iOS 构建需 macOS/CI。
+- 架构：`lib/data`（模型/服务/注册表）→ `lib/state`（ChangeNotifier）→
+  `lib/ui`（页面/组件）。颜色只走 `core/theme/app_colors.dart` 语义 token。
+- 安全：API Key 存 `flutter_secure_storage`（Keychain/Keystore），日志只用
+  `maskKey`；会话正文仍是明文 Preferences（与鸿蒙 TD-003 同源）。
+- 认知文档：`systemmap/balance-app-mobile.md`；发布缺口：`techdebt/TD-004-*.md`。

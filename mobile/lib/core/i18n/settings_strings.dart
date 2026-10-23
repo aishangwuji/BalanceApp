@@ -1,0 +1,141 @@
+const Map<String, Map<String, String>> _settingsDictionary =
+    <String, Map<String, String>>{
+  'zh-CN': <String, String>{
+    'settings_title': '设置',
+    'settings_section_app': '应用',
+    'settings_language': '语言',
+    'settings_language_current': '中文（简体中文）',
+    'settings_appearance': '外观',
+    'settings_appearance_system': '系统',
+    'settings_appearance_light': '浅色',
+    'settings_appearance_dark': '深色',
+    'settings_appearance_select': '选择外观模式',
+    'settings_font_size': '字体大小',
+    'settings_font_size_title': '设置字体大小',
+    'settings_font_size_preview_title': '预览效果',
+    'settings_font_size_preview_sample': '这是一段用于预览字体大小的文字样例。拖动下方滑块调整整体界面字号。',
+    'settings_font_size_standard': '标准',
+    'settings_personalize': '个性化',
+    'settings_auto_collapse_thinking': '思考内容自动折叠',
+    'settings_auto_collapse_thinking_desc': '开启后，思考结束后将自动折叠思考内容。',
+    'settings_section_security': '安全',
+    'settings_app_lock': '应用锁',
+    'settings_app_lock_title': '应用锁',
+    'settings_app_lock_desc': '开启后，离开应用再进入时需验证锁屏密码、指纹或人脸识别。',
+    'settings_app_lock_on': '已开启',
+    'settings_app_lock_off': '未开启',
+    'settings_section_data': '数据',
+    'settings_assets': '资产监控',
+    'settings_assets_desc': '查看各服务商余额',
+    'settings_section_chat': '对话',
+    'settings_topic_gate': '上下文净化',
+    'settings_topic_gate_desc': '按句判定回复是否切题，离题内容留在界面但不参与后续上下文。',
+    'settings_topic_gate_on': '已开启',
+    'settings_topic_gate_off': '未开启',
+    'settings_topic_gate_title': '上下文净化（Jev）',
+    'settings_topic_gate_key': 'Jev Key',
+    'settings_topic_gate_key_placeholder': '粘贴 Jev Key',
+    'settings_topic_gate_key_saved': '已配置，留空则保持不变',
+    'settings_topic_gate_threshold': '切题阈值',
+    'settings_topic_gate_threshold_hint': '低于该概率的句子不参与后续上下文；数值越高越严格。',
+    'settings_topic_gate_save': '保存',
+    'settings_topic_gate_clear_key': '清除 Key',
+    'settings_topic_gate_need_key': '请先填写 Jev Key',
+    'settings_system_one': 'System One',
+    'settings_system_two': 'System Two',
+    'settings_system_one_desc': '快速判定：Jev 为每句回复给出切题概率。',
+    'settings_system_two_desc': '生成模型：本条会话实际使用的服务商。',
+    'settings_system_two_shared': '与资产监控共用同一份 Key，改动即时生效。',
+    'settings_channel': '渠道',
+    'settings_channel_typesafe': 'Jev 官方',
+    'settings_provider': '服务商',
+    'settings_version': '版本 1.0.0',
+    'settings_select_language': '选择语言',
+    'common_cancel': '取消',
+    'common_confirm': '确定',
+    'common_not_implemented': '该功能暂未实现',
+    'settings_key_configured': '已配置',
+    'settings_key_missing': '未配置',
+    'settings_go_assets': '去资产监控配置',
+  },
+  'en-US': <String, String>{
+    'settings_title': 'Settings',
+    'settings_section_app': 'Application',
+    'settings_language': 'Language',
+    'settings_language_current': 'English',
+    'settings_appearance': 'Appearance',
+    'settings_appearance_system': 'System',
+    'settings_appearance_light': 'Light',
+    'settings_appearance_dark': 'Dark',
+    'settings_appearance_select': 'Select Appearance',
+    'settings_font_size': 'Font Size',
+    'settings_font_size_title': 'Font Size',
+    'settings_font_size_preview_title': 'Preview',
+    'settings_font_size_preview_sample':
+        'This is a sample text for previewing font size. Drag the slider below to adjust text size across the app.',
+    'settings_font_size_standard': 'Standard',
+    'settings_personalize': 'Personalization',
+    'settings_auto_collapse_thinking': 'Auto-collapse Thinking Process',
+    'settings_auto_collapse_thinking_desc':
+        'When enabled, the thinking process will collapse automatically after generation ends.',
+    'settings_section_security': 'Security',
+    'settings_app_lock': 'App Lock',
+    'settings_app_lock_title': 'App Lock',
+    'settings_app_lock_desc':
+        'When enabled, entering the app after leaving requires your lock-screen password, fingerprint, or face.',
+    'settings_app_lock_on': 'On',
+    'settings_app_lock_off': 'Off',
+    'settings_section_data': 'Data',
+    'settings_assets': 'Assets & Balance',
+    'settings_assets_desc': 'View provider balances',
+    'settings_section_chat': 'Conversation',
+    'settings_topic_gate': 'Context Cleanup',
+    'settings_topic_gate_desc':
+        'Scores each sentence for topicality; off-topic text stays visible but is dropped from later context.',
+    'settings_topic_gate_on': 'On',
+    'settings_topic_gate_off': 'Off',
+    'settings_topic_gate_title': 'Context Cleanup (Jev)',
+    'settings_topic_gate_key': 'Jev Key',
+    'settings_topic_gate_key_placeholder': 'Paste your Jev key',
+    'settings_topic_gate_key_saved': 'Configured; leave blank to keep it',
+    'settings_topic_gate_threshold': 'On-topic threshold',
+    'settings_topic_gate_threshold_hint':
+        'Sentences below this probability are left out of later context. Higher is stricter.',
+    'settings_topic_gate_save': 'Save',
+    'settings_topic_gate_clear_key': 'Clear key',
+    'settings_topic_gate_need_key': 'Enter a Jev key first',
+    'settings_system_one': 'System One',
+    'settings_system_two': 'System Two',
+    'settings_system_one_desc':
+        'Fast judgments: Jev scores how on-topic each sentence is.',
+    'settings_system_two_desc':
+        'Generation model: the provider this conversation actually uses.',
+    'settings_system_two_shared':
+        'Shares the same key as Assets & Balance; edits apply immediately.',
+    'settings_channel': 'Channel',
+    'settings_channel_typesafe': 'Jev Official',
+    'settings_provider': 'Provider',
+    'settings_version': 'Version 1.0.0',
+    'settings_select_language': 'Select Language',
+    'common_cancel': 'Cancel',
+    'common_confirm': 'Confirm',
+    'common_not_implemented': 'Feature not implemented yet',
+    'settings_key_configured': 'Configured',
+    'settings_key_missing': 'Not configured',
+    'settings_go_assets': 'Configure in Assets & Balance',
+  },
+};
+
+class SettingsStrings {
+  const SettingsStrings(this.language);
+
+  final String language;
+
+  String t(String key) {
+    final Map<String, String> dict =
+        _settingsDictionary[language] ?? _settingsDictionary['zh-CN']!;
+    return dict[key] ??
+        _settingsDictionary['zh-CN']![key] ??
+        key;
+  }
+}
