@@ -168,7 +168,7 @@ last_verified: 2026-10-23
 ## 验证状态（2026-10-23）
 
 - `flutter analyze`：0 issue。
-- `flutter test`：22 项通过（余额解析/边界、切段/掩码、引用改写、厂商端点、页面冒烟、应用锁浮层）。
+- `flutter test`：23 项通过（余额解析/边界、切段/掩码、引用改写、厂商端点、页面冒烟、应用锁浮层、Markdown 气泡）。
 - `flutter build apk --debug`：成功（镜像环境）。
 - 运行时：未完成。本机 AVD 的 `system.img` 缺失，且无 Android 真机；iOS 无 macOS。
   详见 `techdebt/TD-004-mobile-release-readiness.md`。

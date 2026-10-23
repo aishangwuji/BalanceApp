@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gpt_markdown/gpt_markdown.dart';
 
 import 'app_colors.dart';
 
@@ -128,7 +129,10 @@ class AppTheme {
       dividerColor: c.divider,
       splashFactory: InkRipple.splashFactory,
       textTheme: textTheme,
-      extensions: <ThemeExtension<dynamic>>[c],
+      extensions: <ThemeExtension<dynamic>>[
+        c,
+        GptMarkdownThemeData(brightness: brightness),
+      ],
       appBarTheme: AppBarTheme(
         backgroundColor: c.surface,
         surfaceTintColor: Colors.transparent,

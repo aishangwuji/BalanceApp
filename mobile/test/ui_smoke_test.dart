@@ -10,6 +10,8 @@ import 'package:balance_app/state/settings_controller.dart';
 import 'package:balance_app/ui/pages/assets_page.dart';
 import 'package:balance_app/ui/pages/chat_page.dart';
 import 'package:balance_app/ui/pages/settings_page.dart';
+import 'package:balance_app/data/models/chat_models.dart';
+import 'package:balance_app/ui/widgets/message_bubble.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -120,5 +122,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('资产监控'), findsOneWidget);
     expect(find.text('暂无服务商'), findsOneWidget);
+  });
+
+  testWidgets('assistant markdown bubble renders without exceptions', (
+    WidgetTester tester,
+  ) async {
+    final Bootstrapped boot = await bootstrap();
+    final ChatMessage message = ChatMessage(
+      id: 'm1',
+      role: MessageRole.assistant,
+      content: '# 标题\n\n```dart\nprint("hi");\n```\n\n结论[ref_1]。',
+      reasoningContent: '先分析问题。',
+      createdAt: 0,
+      status: MessageStatus.success,
+    );
+    await tester.pumpWidget(
+      await buildApp(
+        controllers: boot,
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: MessageBubble(
+              message: message,
+              controller: boot.chat,
+              identityName: '',
+              speakerName: '助手',
+              onLongPress: () {},
+              onBranchChange: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('标题'), findsWidgets);
   });
 }
