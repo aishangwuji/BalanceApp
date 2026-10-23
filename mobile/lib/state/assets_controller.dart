@@ -158,6 +158,7 @@ class AssetsController extends ChangeNotifier {
   Future<void> refreshAll() async {
     _session++;
     final int token = _session;
+    _clearLoading();
     _refreshingAll = true;
     notifyListeners();
     for (final String id in _records.map((ProviderRecord r) => r.defId).toList()) {
@@ -175,10 +176,18 @@ class AssetsController extends ChangeNotifier {
   Future<void> refreshOne(String id) async {
     _session++;
     // A single-card refresh invalidates an in-flight refresh-all; reset the
-    // bulk flag here or the button stays disabled forever.
+    // bulk flag here or the button stays disabled forever. Also clear stale
+    // spinners left by the invalidated round.
+    _clearLoading();
     _refreshingAll = false;
     notifyListeners();
     await _queryOne(id, _session);
+  }
+
+  void _clearLoading() {
+    for (final ProviderRecord record in _records) {
+      record.loading = false;
+    }
   }
 
   Future<void> _queryOne(String id, int token) async {
