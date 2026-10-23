@@ -38,7 +38,7 @@ covered_paths:
   - mobile/test/topic_gate_test.dart
   - mobile/test/balance_service_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 7ce5a31
+last_verified_commit: bdb5bd3
 last_verified: 2026-10-23
 ---
 
