@@ -36,6 +36,7 @@ last_verified: 2026-10-20
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
+> 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
 ## 上下文净化 Topic Gate（2026-10-20，已落地，构建通过）
 

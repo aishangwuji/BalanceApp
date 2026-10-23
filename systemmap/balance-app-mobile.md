@@ -1,0 +1,180 @@
+---
+covered_paths:
+  - mobile/lib/main.dart
+  - mobile/lib/app.dart
+  - mobile/lib/core/theme/app_colors.dart
+  - mobile/lib/core/theme/app_theme.dart
+  - mobile/lib/core/i18n/settings_strings.dart
+  - mobile/lib/core/utils/markdown_utils.dart
+  - mobile/lib/data/models/provider.dart
+  - mobile/lib/data/models/chat_models.dart
+  - mobile/lib/data/services/balance_service.dart
+  - mobile/lib/data/services/chat_service.dart
+  - mobile/lib/data/services/model_service.dart
+  - mobile/lib/data/services/chat_storage_service.dart
+  - mobile/lib/data/services/preferences_service.dart
+  - mobile/lib/data/services/key_store.dart
+  - mobile/lib/data/services/jev_service.dart
+  - mobile/lib/data/services/topic_gate_service.dart
+  - mobile/lib/data/services/auth_service.dart
+  - mobile/lib/state/settings_controller.dart
+  - mobile/lib/state/assets_controller.dart
+  - mobile/lib/state/chat_controller.dart
+  - mobile/lib/ui/app_lock_gate.dart
+  - mobile/lib/ui/pages/chat_page.dart
+  - mobile/lib/ui/pages/chat_sheets.dart
+  - mobile/lib/ui/pages/assets_page.dart
+  - mobile/lib/ui/pages/settings_page.dart
+  - mobile/lib/ui/pages/topic_gate_page.dart
+  - mobile/lib/ui/widgets/message_bubble.dart
+  - mobile/lib/ui/widgets/thinking_button.dart
+  - mobile/lib/ui/widgets/confirm_dialog.dart
+  - mobile/lib/ui/widgets/provider_logo.dart
+  - mobile/android/app/build.gradle.kts
+  - mobile/android/app/src/main/AndroidManifest.xml
+  - mobile/android/app/src/main/kotlin/com/example/balanceapp/MainActivity.kt
+  - mobile/ios/Runner/Info.plist
+  - mobile/pubspec.yaml
+  - mobile/test/topic_gate_test.dart
+  - mobile/test/balance_service_test.dart
+last_verified_commit: f01933b
+last_verified: 2026-10-23
+---
+
+# BalanceApp Mobile（Flutter Android/iOS）systemmap
+
+> 与鸿蒙端 `systemmap/balance-app.md` 并列：同一产品、不同代码库、互不共享本地数据。
+> 本文件只描述 `mobile/` 的 Flutter 实现；鸿蒙端的协议细节仍以原 systemmap 为准。
+
+## 定位与范围
+
+- 单代码库覆盖 Android 与 iOS；iOS 目标已配置但未在 macOS 编译（见 `TD-004`）。
+- 功能对齐鸿蒙端：资产监控、流式对话、会话分支、角色/身份卡、保密会话、应用锁、
+  Jev 上下文净化、外观/字号/设置页多语言。
+- 明确不做：群聊（鸿蒙端已下线）、文件/图片上传、token 用量统计。
+
+## 启动与生命周期
+
+- `main.dart`：`WidgetsFlutterBinding.ensureInitialized()` → `PreferencesService.load()`
+  → `SettingsController.load()` → 构造 `ChatStorageService/AssetsController/ChatController`
+  → `runApp(BalanceApp)`。构造顺序固定，控制器之间不互相持有。
+- `app.dart`：`MultiProvider` 注入三个 `ChangeNotifier`；
+  `MaterialApp.builder` 用 `MediaQuery.textScaler = fontScale` 统一字号，并用
+  `AppLockGate` 包住整个 Navigator，使锁屏覆盖所有路由。
+- `StartupGate`：首帧前 `await chat.init()`；模型列表刷新在 `init` 内部 fire-and-forget，
+  不阻塞启动。
+- `AppLockGate`：`WidgetsBindingObserver` 在 `paused` 时调用 `settings.lock()`，
+  `resumed` 且仍锁定时自动拉起认证；`AuthService.isInProgress` 防止认证弹窗
+  导致的二次锁定。锁屏成功 `settings.unlock()`。
+
+## 数据模型与持久化边界
+
+- `ProviderDefinition`：纯数据注册表；除余额配置外新增 `chatEndpoint` 与
+  `modelsEndpoint`（OpenRouter `/api/v1/*`、Novita `/openai/v1/*`、DeepSeek `/chat/completions`），
+  不再假设所有厂商都在 `/v1` 下。
+- `BalanceInfo`：总额/已用/可用/币种/更新时间；百分比由 `usagePercentage` 派生。
+- `ChatMessage`：扁平节点树字段 `parentId/childIds/activeChildId`；`topicMask` 随消息持久化。
+- `ChatSession`：`rootIds/activeRootId`、`isPrivate`、`participantIds/sceneMode/joinMap`
+  （群聊字段保留以兼容鸿蒙结构，运行时恒为单聊）。
+- `ChatStorageService`：SharedPreferences JSON；所有读入都走 `tryParse`/`_normalizeSession`，
+  非法记录丢弃；旧线性数组迁移为单链树并修复悬空引用。
+- `PreferencesService`：非敏感偏好（外观/字号/语言/应用锁开关/topic gate 配置/
+  已添加厂商 id/活动会话 id）。
+- `KeyStore`：`flutter_secure_storage`，按 `key_<providerId>` 与
+  `key_jev_typesafe` / `key_jev_openrouter` 存储；写入前 trim，空值删除。
+
+## 网络协议
+
+### 余额查询 `BalanceService`
+
+- `fetchProviderBalance(id, key)`：空 key / 未知厂商在边界直接返回 `success:false`；
+  401/403、非 2xx、JSON 结构非法、业务码不符均返回确定性失败；网络异常向上抛，
+  由 `AssetsController` keep-last-good 并提供重试。
+- `parseBalanceBody` 为纯函数（`@visibleForTesting`）：responsePath 点分导航、
+  数组求和、字段映射、`amountMultiplier`、used/available 对称推导。
+- 端点为 `baseUrl + endpoint`；绝对 URL 直用。
+
+### 对话 `ChatService`
+
+- 端点：`def.baseUrl + def.chatEndpoint`。
+- SSE：只认 `data:[DONE]` 完成；忽略 `finish_reason`；`choices` 为空的 usage 终块跳过；
+  `delta.content`/`delta.reasoning_content` 追加。
+- 历史：`buildApiMessages` 先 system，再取新 20 条 + 12000 字符双预算；
+  assistant 历史按 `topicMask` 投影，掩码长度不符 fail-open；保留式思考回传
+  `reasoning_content`。
+- 请求体按厂商分支：Kimi K3 传 `reasoning_effort`；K2.7 不传 thinking/temperature；
+  K2.6 传 `thinking.type`；MiMo 传 `thinking.type`；其余支持思考的厂商传
+  `thinking.type + reasoning_effort`，关闭时传 `temperature`。
+- 中断：`ChatController.stopGenerating` 自增 generation token 并取消订阅；
+  迟到的 done/error 回调因 token 不符被丢弃。
+
+### 模型列表 `ModelService`
+
+- 先请求 `baseUrl + modelsEndpoint`，再兜底 `/models`、`/v1/models`；全部失败时使用
+  厂商内置兜底（DeepSeek/Kimi/MiMo），其余返回空。
+- 仅列出已配置 Key 的厂商：`ChatController.loadConfiguredProviders` 逐个读安全存储。
+
+### Jev 上下文净化
+
+- `JevService`：固定两个渠道与模型（`typesafe` / `openrouter`），一次请求合并所有分段，
+  Noul 问句返回 `answers.segment_i.noul`。
+- `TopicGateService`：按 `。！？!?；;` 与换行无损切段；`applyTopicMask` 长度不符或
+  全保留时返回原文；`annotate` 在回复落库后异步执行，任何失败返回 false（fail-open）。
+- 判定主题取产生该回复的用户消息，不是当前会话主题。
+
+## 状态控制器
+
+- `SettingsController`：外观（system/light/dark）、7 档字号、自动折叠思考、语言、
+  应用锁开关与运行态、topic gate 开关/阈值/渠道；所有写操作先 notify 再持久化。
+  持有 KeyStore 读写方法，供设置页与聊天页共用。
+- `AssetsController`：厂商记录（key/info/error/loading/updatedAt）、`_session` token、
+  `refreshingAll`；`refreshOne` 会复位 `refreshingAll`，避免整轮刷新卡死；
+  `reloadKeys` 供 System Two 设置改 Key 后同步。
+- `ChatController`：会话池 + 草稿、激活分支、角色/身份、模型选择、流式生成。
+  - 草稿：启动即新草稿，不落盘；`attach` 首次写消息时 `_promoteDraftIfNeeded` 转正。
+  - 分支：`activePath` 沿 `activeRootId/activeChildId`；编辑/重发生成兄弟节点；
+    `switchBranch` 只改父指针。
+  - 流式刷新：120ms ticker 合并 notify；完成/失败立即 notify。
+  - 隐私：打开保密会话需认证；取消保密也需认证（防绕过）。
+  - 删除当前会话优先切首个非保密会话，否则新建草稿。
+  - 用户名注入：请求历史的 user 消息加 `身份名：` 前缀（拷贝，不改存储）。
+
+## UI 结构
+
+- `ChatPage`：自定义顶栏（抽屉/标题/模型胶囊）、消息 `ListView.builder`、
+  输入区（多行 TextField + 展开/收起 + 发送/停止 + 深度思考开关）、
+  回到底部浮钮、历史抽屉（新建/长按操作/角色管理/设置）。
+- `MessageBubble`：用户气泡右侧；助手 Markdown + 思考折叠块 + 错误行 + 分支计数；
+  长按复制/编辑/重新生成；链接安全路由（http/https/mailto）与引用 toast。
+- `chat_sheets.dart`：模型/厂商选择、会话操作、消息操作、角色与身份管理/绑定。
+- `AssetsPage`：Hero 分币种汇总、厂商卡片、添加弹窗（未添加/已添加 + 搜索）、
+  Key 弹窗、长按操作（刷新/换 Key/移除并二次确认）。
+- `SettingsPage`：应用（语言/外观/字号）、个性化、安全（应用锁）、数据（资产监控）、
+  对话（上下文净化入口）、版本。
+- `TopicGatePage`：开关、System One/System Two 双 tab、渠道/Key/阈值、
+  服务商 Key（与资产监控共用）。
+- 主题：`AppColors` 语义 token（暖纸/墨/香槟金）与 `AppTheme`；所有页面只读 token。
+
+## 平台配置
+
+- Android：applicationId/namespace `com.example.balanceapp`；`minSdk = maxOf(flutter, 24)`；
+  `MainActivity : FlutterFragmentActivity`；manifest 含 `INTERNET`，label `BalanceApp`。
+- iOS：bundle id `com.example.balanceapp`；部署目标 13.0；
+  `NSFaceIDUsageDescription` 已配置；无 Podfile（需 macOS 首次 `pod install`）。
+- 构建网络：本机直连 `storage.googleapis.com` 会 TLS 握手失败，必须设置
+  `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`。
+
+## 验证状态（2026-10-23）
+
+- `flutter analyze`：0 issue。
+- `flutter test`：17 项通过（余额解析/边界、切段/掩码、引用改写、厂商端点）。
+- `flutter build apk --debug`：成功（镜像环境）。
+- 运行时：未完成。本机 AVD 的 `system.img` 缺失，且无 Android 真机；iOS 无 macOS。
+  详见 `techdebt/TD-004-mobile-release-readiness.md`。
+
+## 已知边界
+
+- 会话正文明文存储在 SharedPreferences；`isPrivate` 只是 UI 门禁（同鸿蒙 TD-003）。
+- 多语言只覆盖设置页（同鸿蒙现状）。
+- 没有 release 签名、商店图标、隐私政策；应用锁关闭无需二次认证。
+- Markdown 由 `gpt_markdown` 渲染，代码高亮/复制为库能力；引用来源列表仍待模型侧提供。
