@@ -1,0 +1,6 @@
+# Copy this file to android/key.properties before a release build.
+# Never commit the real key.properties or the .jks file.
+storePassword=change-me
+keyPassword=change-me
+keyAlias=balanceapp
+storeFile=C:/Users/you/balanceapp-release.jks

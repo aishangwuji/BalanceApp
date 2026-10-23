@@ -92,8 +92,18 @@ Android (debug, no signing setup required):
 flutter build apk --debug
 ```
 
-Android release requires a keystore and `android/key.properties`; the current
-`release` build type intentionally falls back to debug signing. See
+Android release requires a keystore. Copy `android/key.properties.example` to
+`android/key.properties`, fill in the keystore path and passwords, then:
+
+```bash
+keytool -genkey -v -keystore balanceapp-release.jks -keyalg RSA \
+  -keysize 2048 -validity 10000 -alias balanceapp
+flutter build apk --release
+flutter build appbundle --release   # for Google Play
+```
+
+If `key.properties` is absent, the release build falls back to debug signing so
+local `flutter run --release` still works. See
 `techdebt/TD-004-mobile-release-readiness.md`.
 
 iOS:

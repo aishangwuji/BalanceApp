@@ -78,8 +78,8 @@ Jev模型文档："C:\Users\15216\Desktop\文档\jve模型.md"
   `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`，否则 Gradle
   拉取 `io.flutter:*_debug` 引擎包会失败。
 - Android：`minSdk 24`，`MainActivity : FlutterFragmentActivity`（local_auth 要求），
-  applicationId `com.example.balanceapp`；release 仍用 debug 签名，见
-  `techdebt/TD-004-mobile-release-readiness.md`。
+  applicationId `com.example.balanceapp`；release 读取 `android/key.properties`，
+  缺失时回退 debug 签名（见 `techdebt/TD-004-mobile-release-readiness.md`）。
 - iOS：bundle id `com.example.balanceapp`，部署目标 13.0，`NSFaceIDUsageDescription`
   已配置；本机无 Xcode，iOS 构建需 macOS/CI。
 - 架构：`lib/data`（模型/服务/注册表）→ `lib/state`（ChangeNotifier）→

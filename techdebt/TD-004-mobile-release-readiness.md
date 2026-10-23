@@ -6,9 +6,9 @@
 
 ## 现象 / 缺口
 
-1. **Android release 仍使用 debug 签名**：`android/app/build.gradle.kts` 的
-   `release` buildType 直接引用 `signingConfigs.debug`。上架前必须生成正式
-   keystore，并把口令放进本机 `android/key.properties`（已在 .gitignore 中）。
+1. **Android release 尚未生成正式 keystore**：`android/app/build.gradle.kts` 已支持
+   读取 `android/key.properties` 的 release 签名（缺失时回退 debug）。上架前仍需用
+   `keytool` 生成 keystore、填好 `key.properties`，再执行 `flutter build appbundle --release`。
 2. **iOS 未编译验证**：开发机为 Windows，没有 Xcode。iOS target、bundle id
    `com.example.balanceapp`、`NSFaceIDUsageDescription` 已配置，但仍需在
    macOS/CI 上执行 `flutter build ios --release --no-codesign` 与真机回归。
