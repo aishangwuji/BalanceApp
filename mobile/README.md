@@ -25,7 +25,7 @@ Jev topic gate.
 Verified locally:
 
 - `flutter analyze` — no issues
-- `flutter test` — 17 tests pass (topic gate segmentation/masking, citation rewrite, balance parsing, provider endpoints)
+- `flutter test` — 20 tests pass (topic gate segmentation/masking, citation rewrite, balance parsing, provider endpoints, UI smoke)
 - `flutter build apk --debug` — produces `build/app/outputs/flutter-apk/app-debug.apk`
 - Runtime device/emulator verification is still pending (the local AVD's system image is incomplete;
   no physical Android device was attached).
