@@ -725,10 +725,10 @@ class _CharacterSheetState extends State<_CharacterSheet> {
     final TextEditingController name =
         TextEditingController(text: card?.name ?? '');
     final TextEditingController prompt = TextEditingController(
-      text: card?.systemPrompt ?? '你是一个人工智能助手。',
+      text: card?.systemPrompt ?? '',
     );
     final TextEditingController first = TextEditingController(
-      text: card?.firstMessage ?? '你好！有什么我可以为你效劳的？',
+      text: card?.firstMessage ?? '',
     );
     double temperature = card?.temperature ?? 0.7;
     final bool? saved = await showDialog<bool>(
@@ -747,7 +747,7 @@ class _CharacterSheetState extends State<_CharacterSheet> {
                       autofocus: true,
                       decoration: const InputDecoration(
                         labelText: '角色名称',
-                        hintText: '例如：理性顾问',
+                        hintText: '',
                       ),
                     ),
                     const SizedBox(height: 12),

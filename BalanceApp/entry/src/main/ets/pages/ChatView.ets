@@ -992,8 +992,9 @@ export struct ChatView {
     } else {
       this.editingCharId = '';
       this.editingCharName = '';
-      this.editingCharPrompt = '你是一个人工智能助手。';
-      this.editingCharFirstMsg = '你好！有什么我可以为你效劳的？';
+      // Business Rule: 不预填任何「你是一个人工智能助手」式套话，角色设定与开场白由用户自己写。
+      this.editingCharPrompt = '';
+      this.editingCharFirstMsg = '';
       this.editingCharTemp = 0.7;
     }
     this.showCharEditDialog = true;
@@ -3158,7 +3159,7 @@ export struct ChatView {
                   .fontColor($r('app.color.text_secondary'))
                   .width('92%')
                   .margin({ bottom: 4 })
-                TextInput({ placeholder: '例如: 编程助手', text: this.editingCharName })
+                TextInput({ placeholder: '', text: this.editingCharName })
                   .width('92%')
                   .height(46)
                   .backgroundColor($r('app.color.input_bg'))
@@ -3596,7 +3597,7 @@ export struct ChatView {
               .fontColor($r('app.color.text_secondary'))
               .width('92%')
               .margin({ bottom: 4 })
-            TextInput({ placeholder: '例如: 林晚', text: this.editingIdentityName })
+            TextInput({ placeholder: '', text: this.editingIdentityName })
               .width('92%')
               .height(46)
               .backgroundColor($r('app.color.input_bg'))
