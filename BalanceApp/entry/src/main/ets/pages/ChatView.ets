@@ -785,6 +785,32 @@ export struct ChatView {
 
   // ── 会话管理 ──
 
+  /**
+   * 对话区右滑打开历史抽屉。
+   * 阈值取 60vp：略大于横向滑动的起手抖动，又明显小于半屏宽度，轻扫即开、不会误触。
+   */
+  private drawerSwipeThreshold: number = 60;
+  // 一次右滑过程中累计的横向位移（vp），松手时据此判定是否达到阈值。
+  private drawerSwipeOffset: number = 0;
+
+  /** 是否有全屏弹层遮挡：此时右滑不应把抽屉推到弹层背后。 */
+  private hasOverlayOnTop(): boolean {
+    return this.showDrawer || this.showModelPicker || this.showCharacterSheet
+      || this.showCharEditDialog || this.showEditDialog || this.showCharDeleteConfirm
+      || this.showIdentityEdit || this.showIdentityDeleteConfirm || this.showMentionPicker
+      || this.showRenameDialog || this.showDeleteConfirm || this.previewImage.length > 0;
+  }
+
+  /** 右滑手势结算：达阈值且无弹层遮挡时拉开历史抽屉。 */
+  private settleDrawerSwipe(): void {
+    const offset: number = this.drawerSwipeOffset;
+    this.drawerSwipeOffset = 0;
+    if (offset < this.drawerSwipeThreshold || this.hasOverlayOnTop()) {
+      return;
+    }
+    this.showDrawer = true;
+  }
+
   private toast(text: string): void {
     try {
       this.getUIContext().getPromptAction().showToast({ message: text });
@@ -2461,6 +2487,19 @@ export struct ChatView {
       .width('100%')
       .height('100%')
       .backgroundColor($r('app.color.surface'))
+      // 右滑打开历史抽屉：只识别向右的平移，纵向滚动（消息列表）与左滑不受影响。
+      .gesture(
+        PanGesture({ direction: PanDirection.Right, distance: 10 })
+          .onActionUpdate((event: GestureEvent) => {
+            this.drawerSwipeOffset = event.offsetX;
+          })
+          .onActionEnd(() => {
+            this.settleDrawerSwipe();
+          })
+          .onActionCancel(() => {
+            this.drawerSwipeOffset = 0;
+          })
+      )
 
       // ── 图片预览浮层（Markdown 图片点击，全屏深底 + 点空白/按钮关闭） ──
       if (this.previewImage.length > 0) {
