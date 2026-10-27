@@ -436,9 +436,6 @@ struct Assets {
     if (id === 'mimo') {
       return $r('app.media.mimo');
     }
-    if (id === 'siliconflow_cn' || id === 'siliconflow_en') {
-      return $r('app.media.siliconflow');
-    }
     if (id === 'stepfun') {
       return $r('app.media.stepfun');
     }
