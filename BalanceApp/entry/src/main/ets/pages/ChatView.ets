@@ -17,6 +17,7 @@ import {
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
+import { UpdateService, UpdateInfo } from '../services/UpdateService';
 import { AuthService } from '../services/AuthService';
 import { ChatMessageDataSource } from '../services/ChatMessageDataSource';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
@@ -230,8 +231,23 @@ export struct ChatView {
       await this.reloadApiKey();
       await this.loadConfiguredProviders();
       await this.refreshModelList();
+
+      // 静默检查更新：12 小时节流，发现新版本只提示一次，不打断对话。
+      this.checkUpdateSilently();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'aboutToAppear error: %{public}s', String(err));
+    }
+  }
+
+  private async checkUpdateSilently(): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const info: UpdateInfo | null = await UpdateService.checkIfDue(hostCtx);
+      if (info !== null) {
+        this.toast(`发现新版本 v${info.version}，可在「设置 > 关于」查看`);
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'silent update check failed: %{public}s', String(err));
     }
   }
 

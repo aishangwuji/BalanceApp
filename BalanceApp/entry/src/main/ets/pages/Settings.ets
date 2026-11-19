@@ -14,6 +14,7 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
 import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../services/I18nService';
+import { UpdateService, UpdateInfo } from '../services/UpdateService';
 import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
   KEY_APP_LOCK_ENABLED,
@@ -55,6 +56,9 @@ struct Settings {
   @StorageProp(KEY_AUTO_COLLAPSE_THINKING) autoCollapseThinking: boolean = true;
   @StorageProp(KEY_TTS_VOICE) ttsVoice: string = DEFAULT_TTS_VOICE;
   @StorageProp(KEY_APP_LOCK_ENABLED) appLockEnabled: boolean = false;
+  /** 当前版本（运行时读 BundleInfo，和 AppScope 同源）。 */
+  @State currentVersion: string = UpdateService.currentVersion();
+  @State checkingUpdate: boolean = false;
 
   // 底部弹框控制
   @State showLanguageSheet: boolean = false;
@@ -198,6 +202,72 @@ struct Settings {
     }
   }
 
+  /**
+   * 手动检查更新：Gitee → GitHub 双源，发现新版本弹窗给出说明与下载入口。
+   * Business Rule: 安装交由系统浏览器（HarmonyOS 不允许应用静默安装 HAP）。
+   */
+  private async checkUpdate(): Promise<void> {
+    if (this.checkingUpdate) {
+      return;
+    }
+    this.checkingUpdate = true;
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const info: UpdateInfo | null = await UpdateService.check(hostCtx);
+      if (info === null) {
+        this.getUIContext().showAlertDialog({
+          title: this.t('settings_check_update'),
+          message: `${this.t('settings_up_to_date')}（v${this.currentVersion}）`
+        });
+        return;
+      }
+      const message: string = info.notes.length > 0 ? info.notes : `v${info.version}`;
+      this.getUIContext().showAlertDialog({
+        title: `${this.t('settings_new_version_title')} v${info.version}`,
+        message: message,
+        primaryButton: {
+          value: this.t('settings_download'),
+          action: () => {
+            this.openExternal(info.downloadUrl);
+          }
+        },
+        secondaryButton: {
+          value: this.t('settings_later'),
+          action: () => {
+          }
+        }
+      });
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'check update failed: %{public}s', String(err));
+      this.getUIContext().showAlertDialog({
+        title: this.t('settings_check_update'),
+        message: this.t('settings_check_failed')
+      });
+    } finally {
+      this.checkingUpdate = false;
+    }
+  }
+
+  private openProjectPage(): void {
+    this.openExternal('https://gitee.com/aishangwuji/BalanceApp');
+  }
+
+  private openExternal(url: string): void {
+    if (url.length === 0) {
+      return;
+    }
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      hostCtx.startAbility({
+        action: 'ohos.want.action.viewData',
+        uri: url,
+        entities: ['entity.system.browsable']
+      });
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'open external failed: %{public}s', String(err));
+    }
+  }
+
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
@@ -301,6 +371,28 @@ struct Settings {
             Column() {
               this.SettingRow($r('app.media.ic_assets'), this.t('settings_assets'), this.t('settings_assets_desc'), true, () => {
                 this.openAssets();
+              })
+            }
+            .width('92%')
+            .backgroundColor($r('app.color.surface'))
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
+
+            // ── 关于 ──
+            Text(this.t('settings_section_about'))
+              .fontSize(11)
+              .letterSpacing(0.4)
+              .fontColor($r('app.color.text_muted'))
+              .width('92%')
+              .margin({ top: 24, bottom: 10 })
+
+            Column() {
+              this.SettingRow($r('app.media.ic_refresh'), this.t('settings_check_update'),
+                this.checkingUpdate ? this.t('settings_checking') : `v${this.currentVersion}`, false, () => {
+                  this.checkUpdate();
+                })
+              this.SettingRow($r('app.media.ic_character'), this.t('settings_project_page'), '', true, () => {
+                this.openProjectPage();
               })
             }
             .width('92%')
