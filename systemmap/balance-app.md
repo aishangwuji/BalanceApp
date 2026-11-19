@@ -41,6 +41,18 @@ last_verified: 2026-11-19
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 自动会话标题（2026-11-19，构建通过）
+
+- 请求：Chat Completions 顶层加 `title:{enabled:true}`（DeepSeek 扩展字段，其他服务商透传会 400，
+  故只在 `providerId === 'deepseek'` 时下发）。只在会话首轮请求上声明，服务端最多多等 5 秒，标题不计费。
+- 响应：标题在最后一个 chunk 的 `delta.title`（非流式在 `message.title`），服务端可能不给
+  （拒答/出错）——发送时就先写「用户消息前 14 字」兜底标题，拿到服务端标题再覆盖。
+- 去重：`ChatSession.autoTitled`（持久化）在首轮成功完成后置 true，同一会话不再重复请求；
+  `isAutoTitle` 保证用户手动重命名后不被覆盖。旧会话 normalize 缺省 false，升级后只会多试一次。
+- 实测：`deepseek-flash` + `title` + `tools` 流式请求，最后一个 chunk 返回
+  `delta.title:"北京明天降雨预报"`。注意响应里搜索结果项也有 `title` 字段，解析必须限定
+  `choices[0].delta.title`，不能全文正则匹配，否则会取到网页标题。
+
 ## 输入卡片对齐官方（2026-11-19，构建通过）
 
 - 形式：整块圆角输入卡片（`input_bg` 底 + 细边框 + 轻阴影），内含多行 TextArea（透明底、
