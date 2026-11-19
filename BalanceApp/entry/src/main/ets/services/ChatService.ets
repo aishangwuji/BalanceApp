@@ -40,6 +40,14 @@ interface ApiMessageEntry {
   chars: number;
 }
 
+/** 模型返回的一次函数调用（客户端工具：生图）。 */
+export interface ToolCallRequest {
+  id: string;
+  name: string;
+  /** JSON 字符串，调用方按工具自行解析。 */
+  arguments: string;
+}
+
 export interface StreamCallbacks {  onToken: (token: string, reasoningChunk?: string) => void;
   onComplete: () => void;
   onError: (error: string) => void;
@@ -52,6 +60,13 @@ export interface StreamCallbacks {  onToken: (token: string, reasoningChunk?: st
    * Business Rule: 服务端不保证给标题（拒答/出错时没有），调用方需保留本地兜底标题。
    */
   onTitle?: (title: string) => void;
+  /**
+   * 客户端工具调用（本轮声明 generate_image 时可能出现）。
+   * Business Rule: 流结束后一次性回调（arguments 分片已合并），由调用方执行工具并展示结果。
+   */
+  onToolCalls?: (calls: ToolCallRequest[]) => void;
+  /** 内容安全拒答：finish_reason=content_filter 或 delta.refusal 时回调。 */
+  onRefusal?: (reason: string) => void;
 }
 
 export interface ChatRequestOptions {
@@ -75,6 +90,15 @@ export interface ChatRequestOptions {
    * Business Rule: 只在会话首轮开启（服务端最多多等 5 秒）；标题不计费。
    */
   enableTitle?: boolean;
+  /**
+   * 生图工具开关：声明客户端函数 generate_image，模型自行判断何时调用。
+   * Business Rule: 只有配置了百智云 Key 且服务商支持 function tools 时才声明，否则模型可能空转。
+   */
+  enableImageTool?: boolean;
+  /** 内容安全：声明 safety_check.level=high（官方基础风控，输入输出都审核）。 */
+  enableSafety?: boolean;
+  /** 文件/图片附件解析开关（关闭时历史里的附件不再以 content 块回传）。 */
+  enableFiles?: boolean;
 }
 
 export class ChatService {
@@ -99,11 +123,15 @@ export class ChatService {
     let textBuffer: string = '';
     let sawDone: boolean = false;
     const decoder: util.TextDecoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+    // 客户端工具调用：arguments 分片到达，按 index 累加，流结束后统一回调。
+    const toolAcc: Map<number, ToolCallRequest> = new Map<number, ToolCallRequest>();
+    // 内容安全拒答：safety_check 开启后，输出可能以 content_filter/refusal 结束。
+    let refusalReason: string = '';
 
     // 多轮拼接：/chat/completions 无状态，须每轮回传 system + 历史（见 buildApiMessages）。
     const formattedMessages: Record<string, ESObject>[] =
       ChatService.buildApiMessages(options.messages, options.systemPrompt,
-        options.providerId === 'deepseek');
+        options.providerId === 'deepseek' && options.enableFiles !== false);
 
     const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, true);
     const bodyStr: string = JSON.stringify(payloadObj);
@@ -161,6 +189,10 @@ export class ChatService {
                       callbacks.onSearch(progress);
                     }
                   }
+                  const finishVal: ESObject = choiceRec['finish_reason'];
+                  if (finishVal === 'content_filter') {
+                    refusalReason = '内容未通过安全审核';
+                  }
                   const delta: ESObject = choiceRec['delta'];
                   if (delta !== null && typeof delta === 'object') {
                     const deltaRec: Record<string, ESObject> = delta as Record<string, ESObject>;
@@ -169,6 +201,15 @@ export class ChatService {
 
                     if (contentStr.length > 0 || reasoningStr.length > 0) {
                       callbacks.onToken(contentStr, reasoningStr.length > 0 ? reasoningStr : undefined);
+                    }
+                    const refusalVal: ESObject = deltaRec['refusal'];
+                    if (typeof refusalVal === 'string' && (refusalVal as string).length > 0) {
+                      refusalReason = refusalVal as string;
+                    }
+                    // 客户端工具调用（generate_image）：delta.tool_calls 分片到达，按 index 合并。
+                    const toolCallsVal: ESObject = deltaRec['tool_calls'];
+                    if (Array.isArray(toolCallsVal)) {
+                      ChatService.mergeToolCalls(toolCallsVal as ESObject[], toolAcc);
                     }
                     // 引用位标只在带 finish_reason 的末块 delta 里一次性下发；
                     // 与正文增量无关，故不并入 onToken，单独回调避免污染流式文本。
@@ -203,6 +244,17 @@ export class ChatService {
         if (!sawDone) {
           // 未收到 [DONE] 即关流：按不完整对待，仅打日志，仍以已收 token 落库（调用方已做 keep-partial）。
           hilog.warn(DOMAIN, TAG, 'Stream ended without [DONE], keep partial content');
+        }
+        // 拒答先于 onComplete 回调：调用方清空已展示文本并给拒答提示。
+        if (refusalReason.length > 0 && callbacks.onRefusal !== undefined) {
+          callbacks.onRefusal(refusalReason);
+        }
+        // 工具调用先于 onComplete 回调：调用方可在收尾时统一处理（生图任务）。
+        if (callbacks.onToolCalls !== undefined && toolAcc.size > 0) {
+          const calls: ToolCallRequest[] = ChatService.collectToolCalls(toolAcc);
+          if (calls.length > 0) {
+            callbacks.onToolCalls(calls);
+          }
         }
         callbacks.onComplete();
       }
@@ -405,6 +457,90 @@ export class ChatService {
   }
 
   /**
+   * 生图工具的 JSON Schema 声明（DeepSeek function calling）。
+   * Business Rule: 描述里写清「画图/生成图片」触发场景，避免模型把普通问答误判为生图。
+   */
+  private static buildImageToolDeclaration(): Record<string, ESObject> {
+    const properties: Record<string, ESObject> = {
+      'prompt': {
+        'type': 'string',
+        'description': '详细的中文画面描述：主体、场景、风格、构图、光影；把用户简短要求扩写成可生成的提示词'
+      },
+      'ratio': {
+        'type': 'string',
+        'enum': ['auto', '1:1', '4:3', '3:4', '16:9', '9:16'],
+        'description': '画面比例，用户未指定时用 auto'
+      },
+      'count': {
+        'type': 'integer',
+        'description': '生成张数，1~4，默认 1'
+      }
+    };
+    const parameters: Record<string, ESObject> = {
+      'type': 'object',
+      'properties': properties,
+      'required': ['prompt']
+    };
+    const fn: Record<string, ESObject> = {
+      'name': 'generate_image',
+      'description': '根据文字描述生成图片。当用户要求画画、生成图片、海报、插画、配图等视觉内容时调用。',
+      'parameters': parameters
+    };
+    const decl: Record<string, ESObject> = {
+      'type': 'function',
+      'function': fn
+    };
+    return decl;
+  }
+
+  /** 合并 delta.tool_calls 分片（id/name 只到一次，arguments 逐段拼接）。 */
+  private static mergeToolCalls(items: ESObject[], acc: Map<number, ToolCallRequest>): void {
+    let i: number = 0;
+    while (i < items.length) {
+      const item: ESObject = items[i];
+      i += 1;
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, ESObject> = item as Record<string, ESObject>;
+      const idxVal: ESObject = rec['index'];
+      const index: number = typeof idxVal === 'number' ? idxVal as number : 0;
+      let entry: ToolCallRequest | undefined = acc.get(index);
+      if (entry === undefined) {
+        const created: ToolCallRequest = { id: '', name: '', arguments: '' };
+        acc.set(index, created);
+        entry = created;
+      }
+      const idVal: ESObject = rec['id'];
+      if (typeof idVal === 'string' && (idVal as string).length > 0) {
+        entry.id = idVal as string;
+      }
+      const fnVal: ESObject = rec['function'];
+      if (fnVal !== null && typeof fnVal === 'object') {
+        const fnRec: Record<string, ESObject> = fnVal as Record<string, ESObject>;
+        const nameVal: ESObject = fnRec['name'];
+        if (typeof nameVal === 'string' && (nameVal as string).length > 0) {
+          entry.name = nameVal as string;
+        }
+        const argsVal: ESObject = fnRec['arguments'];
+        if (typeof argsVal === 'string') {
+          entry.arguments += argsVal as string;
+        }
+      }
+    }
+  }
+
+  private static collectToolCalls(acc: Map<number, ToolCallRequest>): ToolCallRequest[] {
+    const out: ToolCallRequest[] = [];
+    acc.forEach((value: ToolCallRequest) => {
+      if (value.name.length > 0) {
+        out.push(value);
+      }
+    });
+    return out;
+  }
+
+  /**
    * 针对不同供应商（DeepSeek / 小米 MiMo / Kimi）规范构建差异化请求体
    */
   private static buildPayload(
@@ -418,14 +554,32 @@ export class ChatService {
       'messages': formattedMessages as ESObject,
       'stream': isStream
       // 有意不下发：n（Kimi k3/k2.6/k2.7 固定为 1，传>1 直接 400）、
-      // stream_options.include_usage（token 统计已下线）、客户端 function tools（未支持）。
+      // stream_options.include_usage（token 统计已下线）。
     };
 
     // 联网搜索：仅 DeepSeek 声明服务端工具，搜索/抓取由服务端完成。
     // Business Rule: 声明后 temperature/top_p 等由服务端忽略（官方《被忽略的参数》），
     //   故保留下面的温度配置不影响行为，也无需为开关另开分支。
+    const tools: ESObject[] = [];
     if (options.enableWebSearch === true && WebSearchService.isSupported(options.providerId)) {
-      payloadObj['tools'] = WebSearchService.buildToolDeclaration() as ESObject;
+      const webTools: Record<string, string>[] = WebSearchService.buildToolDeclaration();
+      let wi: number = 0;
+      while (wi < webTools.length) {
+        tools.push(webTools[wi] as ESObject);
+        wi += 1;
+      }
+    }
+    // 生图：客户端函数工具，由模型决定何时调用，客户端执行百智云任务。
+    if (options.enableImageTool === true && options.providerId === 'deepseek') {
+      tools.push(ChatService.buildImageToolDeclaration() as ESObject);
+    }
+    if (tools.length > 0) {
+      payloadObj['tools'] = tools as ESObject;
+    }
+    // 内容安全：官方 safety_check（high=基础风控，low 与不传等价）。
+    if (options.enableSafety === true && options.providerId === 'deepseek') {
+      const safety: Record<string, string> = { 'level': 'high' };
+      payloadObj['safety_check'] = safety as ESObject;
     }
 
     // 会话标题：DeepSeek 扩展字段，与 tools 并列放在顶层；其他服务商不认这个字段，不能透传。
@@ -490,3 +644,7 @@ interface BusinessErrorLike {
   code?: number;
   message?: string;
 }
+
+
+
+
