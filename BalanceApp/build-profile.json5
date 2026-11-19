@@ -1,24 +1,11 @@
 {
   app: {
-    signingConfigs: [
-      {
-        name: 'default',
-        type: 'HarmonyOS',
-        material: {
-          certpath: 'C:\\Users\\15216\\.ohos\\config\\default_BalanceApp_MctWBlMJuLGpJNswMtfrTVhzNxsdMqgPrA0M4xFM=.cer',
-          keyAlias: 'debugKey',
-          keyPassword: '0000001bc1ba24b14abef598e7d99ce1a4bc0eddf95c2c0b888681037c5a51a6039d9f878caddab82874bf',
-          profile: 'C:\\Users\\15216\\.ohos\\config\\default_BalanceApp_MctWBlMJuLGpJNswMtfrTVhzNxsdMqgPrA0M4xFM=.p7b',
-          signAlg: 'SHA256withECDSA',
-          storeFile: 'C:\\Users\\15216\\.ohos\\config\\default_BalanceApp_MctWBlMJuLGpJNswMtfrTVhzNxsdMqgPrA0M4xFM=.p12',
-          storePassword: '0000001bc1ba24b14abef598e7d99ce1a4bc0eddf95c2c0b888681037c5a51a6039d9f878caddab82874bf',
-        },
-      },
-    ],
+    // 签名配置不入库：每位开发者在本机用 DevEco Studio 的「Project Structure > Signing Configs」
+    // 生成（会写回本文件的 signingConfigs 与 products[0].signingConfig）。
+    // 公开仓库若包含本机证书路径与密码，等于泄露签名材料，因此默认留空。
     products: [
       {
         name: 'default',
-        signingConfig: 'default',
         targetSdkVersion: '6.1.1(24)',
         compatibleSdkVersion: '6.1.1(24)',
         runtimeOS: 'HarmonyOS',
