@@ -13,6 +13,8 @@
 
 import { http } from '@kit.NetworkKit';
 import { fileIo as fs, picker } from '@kit.CoreFileKit';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { cameraPicker, camera } from '@kit.CameraKit';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
@@ -39,10 +41,17 @@ const USER_DATA_EXTS: string[] = [
   'php', 'swift', 'sh', 'sql', 'ini', 'toml', 'xlsx', 'xls', 'epub', 'mobi'
 ];
 
-/** 需要服务端解析的文档与图片（默认只取文字，避免裁图占用图片额度）。 */
+/**
+ * 图片里能被模型「看见」的格式：必须走 user_data 上传（原文存储），
+ * 请求里用 {type:'file', file_id} 参考即可让模型读图。
+ * Business Rule: 实测 text_recognition 上传的图片只会被 OCR 成文字（模型只答出图里的数字），
+ *   看不到画面；user_data 上传的同一张图能被正确描述。
+ */
+const VISION_EXTS: string[] = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+
+/** 其余图片与文档走服务端解析（BMP/TIFF 不支持视觉输入，只能 OCR）。 */
 const PARSE_EXTS: string[] = [
-  'pdf', 'doc', 'docx', 'ppt', 'pptx',
-  'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tiff', 'tif'
+  'pdf', 'doc', 'docx', 'ppt', 'pptx', 'bmp', 'tiff', 'tif'
 ];
 
 export class FileUploadService {
@@ -59,6 +68,37 @@ export class FileUploadService {
       return result[0];
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'picker failed: %{public}s', String(err));
+      return '';
+    }
+  }
+
+  /** 相册选图（系统图库选择器，不需要读媒体权限）；用户取消返回空数组。 */
+  public static async pickImages(context: common.UIAbilityContext, maxCount: number): Promise<string[]> {
+    try {
+      const photoPicker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
+      const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
+      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
+      options.maxSelectNumber = maxCount;
+      const result: photoAccessHelper.PhotoSelectResult = await photoPicker.select(options);
+      return result.photoUris;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'photo picker failed: %{public}s', String(err));
+      return [];
+    }
+  }
+
+  /** 系统相机拍照；取消返回 ''。 */
+  public static async capturePhoto(context: common.UIAbilityContext): Promise<string> {
+    try {
+      const profile: cameraPicker.PickerProfile = {
+        cameraPosition: camera.CameraPosition.CAMERA_POSITION_BACK,
+        saveUri: ''
+      };
+      const result: cameraPicker.PickerResult = await cameraPicker.pick(context,
+        [cameraPicker.PickerMediaType.PHOTO], profile);
+      return result.resultUri;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'camera picker failed: %{public}s', String(err));
       return '';
     }
   }
@@ -82,6 +122,10 @@ export class FileUploadService {
     const ext: string = FileUploadService.extensionOf(fileName);
     if (ext.length === 0) {
       return '';
+    }
+    // 视觉图片优先：user_data 上传后按 file 块引用，模型才能看到画面而不是 OCR 文本。
+    if (VISION_EXTS.includes(ext)) {
+      return 'user_data';
     }
     if (USER_DATA_EXTS.includes(ext)) {
       return 'user_data';
@@ -172,6 +216,12 @@ export class FileUploadService {
         bytes: typeof rec['bytes'] === 'number' ? rec['bytes'] as number : stat.size
       };
       return uploaded;
+    } catch (err) {
+      // 失败原因落日志：真机上出现「文件解析失败」时可直接用 hilog 定位（toast 只闪一下）。
+      const reason: string = err instanceof Error ? err.message : String(err);
+      hilog.error(DOMAIN, TAG, 'upload failed (%{public}s, %{public}s): %{public}s',
+        fileName, purpose, reason);
+      throw new Error(reason);
     } finally {
       req.destroy();
       if (localReady) {
