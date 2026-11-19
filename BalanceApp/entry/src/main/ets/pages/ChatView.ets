@@ -114,7 +114,11 @@ export struct ChatView {
   @State recording: boolean = false;
   @State transcribing: boolean = false;
   @State recordSeconds: number = 0;
+  /** 语音模式：true 时输入区变成「按住说话」，右侧显示键盘切回文字输入。 */
+  @State voiceMode: boolean = false;
   private recordTimer: number = -1;
+  /** 手指是否仍按在「按住说话」上（松手早于录音启动时用来自动收尾）。 */
+  private holdDown: boolean = false;
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
   @State configuredProviders: ProviderDefinition[] = [];
@@ -2133,22 +2137,50 @@ export struct ChatView {
     }
   }
 
-  /** 语音按钮：空闲时开始录音，录音中再点即结束并转写（不用按住，避免手势冲突）。 */
-  private async toggleVoice(): Promise<void> {
-    if (this.transcribing) {
+  /** 进入语音模式：输入区整体变成「按住说话」。 */
+  private enterVoiceMode(): void {
+    if (this.isGenerating || this.transcribing) {
       return;
     }
+    this.voiceMode = true;
+    this.recordSeconds = 0;
+  }
+
+  /** 退出语音模式（切回键盘输入）：录音中先丢弃。 */
+  private exitVoiceMode(): void {
     if (this.recording) {
-      await this.finishRecording();
-      return;
+      this.abortRecording();
     }
-    if (this.isGenerating) {
-      this.toast('正在生成，请稍候');
+    this.voiceMode = false;
+  }
+
+  /** 按住说话：按下开始录音，抬起/取消结束并转写。 */
+  private async onHoldTouch(event: TouchEvent): Promise<void> {
+    if (event.type === TouchType.Down) {
+      if (this.recording || this.transcribing) {
+        return;
+      }
+      this.holdDown = true;
+      await this.beginHoldRecord();
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      this.holdDown = false;
+      if (this.recording) {
+        await this.finishRecording();
+      }
+    }
+  }
+
+  private async beginHoldRecord(): Promise<void> {
+    if (this.recording || this.transcribing) {
       return;
     }
     const granted: boolean = await this.ensureMicPermission();
     if (!granted) {
       this.toast('需要麦克风权限才能语音输入');
+      return;
+    }
+    // 授权弹窗期间可能已松手：不再启动录音。
+    if (!this.holdDown) {
       return;
     }
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -2159,6 +2191,11 @@ export struct ChatView {
     }
     this.recording = true;
     this.recordSeconds = 0;
+    if (!this.holdDown) {
+      // 录音启动前手指就离开了：立即收尾，避免录音一直跑。
+      await this.finishRecording();
+      return;
+    }
     this.startRecordTimer();
   }
 
@@ -2189,6 +2226,8 @@ export struct ChatView {
       }
       const existing: string = this.inputText;
       this.inputText = existing.trim().length > 0 ? `${existing} ${text}` : text;
+      // 转写成功即切回文字模式，右侧变发送钮，交由用户确认后发送。
+      this.voiceMode = false;
     } catch (err) {
       const reason: string = err instanceof Error ? err.message : String(err);
       this.toast(`语音识别失败：${reason}`);
@@ -3080,22 +3119,8 @@ export struct ChatView {
               .width('100%')
             }
 
-            // 录音 / 识别状态提示（占位在输入区上方，不打断输入框布局）。
-            if (this.recording) {
-              Row() {
-                Row()
-                  .width(8)
-                  .height(8)
-                  .backgroundColor($r('app.color.danger_text'))
-                  .borderRadius(4)
-                  .margin({ right: 6 })
-                Text(`正在录音 ${this.recordTimeText()} · 点右侧停止`)
-                  .fontSize(12)
-                  .fontColor($r('app.color.text_secondary'))
-              }
-              .width('100%')
-              .margin({ bottom: 4 })
-            } else if (this.transcribing) {
+            // 识别状态提示（录音状态由「按住说话」区自己展示）。
+            if (this.transcribing) {
               Row() {
                 LoadingProgress()
                   .width(13)
@@ -3109,32 +3134,50 @@ export struct ChatView {
               .margin({ bottom: 4 })
             }
 
-            Stack({ alignContent: Alignment.TopEnd }) {
-              TextArea({ placeholder: '发消息，或点麦克风说话', text: this.inputText })
-                .width('100%')
-                .height(this.inputExpanded ? INPUT_EXPANDED_HEIGHT : INPUT_BASE_HEIGHT)
-                .backgroundColor('#00000000')
-                .border({ width: 0 })
-                .fontSize(16)
-                .placeholderColor($r('app.color.text_faint'))
-                .padding({ left: 4, right: 32, top: 2, bottom: 2 })
-                .enabled(!this.recording)
-                .onChange((val: string) => {
-                  this.inputText = val;
-                })
-                .onFocus(() => {
-                  this.onInputFocus();
-                })
+            if (this.voiceMode) {
+              // 语音模式：整块输入区变成「按住说话」，按下录音、松开转写。
+              Row() {
+                Text(this.recording ? `松开结束 ${this.recordTimeText()}` : '按住说话')
+                  .fontSize(16)
+                  .fontWeight(this.recording ? FontWeight.Medium : FontWeight.Normal)
+                  .fontColor(this.recording ? $r('app.color.danger_text') : $r('app.color.text_primary'))
+              }
+              .width('100%')
+              .height(INPUT_BASE_HEIGHT)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(VerticalAlign.Center)
+              .backgroundColor(this.recording ? $r('app.color.chat_accent_soft') : '#00000000')
+              .borderRadius(16)
+              .onTouch((event: TouchEvent) => {
+                this.onHoldTouch(event);
+              })
+            } else {
+              Stack({ alignContent: Alignment.TopEnd }) {
+                TextArea({ placeholder: '发消息或按住说话', text: this.inputText })
+                  .width('100%')
+                  .height(this.inputExpanded ? INPUT_EXPANDED_HEIGHT : INPUT_BASE_HEIGHT)
+                  .backgroundColor('#00000000')
+                  .border({ width: 0 })
+                  .fontSize(16)
+                  .placeholderColor($r('app.color.text_faint'))
+                  .padding({ left: 4, right: 32, top: 2, bottom: 2 })
+                  .onChange((val: string) => {
+                    this.inputText = val;
+                  })
+                  .onFocus(() => {
+                    this.onInputFocus();
+                  })
 
-              Image(this.inputExpanded ? $r('app.media.ic_collapse') : $r('app.media.ic_expand'))
-                .width(14)
-                .height(14)
-                .margin({ right: 6, top: 8 })
-                .onClick(() => {
-                  this.inputExpanded = !this.inputExpanded;
-                })
+                Image(this.inputExpanded ? $r('app.media.ic_collapse') : $r('app.media.ic_expand'))
+                  .width(14)
+                  .height(14)
+                  .margin({ right: 6, top: 8 })
+                  .onClick(() => {
+                    this.inputExpanded = !this.inputExpanded;
+                  })
+              }
+              .width('100%')
             }
-            .width('100%')
 
             Row() {
               ThinkingButton({
@@ -3171,25 +3214,7 @@ export struct ChatView {
                 this.showAttachSheet = true;
               })
 
-              if (this.recording) {
-                // 录音中：红色停止钮（再点结束并转写）
-                Column() {
-                  Row()
-                    .width(12)
-                    .height(12)
-                    .backgroundColor('#FFFFFF')
-                    .borderRadius(3)
-                }
-                .width(40)
-                .height(40)
-                .justifyContent(FlexAlign.Center)
-                .alignItems(HorizontalAlign.Center)
-                .borderRadius(20)
-                .backgroundColor($r('app.color.danger_text'))
-                .onClick(() => {
-                  this.finishRecording();
-                })
-              } else if (this.transcribing) {
+              if (this.transcribing) {
                 Column() {
                   LoadingProgress()
                     .width(22)
@@ -3200,6 +3225,22 @@ export struct ChatView {
                 .height(40)
                 .justifyContent(FlexAlign.Center)
                 .alignItems(HorizontalAlign.Center)
+              } else if (this.voiceMode) {
+                // 语音模式：键盘钮切回文字输入（录音中切换会丢弃本次录音）。
+                Column() {
+                  Image($r('app.media.ic_keyboard'))
+                    .width(20)
+                    .height(20)
+                }
+                .width(40)
+                .height(40)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+                .borderRadius(20)
+                .border({ width: 1.6, color: $r('app.color.chat_border') })
+                .onClick(() => {
+                  this.exitVoiceMode();
+                })
               } else if (this.isGenerating) {
                 Column() {
                   Text('■')
@@ -3232,7 +3273,7 @@ export struct ChatView {
                   this.sendMessage();
                 })
               } else {
-                // 输入框为空：显示语音输入（点按开始，再点结束）
+                // 输入框为空：麦克风切换到「按住说话」模式。
                 Column() {
                   Image($r('app.media.ic_mic'))
                     .width(20)
@@ -3245,7 +3286,7 @@ export struct ChatView {
                 .borderRadius(20)
                 .border({ width: 1.6, color: $r('app.color.chat_border') })
                 .onClick(() => {
-                  this.toggleVoice();
+                  this.enterVoiceMode();
                 })
               }
             }
