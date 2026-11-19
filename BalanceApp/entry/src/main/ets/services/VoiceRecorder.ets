@@ -2,10 +2,13 @@
  * VoiceRecorder.ets
  *
  * 录音并落成 16 位 PCM 单声道 WAV —— 供语音输入转写（POST /v1/tools/asr）使用。
- * 1. AudioCapturer 参数固定 16 kHz / 单声道 / S16LE / RAW（服务端 WAV 支持 8k~48k，16k 足够）；
- * 2. 打开文件先占 44 字节 WAV 头，录音数据追加写入，停止时回填头部（RIFF/fmt/data）；
- * 3. 上限 120 秒（官方 ASR 时长上限），到点自动停；8 MiB 上限由 16k/16bit/单声道天然满足；
- * 4. 单实例：重复 start 直接返回，stop 幂等；失败路径关闭文件、删除残片。
+ * 1. AudioCapturer 参数固定 16 kHz / 单声道 / S16LE / RAW（服务端 WAV 支持 8k~48k）；
+ * 2. 录音期间先写 .pcm 原始数据，停止时再新建 .wav 写标准 44 字节头并分块拷贝 PCM。
+ *    Reason: 早期实现是「先占位 44 字节 + 停止时按 offset 回填头部」，真机实测服务端
+ *    返回 400（音频格式不支持）——回填位置不可靠会让文件以 44 个 0 开头。分块拷贝不依赖
+ *    seek/offset 语义，结果确定。
+ * 3. 上限 120 秒（官方 ASR 时长上限）；16k×2B×120s≈3.8 MB，远低于 8 MiB 限制；
+ * 4. 单实例：重复 start 直接返回，stop 幂等；失败路径关闭文件并删除 .pcm/.wav 残片。
  *
  * 严格遵守 ArkTS 规范：无 any/unknown，无解构，捕获异常转为 Error 类型。
  */
@@ -25,11 +28,14 @@ const READ_SIZE = 3200;
 const MAX_SECONDS = 120;
 const MAX_BYTES = SAMPLING_RATE * CHANNELS * BYTES_PER_SAMPLE * MAX_SECONDS;
 const WAV_HEADER_SIZE = 44;
+/** 收尾时 PCM -> WAV 的分块大小。 */
+const COPY_CHUNK = 64 * 1024;
 
 export class VoiceRecorder {
   private static capturer: audio.AudioCapturer | undefined = undefined;
   private static file: fs.File | undefined = undefined;
-  private static path: string = '';
+  private static pcmPath: string = '';
+  private static wavPath: string = '';
   private static bytes: number = 0;
   private static recording: boolean = false;
   private static loop: Promise<void> | undefined = undefined;
@@ -59,16 +65,16 @@ export class VoiceRecorder {
         capturerInfo: capturerInfo
       };
       const capturer: audio.AudioCapturer = await audio.createAudioCapturer(options);
-      const path: string = `${context.cacheDir}/voice_${Date.now()}.wav`;
-      const file: fs.File = fs.openSync(path,
+      const stamp: number = Date.now();
+      const pcmPath: string = `${context.cacheDir}/voice_${stamp}.pcm`;
+      const wavPath: string = `${context.cacheDir}/voice_${stamp}.wav`;
+      const file: fs.File = fs.openSync(pcmPath,
         fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-      // 先占位 44 字节，停止时回填真实头部（录音数据紧接着写）。
-      const placeholder: ArrayBuffer = new ArrayBuffer(WAV_HEADER_SIZE);
-      fs.writeSync(file.fd, placeholder);
 
       VoiceRecorder.capturer = capturer;
       VoiceRecorder.file = file;
-      VoiceRecorder.path = path;
+      VoiceRecorder.pcmPath = pcmPath;
+      VoiceRecorder.wavPath = wavPath;
       VoiceRecorder.bytes = 0;
       VoiceRecorder.recording = true;
       await capturer.start();
@@ -81,7 +87,7 @@ export class VoiceRecorder {
     }
   }
 
-  /** 停止录音并回填 WAV 头；返回文件路径（'' 表示没有可用录音）。 */
+  /** 停止录音并封装 WAV；返回文件路径（'' 表示没有可用录音）。 */
   public static async stop(): Promise<string> {
     if (!VoiceRecorder.recording && VoiceRecorder.file === undefined) {
       return '';
@@ -99,7 +105,7 @@ export class VoiceRecorder {
       } catch (_releaseErr) {
       }
     }
-    // 等读取循环退出，避免与回填头部/关闭文件竞争。
+    // 等读取循环退出，避免与关闭文件竞争。
     if (VoiceRecorder.loop !== undefined) {
       try {
         await VoiceRecorder.loop;
@@ -109,41 +115,40 @@ export class VoiceRecorder {
     }
 
     const file: fs.File | undefined = VoiceRecorder.file;
-    const path: string = VoiceRecorder.path;
+    const pcmPath: string = VoiceRecorder.pcmPath;
+    const wavPath: string = VoiceRecorder.wavPath;
     const bytes: number = VoiceRecorder.bytes;
     VoiceRecorder.file = undefined;
-    VoiceRecorder.path = '';
+    VoiceRecorder.pcmPath = '';
+    VoiceRecorder.wavPath = '';
     VoiceRecorder.bytes = 0;
     if (file === undefined) {
       return '';
     }
     try {
-      const header: ArrayBuffer = VoiceRecorder.buildWavHeader(bytes);
-      fs.writeSync(file.fd, header, { offset: 0 });
       fs.closeSync(file);
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'finalize failed: %{public}s', String(err));
-      try {
-        fs.closeSync(file);
-      } catch (_closeErr) {
-      }
-      try {
-        fs.unlinkSync(path);
-      } catch (_unlinkErr) {
-      }
+    } catch (_closeErr) {
+    }
+    if (bytes <= 0) {
+      VoiceRecorder.removeQuietly(pcmPath);
       return '';
     }
-    return path;
+    const ok: boolean = VoiceRecorder.buildWav(pcmPath, wavPath, bytes);
+    VoiceRecorder.removeQuietly(pcmPath);
+    hilog.info(DOMAIN, TAG, 'recorded %{public}d bytes, wav=%{public}s ok=%{public}s',
+      bytes, wavPath, String(ok));
+    if (!ok) {
+      VoiceRecorder.removeQuietly(wavPath);
+      return '';
+    }
+    return wavPath;
   }
 
-  /** 放弃本次录音（离开页面等场景）：停录、删文件。 */
+  /** 放弃本次录音（离开页面等场景）：停录并删除临时文件。 */
   public static async cancel(): Promise<void> {
     const path: string = await VoiceRecorder.stop();
     if (path.length > 0) {
-      try {
-        fs.unlinkSync(path);
-      } catch (_err) {
-      }
+      VoiceRecorder.removeQuietly(path);
     }
   }
 
@@ -181,6 +186,48 @@ export class VoiceRecorder {
     }
   }
 
+  /**
+   * 把 .pcm 封装成 .wav：先写 44 字节头，再分块拷贝 PCM。
+   * Reason: 不依赖文件的 offset/seek 语义，避免"头部没写到文件开头"导致服务端 400。
+   */
+  private static buildWav(pcmPath: string, wavPath: string, dataBytes: number): boolean {
+    let dst: fs.File | undefined = undefined;
+    let src: fs.File | undefined = undefined;
+    try {
+      dst = fs.openSync(wavPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+      fs.writeSync(dst.fd, VoiceRecorder.buildWavHeader(dataBytes));
+      src = fs.openSync(pcmPath, fs.OpenMode.READ_ONLY);
+      let remaining: number = dataBytes;
+      while (remaining > 0) {
+        const buffer: ArrayBuffer = new ArrayBuffer(COPY_CHUNK);
+        const readBytes: number = fs.readSync(src.fd, buffer);
+        if (readBytes <= 0) {
+          break;
+        }
+        const chunk: ArrayBuffer = readBytes === buffer.byteLength ? buffer : buffer.slice(0, readBytes);
+        fs.writeSync(dst.fd, chunk);
+        remaining -= readBytes;
+      }
+      return remaining === 0;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'build wav failed: %{public}s', String(err));
+      return false;
+    } finally {
+      if (src !== undefined) {
+        try {
+          fs.closeSync(src);
+        } catch (_e) {
+        }
+      }
+      if (dst !== undefined) {
+        try {
+          fs.closeSync(dst);
+        } catch (_e) {
+        }
+      }
+    }
+  }
+
   private static cleanup(): void {
     VoiceRecorder.recording = false;
     const capturer: audio.AudioCapturer | undefined = VoiceRecorder.capturer;
@@ -199,15 +246,21 @@ export class VoiceRecorder {
       } catch (_err) {
       }
     }
-    const path: string = VoiceRecorder.path;
-    VoiceRecorder.path = '';
-    if (path.length > 0) {
-      try {
-        fs.unlinkSync(path);
-      } catch (_err) {
-      }
-    }
+    VoiceRecorder.removeQuietly(VoiceRecorder.pcmPath);
+    VoiceRecorder.removeQuietly(VoiceRecorder.wavPath);
+    VoiceRecorder.pcmPath = '';
+    VoiceRecorder.wavPath = '';
     VoiceRecorder.bytes = 0;
+  }
+
+  private static removeQuietly(path: string): void {
+    if (path.length === 0) {
+      return;
+    }
+    try {
+      fs.unlinkSync(path);
+    } catch (_err) {
+    }
   }
 
   /** 44 字节标准 WAV 头（PCM / 16bit / 单声道）。 */

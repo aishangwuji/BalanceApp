@@ -40,6 +40,7 @@ export class AsrService {
       if (stat.size > MAX_BYTES) {
         throw new Error('录音超过 8MB，请缩短时长');
       }
+      hilog.info(DOMAIN, TAG, 'asr upload: %{public}d bytes', stat.size);
       const form: http.MultiFormData[] = [];
       const filePart: http.MultiFormData = {
         name: 'file',
