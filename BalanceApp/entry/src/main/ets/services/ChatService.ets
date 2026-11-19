@@ -5,7 +5,8 @@
  * 对齐 Kimi《流式输出》《多轮对话（messages 记忆）》两节规范，按本项目实际裁剪落地：
  * 1. 流式：requestInStream + SSE 逐块解析（content 追加、reasoning_content 追加折叠、
  *    [DONE] 为完成判据、不以 finish_reason 判完）；role 仅首块、usage 终块 choices 为空
- *    均已容错。tool_calls 本项目未声明 tools，故有意忽略其增量（n 恒为 1，不下发 n）。
+ *    均已容错。客户端函数调用（tool_calls）仍未支持，有意忽略其增量（n 恒为 1，不下发 n）；
+ *    DeepSeek 服务端联网工具另走 choice.server_tool_event 与 delta.annotations，见 WebSearchService。
  * 2. 记忆：/chat/completions 无状态，每轮回传 system + 历史 user/assistant（按时间序）；
  *    system 常驻、历史截断取新（条数+字符双预算，见 buildApiMessages）。
  * 3. 中断：返回取消函数 destroy 旧连接（用户点停止即丢弃后续块）。
@@ -18,9 +19,10 @@
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { ChatMessage } from '../models/ChatModels';
+import { ChatMessage, SearchSource } from '../models/ChatModels';
 import { findProvider, ProviderDefinition } from './ProviderRegistry';
 import { applyTopicMask } from './TopicGateService';
+import { SearchProgress, WebSearchService } from './WebSearchService';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatService';
@@ -37,6 +39,10 @@ export interface StreamCallbacks {
   onToken: (token: string, reasoningChunk?: string) => void;
   onComplete: () => void;
   onError: (error: string) => void;
+  /** 服务端联网工具过程事件（deepseek_web_search）；未声明工具的请求不会回调。 */
+  onSearch?: (progress: SearchProgress) => void;
+  /** 服务端下发的引用来源（末块 annotations）；按 url 去重由调用方合并。 */
+  onSources?: (sources: SearchSource[]) => void;
 }
 
 export interface ChatRequestOptions {
@@ -50,6 +56,11 @@ export interface ChatRequestOptions {
   enableThinking?: boolean;
   /** 思考强度 low/high/max；缺省 high。 */
   reasoningEffort?: string;
+  /**
+   * 联网搜索开关：声明 DeepSeek 服务端工具 deepseek_web_search。
+   * Business Rule: 仅 DeepSeek 支持，是否真的发起搜索由模型判断（客户端不跑工具循环）。
+   */
+  enableWebSearch?: boolean;
 }
 
 export class ChatService {
@@ -125,6 +136,16 @@ export class ChatService {
                 const choiceItem: ESObject = choices[0];
                 if (choiceItem !== null && typeof choiceItem === 'object') {
                   const choiceRec: Record<string, ESObject> = choiceItem as Record<string, ESObject>;
+                  // 服务端联网工具事件与 delta 并列下发（一次 chunk 最多一个），
+                  // 与 content/reasoning 增量无关，故先于 delta 处理。
+                  const toolEventVal: ESObject = choiceRec['server_tool_event'];
+                  if (toolEventVal !== null && typeof toolEventVal === 'object' &&
+                    callbacks.onSearch !== undefined) {
+                    const progress: SearchProgress | undefined = WebSearchService.parseToolEvent(toolEventVal);
+                    if (progress !== undefined) {
+                      callbacks.onSearch(progress);
+                    }
+                  }
                   const delta: ESObject = choiceRec['delta'];
                   if (delta !== null && typeof delta === 'object') {
                     const deltaRec: Record<string, ESObject> = delta as Record<string, ESObject>;
@@ -133,6 +154,14 @@ export class ChatService {
 
                     if (contentStr.length > 0 || reasoningStr.length > 0) {
                       callbacks.onToken(contentStr, reasoningStr.length > 0 ? reasoningStr : undefined);
+                    }
+                    // 引用来源只在带 finish_reason 的末块 delta 里一次性下发；
+                    // 与正文增量无关，故不并入 onToken，单独回调避免污染流式文本。
+                    if (callbacks.onSources !== undefined) {
+                      const annSources: SearchSource[] = WebSearchService.parseAnnotations(delta);
+                      if (annSources.length > 0) {
+                        callbacks.onSources(annSources);
+                      }
                     }
                   }
                 }
@@ -344,8 +373,15 @@ export class ChatService {
       'messages': formattedMessages as ESObject,
       'stream': isStream
       // 有意不下发：n（Kimi k3/k2.6/k2.7 固定为 1，传>1 直接 400）、
-      // stream_options.include_usage（token 统计已下线）、tools（本项目无工具调用）。
+      // stream_options.include_usage（token 统计已下线）、客户端 function tools（未支持）。
     };
+
+    // 联网搜索：仅 DeepSeek 声明服务端工具，搜索/抓取由服务端完成。
+    // Business Rule: 声明后 temperature/top_p 等由服务端忽略（官方《被忽略的参数》），
+    //   故保留下面的温度配置不影响行为，也无需为开关另开分支。
+    if (options.enableWebSearch === true && WebSearchService.isSupported(options.providerId)) {
+      payloadObj['tools'] = WebSearchService.buildToolDeclaration() as ESObject;
+    }
 
     const thinkingOn: boolean = options.enableThinking === true && def.supportsThinking === true;
     const modelLower: string = options.model.toLowerCase();

@@ -42,7 +42,6 @@ export struct ThinkingButton {
           this.onToggle(nextState);
         })
       }
-      .width('96%')
       .justifyContent(FlexAlign.Start)
       .margin({ top: 8 })
     }

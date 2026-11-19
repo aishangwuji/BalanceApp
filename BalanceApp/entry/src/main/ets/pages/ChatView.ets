@@ -12,7 +12,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
-  ChatMessage, ChatSession, CharacterCard, ModelInfo, MessageRole, UserIdentityCard
+  ChatMessage, ChatSession, CharacterCard, ModelInfo, MessageRole, SearchSource, UserIdentityCard
 } from '../models/ChatModels';
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
@@ -21,8 +21,10 @@ import { TopicGateService, TopicGateConfig } from '../services/TopicGateService'
 import { AuthService } from '../services/AuthService';
 import { ChatMessageDataSource } from '../services/ChatMessageDataSource';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
+import { SearchProgress, WebSearchService } from '../services/WebSearchService';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
+import { WebSearchButton } from '../components/WebSearchButton';
 import { MarkdownBody } from '../components/MarkdownBody';
 import { MarkdownService, MdClickAction } from '../services/MarkdownService';
 import { MarkdownController, ETypingMode } from 'fluid-markdown';
@@ -81,6 +83,11 @@ export struct ChatView {
   // 思考折叠列表不是 @State；切换时通过 ChatMessageDataSource 精准刷新对应消息项。
   private collapsedReasons: string[] = [];
   @State enableThinking: boolean = true;
+  /**
+   * 联网搜索开关：全局偏好（balance_prefs 的 web_search_enabled），跨会话/重启保留。
+   * Business Rule: 只有 DeepSeek 服务商会把它写进请求（tools 声明），其余服务商界面不展示该开关。
+   */
+  @State enableWebSearch: boolean = false;
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
   @State configuredProviders: ProviderDefinition[] = [];
@@ -156,6 +163,9 @@ export struct ChatView {
       const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
       await ChatStorageService.init(hostCtx);
       this.balancePrefs = await preferences.getPreferences(hostCtx, { name: PREFS_NAME });
+      // 联网搜索偏好随 balance_prefs 持久化（与 API Key 同库，不额外引入新 Preferences 存储）。
+      const webSearchPref: preferences.ValueType = await this.balancePrefs.get('web_search_enabled', false);
+      this.enableWebSearch = webSearchPref === true;
 
       // 加载角色卡
       this.characters = await ChatStorageService.loadCharacters();
@@ -552,7 +562,22 @@ export struct ChatView {
     return isThinkingSupported(this.currentProviderId, this.currentModelId);
   }
 
-
+  /**
+   * 联网搜索开关：先就地生效，再落 Preferences（失败只记日志，不影响本轮可用性）。
+   * Business Rule: 只影响后续请求，已生成的历史消息不回写；切换服务商不重置该偏好。
+   */
+  private async setWebSearch(enabled: boolean): Promise<void> {
+    this.enableWebSearch = enabled;
+    if (this.balancePrefs === undefined) {
+      return;
+    }
+    try {
+      await this.balancePrefs.put('web_search_enabled', enabled);
+      await this.balancePrefs.flush();
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'persist web_search_enabled failed: %{public}s', String(err));
+    }
+  }
 
   private openSettings(): void {
     try {
@@ -1445,7 +1470,27 @@ export struct ChatView {
       return 'C';
     }
     const rLen: number = msg.reasoningContent ? msg.reasoningContent.length : 0;
+    // 联网搜索过程：正文出现前把搜索态与来源数纳入 key，进度提示与来源卡片才能逐帧刷新；
+    // 正文出现后仍切回 'C'，不破坏「MarkdownBody 只挂载一次」的稳定实例约定。
+    const srcCount: number = msg.sources !== undefined ? msg.sources.length : 0;
+    if (msg.searchState !== undefined || srcCount > 0) {
+      const hintLen: number = msg.searchHint !== undefined ? msg.searchHint.length : 0;
+      return `R${rLen}S${msg.searchState === 'searching' ? '1' : '0'}${srcCount}H${hintLen}`;
+    }
     return rLen > 0 ? `R${rLen}` : 'E';
+  }
+
+  /** 正文未出时的状态文案：搜索过程提示优先于「思考中」，避免联网时长时间无反馈。 */
+  private generationHint(msg: ChatMessage): string {
+    if (msg.searchHint !== undefined && msg.searchHint.length > 0) {
+      return msg.searchHint;
+    }
+    return '思考中...';
+  }
+
+  /** 来源列表（@Builder 内不做空值判断，统一由这里给空数组兜底）。 */
+  private sourcesOf(msg: ChatMessage): SearchSource[] {
+    return msg.sources !== undefined ? msg.sources : [];
   }
 
   /** 仅当消息仍在流式且驱动器存活时走 Typing；否则一律 Normal（防僵尸流式）。 */
@@ -1614,12 +1659,18 @@ export struct ChatView {
     this.mdTypingReady = keptReady;
   }
 
-  private onMarkdownLink(href: string): void {
+  private onMarkdownLink(href: string, msg?: ChatMessage): void {
     const action: MdClickAction = MarkdownService.routeHref(href);
     if (action.kind === 'cite') {
-      // @DeferDecision: 引用来源列表待模型侧提供 URL，当前仅落 toast + 日志不断链。
-      this.toast(`引用来源 [${action.index}]（来源列表待模型侧提供）`);
-      hilog.info(DOMAIN, TAG, 'citation clicked: %{public}d', action.index);
+      // 引用角标按序号映射到该条消息的 sources（1 起）；无来源时不再假装可点。
+      const sources: SearchSource[] = msg !== undefined && msg.sources !== undefined ? msg.sources : [];
+      const at: number = action.index - 1;
+      if (at >= 0 && at < sources.length) {
+        hilog.info(DOMAIN, TAG, 'citation opened: %{public}d', action.index);
+        this.openExternalUrl(sources[at].url);
+        return;
+      }
+      this.toast(`引用来源 [${action.index}] 不在来源列表中`);
       return;
     }
     if (action.kind === 'open') {
@@ -1837,6 +1888,22 @@ export struct ChatView {
           // 顶部锚定：首 token 把回答首行推到容器顶部即停住（单条只一次），而非持续跟底。
           this.scheduleAnchor(assistantMsg.id);
         },
+        onSearch: (progress: SearchProgress) => {
+          assistantMsg.searchState = progress.phase === 'started' ? 'searching' : 'done';
+          if (progress.sources.length > 0) {
+            assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, progress.sources);
+          }
+          const count: number = assistantMsg.sources !== undefined ? assistantMsg.sources.length : 0;
+          assistantMsg.searchHint = progress.phase === 'started' ?
+            WebSearchService.startedLabel(progress) : WebSearchService.searchedLabel(count);
+          // 与 token 走同一节流刷新：预正文阶段 searchState/来源数已进渲染键，提示与卡片才能出现。
+          this.refreshStreamView(assistantMsg);
+        },
+        onSources: (sources: SearchSource[]) => {
+          // 引用块通常只带 url/title，按 url 并入已有来源（只补空字段，不覆盖搜索结果的展示信息）。
+          assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, sources);
+          this.rebuildSessionReference();
+        },
         onComplete: () => {
           assistantMsg.status = 'success';
           this.isGenerating = false;
@@ -1855,6 +1922,9 @@ export struct ChatView {
               }
             }
           }
+          // 过程态只服务流式展示：落盘前清掉，避免历史里留下永不结束的「搜索中」。
+          assistantMsg.searchState = undefined;
+          assistantMsg.searchHint = undefined;
           // Reason: status 与折叠态都进入单条消息渲染键；同步数据源可刷新当前项而不重建整表。
           this.rebuildSessionReference();
           this.saveState();
@@ -1867,6 +1937,8 @@ export struct ChatView {
           assistantMsg.errorMessage = errMsg;
           this.isGenerating = false;
           this.finishMarkdown(assistantMsg, true);
+          assistantMsg.searchState = undefined;
+          assistantMsg.searchHint = undefined;
           this.rebuildSessionReference();
           this.saveState();
           finish();
@@ -1881,7 +1953,9 @@ export struct ChatView {
         messages: history,
         systemPrompt: this.systemPromptFor(sess, speaker),
         enableThinking: this.enableThinking,
-        reasoningEffort: 'high'
+        reasoningEffort: 'high',
+        // 联网搜索：服务端工具只在 DeepSeek 生效；关闭时不声明 tools，行为与旧版完全一致。
+        enableWebSearch: this.enableWebSearch && WebSearchService.isSupported(this.currentProviderId)
       }, callbacks);
     });
   }
@@ -2060,6 +2134,9 @@ export struct ChatView {
             }
           }
           this.finishMarkdown(lastMsg, true);
+          // 中断时搜索可能仍在进行：清掉过程态，保留已拿到的来源（用户仍可回看）。
+          lastMsg.searchState = undefined;
+          lastMsg.searchHint = undefined;
           // 中断的回复同样会落入历史，按同一规则判定其产生时的主题。
           const sess: ChatSession | undefined = this.getCurrentSession();
           if (sess !== undefined) {
@@ -2470,15 +2547,27 @@ export struct ChatView {
           .width('96%')
           .alignItems(this.inputExpanded ? VerticalAlign.Bottom : VerticalAlign.Center)
 
-          // 深度思考开关：复用通用 ThinkingButton 组件（支持 DeepSeek、小米 MiMo、Kimi 等）
-          ThinkingButton({
-            isEnabled: this.enableThinking,
-            providerId: this.currentProviderId,
-            modelId: this.currentModelId,
-            onToggle: (val: boolean) => {
-              this.enableThinking = val;
-            }
-          })
+          // 能力胶囊：深度思考（多服务商）+ 联网搜索（仅 DeepSeek 服务端工具，不支持时自身不渲染）。
+          Row() {
+            ThinkingButton({
+              isEnabled: this.enableThinking,
+              providerId: this.currentProviderId,
+              modelId: this.currentModelId,
+              onToggle: (val: boolean) => {
+                this.enableThinking = val;
+              }
+            })
+            WebSearchButton({
+              isEnabled: this.enableWebSearch,
+              providerId: this.currentProviderId,
+              onToggle: (val: boolean) => {
+                this.setWebSearch(val);
+              }
+            })
+          }
+          .width('96%')
+          .justifyContent(FlexAlign.Start)
+          .alignItems(VerticalAlign.Center)
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)
@@ -3865,7 +3954,7 @@ export struct ChatView {
               darkMode: this.isDarkMode(),
               controller: this.mdControllers.get(msg.id),
               onLinkClick: (href: string) => {
-                this.onMarkdownLink(href);
+                this.onMarkdownLink(href, msg);
               },
               onImageClick: (src: string) => {
                 this.onMarkdownImage(src);
@@ -3882,7 +3971,7 @@ export struct ChatView {
           } else if (msg.status === 'streaming') {
             Row() {
               LoadingProgress().width(18).height(18).color($r('app.color.accent'))
-              Text('  思考中...')
+              Text(`  ${this.generationHint(msg)}`)
                 .fontSize(13)
                 .fontColor($r('app.color.reasoning_text'))
             }
@@ -3897,6 +3986,11 @@ export struct ChatView {
               .backgroundColor($r('app.color.danger_fill'))
               .borderRadius(10)
               .margin({ top: 6 })
+          }
+
+          // 联网搜索来源卡片：服务端工具下发的来源按 url 去重后展示，点击走系统浏览器。
+          if (this.sourcesOf(msg).length > 0) {
+            this.SourceList(msg)
           }
 
           // 分支切换
@@ -3918,6 +4012,70 @@ export struct ChatView {
       }
       .width('100%')
     }
+  }
+
+  /**
+   * 联网搜索来源列表（对齐官方 App 的来源卡片）：序号 + 标题 + 站点名，点击打开原网页。
+   * Business Rule: 序号即引用序号（1 起），与正文 [ref_N] 改写后的 #cite-N 一一对应，
+   *   因此来源顺序必须与 WebSearchService.mergeSources 的合并顺序一致，不得在此重排。
+   */
+  @Builder
+  SourceList(msg: ChatMessage) {
+    Column() {
+      Row() {
+        Text('来源')
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .fontWeight(FontWeight.Medium)
+        Text(`${this.sourcesOf(msg).length}`)
+          .fontSize(11)
+          .fontColor($r('app.color.text_faint'))
+          .margin({ left: 6 })
+      }
+      .width('100%')
+      .margin({ bottom: 2 })
+
+      ForEach(this.sourcesOf(msg), (src: SearchSource, idx: number) => {
+        Row() {
+          Text(`${idx + 1}`)
+            .fontSize(11)
+            .fontColor($r('app.color.accent'))
+            .textAlign(TextAlign.Center)
+            .width(18)
+            .height(18)
+            .backgroundColor($r('app.color.accent_soft'))
+            .borderRadius(9)
+            .margin({ right: 8 })
+          Column() {
+            Text(src.title.length > 0 ? src.title : src.url)
+              .fontSize(12 * this.appFontScale)
+              .fontColor($r('app.color.text_primary'))
+              .lineHeight(17 * this.appFontScale)
+              .maxLines(2)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(WebSearchService.sourceSite(src))
+              .fontSize(10)
+              .fontColor($r('app.color.text_faint'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .margin({ top: 2 })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+        .width('100%')
+        .padding({ top: 7, bottom: 7 })
+        .onClick(() => {
+          this.openExternalUrl(src.url);
+        })
+      }, (src: SearchSource) => src.url)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 10, right: 10, top: 10, bottom: 4 })
+    .margin({ top: 8 })
+    .backgroundColor($r('app.color.surface_row'))
+    .borderRadius(12)
   }
 
   // 分支切换控件：< i/n >，仅在存在多个版本时由调用方渲染；箭头加大内边距保触区。

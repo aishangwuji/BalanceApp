@@ -18,6 +18,20 @@ export interface TopicGateMask {
   keep: boolean[];
 }
 
+/**
+ * 联网搜索结构化来源（DeepSeek 服务端工具 web_search_tool_result / url_citation）。
+ * Business Rule: url 是来源的唯一身份，合并去重一律按 url；其余字段只用于展示，
+ *   缺失时由界面兜底（站点名回退到主机名、标题回退到 url）。
+ */
+export interface SearchSource {
+  url: string;
+  title: string;
+  snippet?: string;
+  siteName?: string;
+  siteIcon?: string;
+  publishedAt?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -40,6 +54,15 @@ export interface ChatMessage {
   mentionedIds: string[];
   /** 助手消息的上下文净化掩码；未判定/不适用时缺省。 */
   topicMask?: TopicGateMask;
+  /**
+   * 联网搜索来源（按 url 去重、按出现顺序排列）。持久化，历史会话可直接回看来源卡片。
+   * Reason: 服务端工具只在本轮把来源下发给客户端，后续轮次不再重现，故必须本地留存。
+   */
+  sources?: SearchSource[];
+  /** 联网搜索过程态：searching=本轮仍在检索。实时字段，不持久化。 */
+  searchState?: 'searching' | 'done';
+  /** 搜索过程提示文案（由 WebSearchService 生成）。实时字段，不持久化。 */
+  searchHint?: string;
 }
 
 export interface CharacterCard {

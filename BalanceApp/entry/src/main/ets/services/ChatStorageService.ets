@@ -8,7 +8,7 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { CharacterCard, ChatMessage, ChatSession, MessageRole, TopicGateMask, UserIdentityCard } from '../models/ChatModels';
+import { CharacterCard, ChatMessage, ChatSession, MessageRole, SearchSource, TopicGateMask, UserIdentityCard } from '../models/ChatModels';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatStorageService';
@@ -17,6 +17,8 @@ const KEY_CHARACTERS = 'saved_characters';
 const KEY_IDENTITIES = 'saved_identities';
 const KEY_SESSIONS = 'saved_sessions';
 const KEY_ACTIVE_SESSION_ID = 'active_session_id';
+/** 来源卡片上限：与 WebSearchService 的合并上限一致，持久化侧再兜一次。 */
+const MAX_SEARCH_SOURCES = 24;
 
 /**
  * 默认角色卡列表：空。
@@ -346,6 +348,7 @@ export class ChatStorageService {
       speakerId: typeof rec['speakerId'] === 'string' ? rec['speakerId'] as string : '',
       mentionedIds: mentionedIds,
       topicMask: ChatStorageService.normalizeTopicMask(rec['topicMask']),
+      sources: ChatStorageService.normalizeSources(rec['sources']),
     };
     const childRaw: ESObject = rec['childIds'];
     if (Array.isArray(childRaw)) {
@@ -384,6 +387,71 @@ export class ChatStorageService {
       i += 1;
     }
     return { topic: topicVal as string, keep: keep };
+  }
+
+  /**
+   * 边界校验：联网搜索来源来自持久化 JSON，可能被旧版本或外部改写。
+   * Business Rule: url 必须是 http/https 字符串才收；展示字段缺失即缺省（界面回退主机名），
+   *   个别坏条目只丢该条，不因一条脏数据丢失整组来源。
+   */
+  private static normalizeSources(raw: ESObject): SearchSource[] | undefined {
+    if (!Array.isArray(raw)) {
+      return undefined;
+    }
+    const arr: ESObject[] = raw as ESObject[];
+    const out: SearchSource[] = [];
+    let i: number = 0;
+    while (i < arr.length) {
+      if (out.length >= MAX_SEARCH_SOURCES) {
+        break;
+      }
+      const item: ESObject = arr[i];
+      i += 1;
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, ESObject> = item as Record<string, ESObject>;
+      const urlVal: ESObject = rec['url'];
+      if (typeof urlVal !== 'string') {
+        continue;
+      }
+      const url: string = (urlVal as string).trim();
+      const lower: string = url.toLowerCase();
+      if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+        continue;
+      }
+      // 去重：来源以 url 为身份，持久化里出现重复会让 LazyForEach/ForEach 撞 key。
+      let dup: boolean = false;
+      let di: number = 0;
+      while (di < out.length) {
+        if (out[di].url === url) {
+          dup = true;
+          break;
+        }
+        di += 1;
+      }
+      if (dup) {
+        continue;
+      }
+      const src: SearchSource = {
+        url: url,
+        title: typeof rec['title'] === 'string' ? rec['title'] as string : ''
+      };
+      if (typeof rec['snippet'] === 'string') {
+        src.snippet = rec['snippet'] as string;
+      }
+      if (typeof rec['siteName'] === 'string') {
+        src.siteName = rec['siteName'] as string;
+      }
+      if (typeof rec['siteIcon'] === 'string') {
+        src.siteIcon = rec['siteIcon'] as string;
+      }
+      if (typeof rec['publishedAt'] === 'string') {
+        src.publishedAt = rec['publishedAt'] as string;
+      }
+      out.push(src);
+    }
+    return out.length > 0 ? out : undefined;
   }
 
   private static messageExists(pool: ChatMessage[], id: string): boolean {
