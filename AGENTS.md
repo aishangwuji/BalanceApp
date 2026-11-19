@@ -1,15 +1,11 @@
-本项目主要构建于鸿蒙软件开发。
-参考：C:\Users\15216\.codeartsdoer\cache\enterprise\agents\鸿蒙开发.md
-技能使用：C:\Users\15216\.codeartsdoer\cache\enterprise\skills\
+本项目是鸿蒙（HarmonyOS / ArkTS）应用，工程在 `BalanceApp/`。
 
-编码时严格遵守：agent-rules这个skill，每次编码都必须严格遵守编码规范。
-
-Jev模型文档："C:\Users\15216\Desktop\文档\jve模型.md"
-官方文档地址：https://docs.typesafe.ai/introduction
+> 架构概览、构建/签名/安装/发版入口，以及「给 AI Agent 的说明」都在 [README.md](README.md)，
+> 动手前先读它。本文件只记本机工具链实测细节、ArkTS 坑位与仓库约定。
 
 ---
 
-## 本项目开发经验（2026-10-04 BalanceApp 实战沉淀，后续 Agent 必读）
+## 本项目开发经验（2026-10-04 openchat 实战沉淀，后续 Agent 必读）
 
 ### 1. 工具链与设备（本机实测）
 
@@ -32,7 +28,7 @@ Jev模型文档："C:\Users\15216\Desktop\文档\jve模型.md"
 - 启动：`hdc -t <serial> shell aa start -a EntryAbility -b com.example.openchat`
 - 日志：`hdc -t <serial> shell "hilog -x -t app -D 0x0000" | Select-String <TAG>`（DOMAIN 0x0000 即 -D 0x0000）
 - 截屏：`hdc shell snapshot_display -f /data/local/tmp/x.jpeg` + `hdc file recv` 到
-  `C:\Users\15216\AppData\Local\Temp\opencode\` 再 Read 看图；黑屏多为应用还在启动或屏锁了
+  `C:\Users\<user>\AppData\Local\Temp\opencode\` 再 Read 看图；黑屏多为应用还在启动或屏锁了
 
 ### 3. ArkTS 严格模式坑位（本次全踩过，写码时逐条对照）
 
@@ -97,5 +93,7 @@ Jev模型文档："C:\Users\15216\Desktop\文档\jve模型.md"
 - 安全：API Key 存 `flutter_secure_storage`（Keychain/Keystore），日志只用
   `maskKey`；会话正文仍是明文 Preferences（与鸿蒙 TD-003 同源）。
 - 认知文档：`systemmap/balance-app-mobile.md`；发布缺口：`techdebt/TD-004-*.md`。
+
+
 
 
