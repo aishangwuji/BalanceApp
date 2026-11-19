@@ -32,6 +32,20 @@ export interface SearchSource {
   publishedAt?: string;
 }
 
+/**
+ * 正文引用位标：服务端 annotations 下发的 url_citation 位置。
+ * Business Rule: start/end 是**Unicode 码点**下标（官方协议语义），
+ *   渲染前必须换算成 UTF-16 下标再用（见 MarkdownService.injectCitations）。
+ */
+export interface CitationRange {
+  url: string;
+  title: string;
+  /** 引用起点（含），码点下标。 */
+  start: number;
+  /** 引用终点（不含），码点下标。 */
+  end: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -63,6 +77,11 @@ export interface ChatMessage {
   searchState?: 'searching' | 'done';
   /** 搜索过程提示文案（由 WebSearchService 生成）。实时字段，不持久化。 */
   searchHint?: string;
+  /**
+   * 引用位标（annotations）：用于在正文对应位置插入可点的 [N](#cite-N) 角标。
+   * 持久化——历史会话重开时仍要能还原角标位置。
+   */
+  citations?: CitationRange[];
 }
 
 export interface CharacterCard {

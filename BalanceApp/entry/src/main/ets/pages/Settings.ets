@@ -17,6 +17,7 @@ import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../
 import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
   KEY_APP_LOCK_ENABLED, KEY_TOPIC_GATE_ENABLED, KEY_TOPIC_GATE_THRESHOLD, DEFAULT_TOPIC_GATE_THRESHOLD,
+  KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
   SYSTEM_ONE_CHANNEL_TYPESAFE, SYSTEM_ONE_CHANNEL_OPENROUTER
 } from '../services/SettingsService';
 import { findSystemOneChannel, SystemOneChannel } from '../services/JevService';
@@ -36,6 +37,18 @@ const APPEARANCE_OPTIONS: AppearanceOption[] = [
   { key: 'dark', nameKey: 'settings_appearance_dark' }
 ];
 
+/** 朗读音色：只有 DeepSeek TTS 的两种音色，值与服务端 voice_id 一致。 */
+interface VoiceOption {
+  key: string;
+  nameKey: string;
+  descKey: string;
+}
+
+const VOICE_OPTIONS: VoiceOption[] = [
+  { key: 'stella', nameKey: 'settings_voice_stella', descKey: 'settings_voice_stella_desc' },
+  { key: 'tide', nameKey: 'settings_voice_tide', descKey: 'settings_voice_tide_desc' }
+];
+
 @Entry
 @Component
 struct Settings {
@@ -43,6 +56,7 @@ struct Settings {
   @StorageProp(KEY_APP_APPEARANCE) currentAppearance: string = 'system';
   @StorageProp(KEY_FONT_SIZE_LEVEL) currentFontLevel: number = 3;
   @StorageProp(KEY_AUTO_COLLAPSE_THINKING) autoCollapseThinking: boolean = true;
+  @StorageProp(KEY_TTS_VOICE) ttsVoice: string = DEFAULT_TTS_VOICE;
   @StorageProp(KEY_APP_LOCK_ENABLED) appLockEnabled: boolean = false;
   @StorageProp(KEY_TOPIC_GATE_ENABLED) topicGateEnabled: boolean = false;
   @StorageProp(KEY_TOPIC_GATE_THRESHOLD) topicGateThreshold: number = DEFAULT_TOPIC_GATE_THRESHOLD;
@@ -52,6 +66,7 @@ struct Settings {
   @State showAppearanceSheet: boolean = false;
   @State showFontSizeSheet: boolean = false;
   @State showPersonalizeSheet: boolean = false;
+  @State showVoiceSheet: boolean = false;
   @State showAppLockSheet: boolean = false;
   @State showTopicGateSheet: boolean = false;
 
@@ -150,6 +165,22 @@ struct Settings {
       return this.t('settings_font_size_standard');
     }
     return `${this.currentFontLevel} / 7`;
+  }
+
+  /** 朗读音色显示名（stella 默认）。 */
+  private currentVoiceDisplay(): string {
+    return this.ttsVoice === 'tide' ? this.t('settings_voice_tide') : this.t('settings_voice_stella');
+  }
+
+  private async selectVoice(key: string): Promise<void> {
+    try {
+      const uiCtx = this.getUIContext();
+      const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
+      await SettingsService.setTtsVoice(hostCtx, key);
+      this.showVoiceSheet = false;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'selectVoice failed: %{public}s', String(err));
+    }
   }
 
   private async selectLanguage(code: AppLanguage): Promise<void> {
@@ -374,6 +405,24 @@ struct Settings {
             .borderRadius(20)
             .border({ width: 1, color: $r('app.color.border_soft') })
 
+            // ── 语音 ──
+            Text(this.t('settings_section_voice'))
+              .fontSize(11)
+              .letterSpacing(0.4)
+              .fontColor($r('app.color.text_muted'))
+              .width('92%')
+              .margin({ top: 24, bottom: 10 })
+
+            Column() {
+              this.SettingRow($r('app.media.ic_voice'), this.t('settings_tts_voice'), this.currentVoiceDisplay(), true, () => {
+                this.showVoiceSheet = true;
+              })
+            }
+            .width('92%')
+            .backgroundColor($r('app.color.surface'))
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
+
             // ── 对话 ──
             Text(this.t('settings_section_chat'))
               .fontSize(11)
@@ -462,6 +511,11 @@ struct Settings {
       // 底部弹框：个性化面板
       if (this.showPersonalizeSheet) {
         this.PersonalizeSheet()
+      }
+
+      // 底部弹框：朗读音色面板
+      if (this.showVoiceSheet) {
+        this.VoiceSheet()
       }
 
       // 底部弹框：应用锁面板
@@ -625,7 +679,89 @@ struct Settings {
     .height('100%')
   }
 
-  // ── 3. 字体大小调节 Sheet ──
+  // ── 3. 朗读音色 Sheet ──
+  @Builder
+  VoiceSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill($r('app.color.overlay_scrim'))
+        .onClick(() => {
+          this.showVoiceSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_voice_title'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor($r('app.color.text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showVoiceSheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+
+        Text(this.t('settings_voice_hint'))
+          .fontSize(12)
+          .fontColor($r('app.color.text_muted'))
+          .width('100%')
+          .padding({ left: 20, right: 20, bottom: 8 })
+
+        ForEach(VOICE_OPTIONS, (opt: VoiceOption) => {
+          Row() {
+            Column() {
+              Text(this.t(opt.nameKey))
+                .fontSize(15)
+                .fontWeight(this.ttsVoice === opt.key ? FontWeight.Medium : FontWeight.Regular)
+                .fontColor(this.ttsVoice === opt.key ? $r('app.color.accent') : $r('app.color.text_primary'))
+              Text(this.t(opt.descKey))
+                .fontSize(12)
+                .fontColor($r('app.color.text_muted'))
+                .margin({ top: 3 })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+
+            if (this.ttsVoice === opt.key) {
+              Text('✓')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.accent'))
+            }
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 14, bottom: 14 })
+          .border({ width: { bottom: 1 }, color: $r('app.color.fill') })
+          .onClick(() => {
+            this.selectVoice(opt.key);
+          })
+        }, (opt: VoiceOption) => opt.key)
+
+        Blank().height(24)
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.surface'))
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.border_soft') })
+      .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 4. 字体大小调节 Sheet ──
   @Builder
   FontSizeSheet() {
     Stack({ alignContent: Alignment.Bottom }) {

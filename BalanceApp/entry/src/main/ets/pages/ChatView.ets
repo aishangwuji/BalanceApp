@@ -12,7 +12,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
-  ChatMessage, ChatSession, CharacterCard, ModelInfo, MessageRole, SearchSource, UserIdentityCard
+  ChatMessage, ChatSession, CharacterCard, CitationRange, ModelInfo, MessageRole, SearchSource, UserIdentityCard
 } from '../models/ChatModels';
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
@@ -22,6 +22,8 @@ import { AuthService } from '../services/AuthService';
 import { ChatMessageDataSource } from '../services/ChatMessageDataSource';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
 import { SearchProgress, WebSearchService } from '../services/WebSearchService';
+import { TtsCallbacks, TtsService } from '../services/TtsService';
+import { SettingsService } from '../services/SettingsService';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
 import { WebSearchButton } from '../components/WebSearchButton';
@@ -88,6 +90,10 @@ export struct ChatView {
    * Business Rule: 只有 DeepSeek 服务商会把它写进请求（tools 声明），其余服务商界面不展示该开关。
    */
   @State enableWebSearch: boolean = false;
+  /** 展开来源明细的消息 id（'' = 全部收起）；点「N 个网页」胶囊切换。 */
+  @State expandedSourceMsgId: string = '';
+  /** 正在朗读的消息 id（'' = 未朗读）；用于菜单文案与图标状态。 */
+  @State readingMsgId: string = '';
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
   @State configuredProviders: ProviderDefinition[] = [];
@@ -206,6 +212,11 @@ export struct ChatView {
   }
 
   // ── 数据辅助逻辑 ──
+
+  aboutToDisappear(): void {
+    // 离开对话页即停朗读：避免音频在后台继续播放，也顺手释放 AVPlayer 与缓存文件。
+    this.stopReadAloud();
+  }
 
   private getCurrentSession(): ChatSession | undefined {
     const draft: ChatSession | undefined = this.draftSession;
@@ -845,6 +856,8 @@ export struct ChatView {
   }
 
   private async createNewSession(): Promise<void> {
+    // 朗读属于某条回复：换会话先停，避免旧会话的音频继续播。
+    this.stopReadAloud();
     // Business Rule: 新会话默认空白、不绑定角色；角色只能在“新会话”时选择，选中后锁定。
     const newId: string = `session_${Date.now()}`;
     const newSession: ChatSession = {
@@ -882,6 +895,7 @@ export struct ChatView {
    * @param closeDrawer 是否收起历史抽屉（删除会话时为 false，便于连续删除）。
    */
   private async switchSession(sessionId: string, closeDrawer: boolean = true): Promise<void> {
+    this.stopReadAloud();
     // 切到正式会话时丢弃未使用的空草稿（有内容的草稿已在 attach 时转正）。
     if (this.draftSession !== undefined && this.draftSession.id !== sessionId) {
       this.draftSession = undefined;
@@ -1437,7 +1451,9 @@ export struct ChatView {
    */
   private msgRenderKey(msg: ChatMessage): string {
     const collapsed: string = this.isReasonCollapsed(msg.id) ? 'c' : 'e';
-    return `${msg.id}_${msg.status}_${collapsed}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
+    // 来源胶囊展开态是页面级 @State：它不在消息数据里，必须进 key 才能让该条目重建。
+    const expanded: string = this.expandedSourceMsgId === msg.id ? 'X' : '-';
+    return `${msg.id}_${msg.status}_${collapsed}_${expanded}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
   }
 
   /** 把当前激活分支与渲染键推给 LazyForEach 数据源（结构性/局部刷新由数据源内部判定）。 */
@@ -1491,6 +1507,93 @@ export struct ChatView {
   /** 来源列表（@Builder 内不做空值判断，统一由这里给空数组兜底）。 */
   private sourcesOf(msg: ChatMessage): SearchSource[] {
     return msg.sources !== undefined ? msg.sources : [];
+  }
+
+  /** 正文渲染内容：流式中只做 [ref_N] 改写；完成后按引用位标插入可点角标。 */
+  private renderContent(msg: ChatMessage): string {
+    if (this.isLiveStreaming(msg)) {
+      return MarkdownService.rewriteCitations(msg.content);
+    }
+    return MarkdownService.rewriteCitations(
+      MarkdownService.injectCitations(msg.content, msg.citations, this.citeIndexMap(msg)));
+  }
+
+  /** url -> 来源序号（1 起）。序号顺序必须与来源列表一致，角标才能点对卡片。 */
+  private citeIndexMap(msg: ChatMessage): Map<string, number> {
+    const map: Map<string, number> = new Map();
+    const list: SearchSource[] = this.sourcesOf(msg);
+    let i: number = 0;
+    while (i < list.length) {
+      if (!map.has(list[i].url)) {
+        map.set(list[i].url, i + 1);
+      }
+      i += 1;
+    }
+    return map;
+  }
+
+  /** 胶囊上最多显示 3 个站点图标（官方 App 同款堆叠）。 */
+  private pillSources(msg: ChatMessage): SearchSource[] {
+    const list: SearchSource[] = this.sourcesOf(msg);
+    const out: SearchSource[] = [];
+    let i: number = 0;
+    while (i < list.length && out.length < 3) {
+      out.push(list[i]);
+      i += 1;
+    }
+    return out;
+  }
+
+  private toggleSourcePanel(msgId: string): void {
+    this.expandedSourceMsgId = this.expandedSourceMsgId === msgId ? '' : msgId;
+    // 展开态已进渲染键，需推一次数据源才会重建该条（LazyForEach 同 key 复用旧快照）。
+    this.syncMessageSource();
+  }
+
+  /**
+   * 朗读/停止朗读一条回复。
+   * Business Rule: 语音合成是 DeepSeek 专属能力，Key 取 key_deepseek（与当前服务商无关），
+   *   没有 DeepSeek Key 时直接提示去资产监控配置，不发起请求。
+   */
+  private async toggleReadAloud(msg: ChatMessage): Promise<void> {
+    if (this.readingMsgId === msg.id) {
+      this.stopReadAloud();
+      return;
+    }
+    if (msg.content.trim().length === 0) {
+      this.toast('暂无内容可朗读');
+      return;
+    }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const key: string = await SettingsService.getProviderKey(hostCtx, 'deepseek');
+    if (key.trim().length === 0) {
+      this.toast('请先在「设置 > 资产监控」配置 DeepSeek API Key');
+      return;
+    }
+    const voice: string = await SettingsService.getTtsVoice(hostCtx);
+    this.stopReadAloud();
+    this.readingMsgId = msg.id;
+    const callbacks: TtsCallbacks = {
+      onStart: () => {
+      },
+      onFinish: () => {
+        this.readingMsgId = '';
+      },
+      onError: (message: string) => {
+        this.readingMsgId = '';
+        this.toast(message);
+      }
+    };
+    await TtsService.speak(hostCtx, { apiKey: key, text: msg.content, voiceId: voice }, callbacks);
+  }
+
+  private stopReadAloud(): void {
+    TtsService.stopPlayback();
+    this.readingMsgId = '';
+  }
+
+  private isReading(msgId: string): boolean {
+    return this.readingMsgId === msgId;
   }
 
   /** 仅当消息仍在流式且驱动器存活时走 Typing；否则一律 Normal（防僵尸流式）。 */
@@ -1608,7 +1711,7 @@ export struct ChatView {
     // 未 Begin（就绪前即完成）则不发 End，无会话可收尾。
     if (ctl !== undefined && !stopped && this.mdTypingBegun.includes(msg.id)) {
       try {
-        ctl.typing.update(MarkdownService.rewriteCitations(msg.content), ETypingMode.End, false);
+        ctl.typing.update(this.renderContent(msg), ETypingMode.End, false);
       } catch (_e) {
       }
     }
@@ -1899,9 +2002,18 @@ export struct ChatView {
           // 与 token 走同一节流刷新：预正文阶段 searchState/来源数已进渲染键，提示与卡片才能出现。
           this.refreshStreamView(assistantMsg);
         },
-        onSources: (sources: SearchSource[]) => {
-          // 引用块通常只带 url/title，按 url 并入已有来源（只补空字段，不覆盖搜索结果的展示信息）。
-          assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, sources);
+        onCitations: (citations: CitationRange[]) => {
+          // 位标按区间保留（正文插角标用）；来源按 url 归并进来源列表（卡片展示用）。
+          assistantMsg.citations = citations;
+          const citeSources: SearchSource[] = [];
+          let ci: number = 0;
+          while (ci < citations.length) {
+            const c: CitationRange = citations[ci];
+            ci += 1;
+            const src: SearchSource = { url: c.url, title: c.title };
+            citeSources.push(src);
+          }
+          assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, citeSources);
           this.rebuildSessionReference();
         },
         onComplete: () => {
@@ -2619,25 +2731,22 @@ export struct ChatView {
         .backgroundColor($r('app.color.overlay_scrim'))
       }
 
-      // ── 0. 回到底部浮动按钮（视口离开底部时优雅浮现） ──
+      // ── 0. 回到底部浮动按钮（官方同款圆形，视口离开底部时浮现） ──
       if (this.showJumpBottom) {
-        Row() {
-          Text('↓')
-            .fontSize(13)
-            .fontColor($r('app.color.accent'))
-            .fontWeight(FontWeight.Bold)
-            .margin({ right: 4 })
-          Text('回到底部')
-            .fontSize(12)
-            .fontColor($r('app.color.accent'))
-            .fontWeight(FontWeight.Medium)
+        Column() {
+          Image($r('app.media.ic_scroll_down'))
+            .width(18)
+            .height(18)
         }
-        .padding({ left: 12, right: 14, top: 7, bottom: 7 })
-        .borderRadius(20)
+        .width(42)
+        .height(42)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .borderRadius(21)
         .backgroundColor($r('app.color.surface'))
-        .border({ width: 1, color: $r('app.color.accent_outline') })
-        .shadow({ radius: 12, color: 'rgba(35,30,20,0.12)', offsetX: 0, offsetY: 4 })
-        .position({ right: 16, bottom: 135 })
+        .border({ width: 1, color: $r('app.color.border_soft') })
+        .shadow({ radius: 14, color: 'rgba(35,30,20,0.16)', offsetX: 0, offsetY: 4 })
+        .position({ right: 16, bottom: 132 })
         .transition(TransitionEffect.opacity(0).combine(TransitionEffect.translate({ y: 16 })).animation({ duration: 200, curve: Curve.FastOutSlowIn }))
         .onClick(() => {
           this.jumpToBottom();
@@ -3387,6 +3496,13 @@ export struct ChatView {
               this.MsgActionRow('重新生成', () => {
                 this.regenerate();
               })
+              this.MsgActionRow(this.isReading(this.actionMsgId) ? '停止朗读' : '朗读', () => {
+                const target: ChatMessage | undefined = this.actionMsg();
+                this.closeMsgActions();
+                if (target !== undefined) {
+                  this.toggleReadAloud(target);
+                }
+              })
             }
             this.MsgActionRow('复制', () => {
               this.copyActionMsg();
@@ -3888,17 +4004,17 @@ export struct ChatView {
 
                 // 箭头旋转动效（折叠 0 度指向右，展开 90 度指向下）；加大内边距保触区
                 Text('›')
-                  .fontSize(16)
+                  .fontSize(14)
                   .fontColor($r('app.color.reasoning_muted'))
                   .fontWeight(FontWeight.Medium)
-                  .margin({ left: 4 })
-                  .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+                  .margin({ left: 2 })
+                  .padding({ left: 8, right: 8, top: 8, bottom: 8 })
                   .rotate({ angle: this.isReasonCollapsed(msg.id) ? 0 : 90 })
                   .animation({ duration: 250, curve: Curve.FastOutSlowIn })
               }
               .alignItems(VerticalAlign.Center)
               .width('100%')
-              .padding({ top: 10, bottom: 10 })
+              .padding({ top: 8, bottom: 8 })
               .onClick(() => {
                 this.toggleReason(msg.id);
               })
@@ -3948,7 +4064,7 @@ export struct ChatView {
           //   流式帧由库内 hash 差量 + 打字机 pacing 消化。
           if (msg.content.length > 0) {
             MarkdownBody({
-              content: MarkdownService.rewriteCitations(msg.content),
+              content: this.renderContent(msg),
               streaming: this.isLiveStreaming(msg),
               fontScale: this.appFontScale,
               darkMode: this.isDarkMode(),
@@ -3988,9 +4104,12 @@ export struct ChatView {
               .margin({ top: 6 })
           }
 
-          // 联网搜索来源卡片：服务端工具下发的来源按 url 去重后展示，点击走系统浏览器。
+          // 联网搜索来源：官方同款胶囊（站点图标堆叠 + N 个网页），点开在下方展开明细。
           if (this.sourcesOf(msg).length > 0) {
-            this.SourceList(msg)
+            this.SourcePill(msg)
+            if (this.expandedSourceMsgId === msg.id) {
+              this.SourceList(msg)
+            }
           }
 
           // 分支切换
@@ -4012,6 +4131,63 @@ export struct ChatView {
       }
       .width('100%')
     }
+  }
+
+  /**
+   * 来源胶囊（对齐官方 App）：左侧 3 个站点图标叠放，右侧「N 个网页」，点一下展开明细。
+   * Business Rule: 图标失败不能留空——底层先画站点首字母，网络图标盖在它上面。
+   */
+  @Builder
+  SourcePill(msg: ChatMessage) {
+    Row() {
+      Row() {
+        ForEach(this.pillSources(msg), (src: SearchSource, idx: number) => {
+          Stack() {
+            Text(WebSearchService.sourceSite(src).substring(0, 1).toUpperCase())
+              .fontSize(9)
+              .fontColor($r('app.color.text_muted'))
+              .width(18)
+              .height(18)
+              .textAlign(TextAlign.Center)
+              .backgroundColor($r('app.color.fill'))
+              .borderRadius(9)
+            if (src.siteIcon !== undefined && src.siteIcon.length > 0) {
+              Image(src.siteIcon)
+                .width(18)
+                .height(18)
+                .borderRadius(9)
+                .objectFit(ImageFit.Cover)
+            }
+          }
+          .width(18)
+          .height(18)
+          .borderRadius(9)
+          .border({ width: 1.5, color: $r('app.color.surface') })
+          .margin({ left: idx === 0 ? 0 : -6 })
+        }, (src: SearchSource) => src.url)
+      }
+      .alignItems(VerticalAlign.Center)
+
+      Text(`${this.sourcesOf(msg).length} 个网页`)
+        .fontSize(12)
+        .fontColor($r('app.color.text_secondary'))
+        .margin({ left: 8 })
+
+      Text('›')
+        .fontSize(13)
+        .fontColor($r('app.color.text_faint'))
+        .margin({ left: 4 })
+        .rotate({ angle: this.expandedSourceMsgId === msg.id ? 90 : 0 })
+        .animation({ duration: 200, curve: Curve.FastOutSlowIn })
+    }
+    .padding({ left: 8, right: 10, top: 7, bottom: 7 })
+    .backgroundColor($r('app.color.surface'))
+    .border({ width: 1, color: $r('app.color.border_soft') })
+    .borderRadius(16)
+    .margin({ top: 10 })
+    .onClick(() => {
+      this.toggleSourcePanel(msg.id);
+    })
   }
 
   /**

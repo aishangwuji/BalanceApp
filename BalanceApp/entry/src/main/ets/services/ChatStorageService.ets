@@ -8,7 +8,7 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { CharacterCard, ChatMessage, ChatSession, MessageRole, SearchSource, TopicGateMask, UserIdentityCard } from '../models/ChatModels';
+import { CharacterCard, ChatMessage, ChatSession, CitationRange, MessageRole, SearchSource, TopicGateMask, UserIdentityCard } from '../models/ChatModels';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatStorageService';
@@ -19,6 +19,8 @@ const KEY_SESSIONS = 'saved_sessions';
 const KEY_ACTIVE_SESSION_ID = 'active_session_id';
 /** 来源卡片上限：与 WebSearchService 的合并上限一致，持久化侧再兜一次。 */
 const MAX_SEARCH_SOURCES = 24;
+/** 单条消息引用位标上限（正常回答远小于此，仅防异常数据）。 */
+const MAX_CITATIONS = 200;
 
 /**
  * 默认角色卡列表：空。
@@ -349,6 +351,7 @@ export class ChatStorageService {
       mentionedIds: mentionedIds,
       topicMask: ChatStorageService.normalizeTopicMask(rec['topicMask']),
       sources: ChatStorageService.normalizeSources(rec['sources']),
+      citations: ChatStorageService.normalizeCitations(rec['citations']),
     };
     const childRaw: ESObject = rec['childIds'];
     if (Array.isArray(childRaw)) {
@@ -454,8 +457,56 @@ export class ChatStorageService {
     return out.length > 0 ? out : undefined;
   }
 
-  private static messageExists(pool: ChatMessage[], id: string): boolean {
+  /**
+   * 边界校验：引用位标来自持久化 JSON。
+   * Business Rule: url 必须 http/https、区间必须合法（start>=0 且 end>start），否则丢该条；
+   *   上限 200 条，防止异常数据把渲染拖垮（正常回答的引用远小于此）。
+   */
+  private static normalizeCitations(raw: ESObject): CitationRange[] | undefined {
+    if (!Array.isArray(raw)) {
+      return undefined;
+    }
+    const arr: ESObject[] = raw as ESObject[];
+    const out: CitationRange[] = [];
     let i: number = 0;
+    while (i < arr.length) {
+      if (out.length >= MAX_CITATIONS) {
+        break;
+      }
+      const item: ESObject = arr[i];
+      i += 1;
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, ESObject> = item as Record<string, ESObject>;
+      const urlVal: ESObject = rec['url'];
+      const startVal: ESObject = rec['start'];
+      const endVal: ESObject = rec['end'];
+      if (typeof urlVal !== 'string' || typeof startVal !== 'number' || typeof endVal !== 'number') {
+        continue;
+      }
+      const url: string = (urlVal as string).trim();
+      const lower: string = url.toLowerCase();
+      if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+        continue;
+      }
+      const start: number = Math.floor(startVal as number);
+      const end: number = Math.floor(endVal as number);
+      if (start < 0 || end <= start) {
+        continue;
+      }
+      const cite: CitationRange = {
+        url: url,
+        title: typeof rec['title'] === 'string' ? rec['title'] as string : '',
+        start: start,
+        end: end
+      };
+      out.push(cite);
+    }
+    return out.length > 0 ? out : undefined;
+  }
+
+  private static messageExists(pool: ChatMessage[], id: string): boolean {    let i: number = 0;
     while (i < pool.length) {
       if (pool[i].id === id) {
         return true;

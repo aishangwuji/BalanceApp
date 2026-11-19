@@ -4,8 +4,10 @@
  * 聊天 Markdown 渲染的纯逻辑层 —— FluidMarkdown（ohpm: fluid-markdown）之上的
  * 本项目适配器。与 UI 解耦，可独立审查与单测：
  * 1. rewriteCitations：把模型输出的 [ref_N] 改写为库可渲染的链接 [N](#cite-N)，
- *    点击经 onMarkdownNodeClick 回路由到来源（引用来源列表待模型侧提供，见 handbook）；
- *    围栏代码块与行内代码段内的标记不改写（原文透传）。
+ *    点击经 onMarkdownNodeClick 回路由到来源（来源已由 annotations 提供）；围栏代码块与
+ *    行内代码段内的标记不改写（原文透传）。
+ * 1.1 injectCitations：按服务端 annotations 的引用区间（Unicode 码点）在正文相应位置插入
+ *    [N](#cite-N) 角标；围栏代码块内不插，从后往前插避免下标位移。
  * 2. routeHref/isSafeOpenUrl：外链白名单（http/https/mailto），其余一律拦截；
  *    库本身经 StyledString 原生渲染，无脚本执行面，此处是第二道边界。
  * 3. applyTheme：字号缩放 + 深浅色映射到库主题（ITheme.document.font）。
@@ -15,6 +17,7 @@
 
 import { BaseEngine } from 'fluid-markdown';
 import { LengthMetrics } from '@ohos.arkui.node';
+import { CitationRange } from '../models/ChatModels';
 
 export type MdClickKind = 'cite' | 'open' | 'ignore';
 
@@ -28,7 +31,123 @@ export interface MdClickAction {
 
 const CITE_HREF_PREFIX = '#cite-';
 
+/** 待插入的引用角标（内部结构，按 at 降序插回正文）。 */
+interface CiteMarker {
+  at: number;
+  /** 来源序号（1 起）：同一位置多个角标时按序号升序排列。 */
+  index: number;
+  text: string;
+}
+
 export class MarkdownService {
+  /**
+   * 在正文按引用区间插入可点角标 [N](#cite-N)。
+   * Business Rule:
+   *   1. 区间是 Unicode 码点下标，必须先换算成 UTF-16 下标；
+   *   2. 角标插在区间末尾（引用文本之后），与官方 App 的角标位置一致；
+   *   3. 落在围栏代码块内的区间不插（避免污染示例代码），
+   *   4. 从后往前插，避免前面的插入改变后面的下标。
+   * @param citeIndex url -> 来源序号（1 起）；未收录的 url 跳过。
+   */
+  public static injectCitations(src: string, citations: CitationRange[] | undefined,
+    citeIndex: Map<string, number>): string {
+    if (src.length === 0 || citations === undefined || citations.length === 0) {
+      return src;
+    }
+    const markers: CiteMarker[] = [];
+    let i: number = 0;
+    while (i < citations.length) {
+      const cite: CitationRange = citations[i];
+      i += 1;
+      const index: number | undefined = citeIndex.get(cite.url);
+      if (index === undefined || index <= 0) {
+        continue;
+      }
+      const at: number = MarkdownService.codePointToUtf16Offset(src, cite.end);
+      if (at <= 0 || at > src.length) {
+        continue;
+      }
+      if (MarkdownService.inFencedLine(src, at)) {
+        continue;
+      }
+      const marker: CiteMarker = {
+        at: at,
+        index: index,
+        text: `[${index}](${CITE_HREF_PREFIX}${index})`
+      };
+      markers.push(marker);
+    }
+    // 插入位置降序：先改靠后的位置，前面的下标才不会被挤动；
+    // 同一位置的多个角标先插大序号，最终呈现为 [1][2] 的升序。
+    markers.sort((a: CiteMarker, b: CiteMarker) => {
+      if (b.at !== a.at) {
+        return b.at - a.at;
+      }
+      return b.index - a.index;
+    });
+    let out: string = src;
+    let mi: number = 0;
+    while (mi < markers.length) {
+      const m: CiteMarker = markers[mi];
+      out = out.substring(0, m.at) + m.text + out.substring(m.at);
+      mi += 1;
+    }
+    return out;
+  }
+
+  /** 码点下标 -> UTF-16 下标；码点越界返回 -1（调用方跳过）。 */
+  private static codePointToUtf16Offset(text: string, cp: number): number {
+    let i: number = 0;
+    let count: number = 0;
+    while (i < text.length && count < cp) {
+      const code: number = text.charCodeAt(i);
+      const isHighSurrogate: boolean = code >= 0xD800 && code <= 0xDBFF;
+      if (isHighSurrogate && i + 1 < text.length) {
+        i += 2;
+      } else {
+        i += 1;
+      }
+      count += 1;
+    }
+    if (count < cp) {
+      return -1;
+    }
+    return i;
+  }
+
+  /** 该下标是否落在围栏代码块（含围栏标记行）内。 */
+  private static inFencedLine(src: string, at: number): boolean {
+    let line: number = 0;
+    let i: number = 0;
+    while (i < at) {
+      if (src.charCodeAt(i) === 10) {
+        line += 1;
+      }
+      i += 1;
+    }
+    const lines: string[] = src.split('\n');
+    let fence: string = '';
+    let li: number = 0;
+    while (li < lines.length) {
+      const mark: string = MarkdownService.fenceOf(lines[li]);
+      const isFencedBefore: boolean = fence.length > 0;
+      if (mark.length > 0) {
+        if (fence.length === 0) {
+          fence = mark;
+        } else if (mark === fence) {
+          fence = '';
+        }
+        if (li === line) {
+          return true;
+        }
+      } else if (li === line) {
+        return isFencedBefore;
+      }
+      li += 1;
+    }
+    return false;
+  }
+
   /**
    * 改写引用标记：[ref_N] -> [N](#cite-N)，围栏/行内代码内不碰。
    * Business Rule: 模型原文可能把 [ref_1] 写进代码示例，改写必须 fence-aware，

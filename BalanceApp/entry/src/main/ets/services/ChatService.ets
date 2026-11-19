@@ -19,7 +19,7 @@
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { ChatMessage, SearchSource } from '../models/ChatModels';
+import { ChatMessage, CitationRange } from '../models/ChatModels';
 import { findProvider, ProviderDefinition } from './ProviderRegistry';
 import { applyTopicMask } from './TopicGateService';
 import { SearchProgress, WebSearchService } from './WebSearchService';
@@ -41,8 +41,8 @@ export interface StreamCallbacks {
   onError: (error: string) => void;
   /** 服务端联网工具过程事件（deepseek_web_search）；未声明工具的请求不会回调。 */
   onSearch?: (progress: SearchProgress) => void;
-  /** 服务端下发的引用来源（末块 annotations）；按 url 去重由调用方合并。 */
-  onSources?: (sources: SearchSource[]) => void;
+  /** 服务端下发的引用位标（末块 annotations）；按区间保留，展示层再按 url 归并来源。 */
+  onCitations?: (citations: CitationRange[]) => void;
 }
 
 export interface ChatRequestOptions {
@@ -155,12 +155,12 @@ export class ChatService {
                     if (contentStr.length > 0 || reasoningStr.length > 0) {
                       callbacks.onToken(contentStr, reasoningStr.length > 0 ? reasoningStr : undefined);
                     }
-                    // 引用来源只在带 finish_reason 的末块 delta 里一次性下发；
+                    // 引用位标只在带 finish_reason 的末块 delta 里一次性下发；
                     // 与正文增量无关，故不并入 onToken，单独回调避免污染流式文本。
-                    if (callbacks.onSources !== undefined) {
-                      const annSources: SearchSource[] = WebSearchService.parseAnnotations(delta);
-                      if (annSources.length > 0) {
-                        callbacks.onSources(annSources);
+                    if (callbacks.onCitations !== undefined) {
+                      const cites: CitationRange[] = WebSearchService.parseCitations(delta);
+                      if (cites.length > 0) {
+                        callbacks.onCitations(cites);
                       }
                     }
                   }

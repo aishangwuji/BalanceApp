@@ -17,6 +17,9 @@ const PREFS_NAME = 'balance_prefs';
 export const KEY_APP_APPEARANCE = 'app_appearance'; // 'system' | 'light' | 'dark'
 export const KEY_FONT_SIZE_LEVEL = 'app_font_size_level'; // 1 ~ 7，默认 3
 export const KEY_AUTO_COLLAPSE_THINKING = 'auto_collapse_thinking'; // boolean，默认 true
+/** 朗读音色：stella（海星，女声，默认）| tide（暗潮，男声）。 */
+export const KEY_TTS_VOICE = 'tts_voice_id'; // string
+export const DEFAULT_TTS_VOICE = 'stella';
 /**
  * 解析后的实际深色态（system 时跟随系统），供非资源侧（Markdown 主题）读取。
  * Business Rule: 资源颜色由 setColorMode 自动切换，但 Markdown 库主题需显式布尔，
@@ -84,6 +87,12 @@ export class SettingsService {
         autoCollapse = collapseVal;
       }
       AppStorage.setOrCreate<boolean>(KEY_AUTO_COLLAPSE_THINKING, autoCollapse);
+
+      // 3.1 朗读音色 (默认 stella)
+      const voiceVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_TTS_VOICE, DEFAULT_TTS_VOICE);
+      const ttsVoice: string = typeof voiceVal === 'string' && (voiceVal === 'stella' || voiceVal === 'tide') ?
+        voiceVal as string : DEFAULT_TTS_VOICE;
+      AppStorage.setOrCreate<string>(KEY_TTS_VOICE, ttsVoice);
 
       // 4. 应用锁：仅在首次初始化时决定是否直接锁定，避免页面再次 init 时把已解锁状态重置。
       const lockVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_APP_LOCK_ENABLED, false);
@@ -244,6 +253,41 @@ export class SettingsService {
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'setAutoCollapseThinking save failed: %{public}s', String(err));
     }
+  }
+
+  /**
+   * 设置朗读音色（仅 DeepSeek TTS 的两种音色：stella / tide）。
+   * Business Rule: 非法值一律回落 stella，避免把脏值发给服务端导致 400。
+   */
+  public static async setTtsVoice(context: common.UIAbilityContext, voiceId: string): Promise<void> {
+    const voice: string = voiceId === 'tide' ? 'tide' : 'stella';
+    AppStorage.setOrCreate<string>(KEY_TTS_VOICE, voice);
+
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      await SettingsService.prefsInstance.put(KEY_TTS_VOICE, voice);
+      await SettingsService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setTtsVoice save failed: %{public}s', String(err));
+    }
+  }
+
+  /** 读取朗读音色；未初始化/非法值回落默认 stella。 */
+  public static async getTtsVoice(context: common.UIAbilityContext): Promise<string> {
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      const val: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_TTS_VOICE, DEFAULT_TTS_VOICE);
+      if (typeof val === 'string' && (val === 'stella' || val === 'tide')) {
+        return val as string;
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'getTtsVoice failed: %{public}s', String(err));
+    }
+    return DEFAULT_TTS_VOICE;
   }
 
   /**

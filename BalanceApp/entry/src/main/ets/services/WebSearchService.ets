@@ -7,13 +7,14 @@
  * 2. parseToolEvent：解析流式 choice.server_tool_event（call_started / call_completed），
  *    只关心 search / deep_search / image_search / deep_image_search 四类 kind；
  *    read_link 的来源在 signature 里、结构不同，本期不展示（见 techdebt/TD-002）。
- * 3. parseAnnotations：解析末块 delta.annotations（url_citation），补全只出现在引用里的来源。
+ * 3. parseCitations：解析末块 delta.annotations（url_citation），拿到引用区间（Unicode 码点）
+ *    与只出现在引用里的来源，供 MarkdownService.injectCitations 在正文插可点角标。
  * 4. mergeSources：按 url 去重合并，先到先得，缺字段用后到的补（展示字段以搜索结果为准）。
  *
  * 严格遵守 ArkTS 规范：无 any/unknown，无解构，捕获异常转为 Error 类型。
  */
 
-import { SearchSource } from '../models/ChatModels';
+import { CitationRange, SearchSource } from '../models/ChatModels';
 
 /** 单轮会话最多保留的来源数：一次深度搜索可能返回几十条，超出部分不进卡片列表。 */
 const MAX_SOURCES = 24;
@@ -123,11 +124,12 @@ export class WebSearchService {
 
   /**
    * 解析末块 delta.annotations：Chat Completions 的正文没有引用角标，
-   *   引用范围（start_index/end_index）与来源都在这里一次性下发。
-   * Business Rule: 只收 http/https 来源，其余（异常协议/空 url）直接丢弃，界面不再兜底校验。
+   *   引用范围（start_index/end_index，Unicode 码点）与来源都在这里一次性下发。
+   * Business Rule: 只收 http/https 来源与合法区间（start>=0 且 end>start），
+   *   同一 URL 可对应多个区间，故按区间逐条保留，不做 URL 去重。
    */
-  public static parseAnnotations(delta: ESObject): SearchSource[] {
-    const out: SearchSource[] = [];
+  public static parseCitations(delta: ESObject): CitationRange[] {
+    const out: CitationRange[] = [];
     if (delta === null || typeof delta !== 'object') {
       return out;
     }
@@ -161,11 +163,21 @@ export class WebSearchService {
       if (!WebSearchService.isHttpUrl(url)) {
         continue;
       }
+      const startVal: ESObject = citeRec['start_index'];
+      const endVal: ESObject = citeRec['end_index'];
+      if (typeof startVal !== 'number' || typeof endVal !== 'number') {
+        continue;
+      }
+      const start: number = Math.floor(startVal as number);
+      const end: number = Math.floor(endVal as number);
+      if (start < 0 || end <= start) {
+        continue;
+      }
       const titleVal: ESObject = citeRec['title'];
       const title: string = typeof titleVal === 'string' ?
         WebSearchService.clamp((titleVal as string).trim(), MAX_TITLE_CHARS) : '';
-      const src: SearchSource = { url: url, title: title };
-      out.push(src);
+      const cite: CitationRange = { url: url, title: title, start: start, end: end };
+      out.push(cite);
     }
     return out;
   }
