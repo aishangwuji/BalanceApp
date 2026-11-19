@@ -139,6 +139,18 @@
     {
       "name": "overlay_scrim",
       "value": "#660E0D0A"
+    },
+    {
+      "name": "pill_search_bg",
+      "value": "#EEF3FF"
+    },
+    {
+      "name": "pill_search_text",
+      "value": "#4D6BFE"
+    },
+    {
+      "name": "pill_search_border",
+      "value": "#D8E3FF"
     }
   ]
 }

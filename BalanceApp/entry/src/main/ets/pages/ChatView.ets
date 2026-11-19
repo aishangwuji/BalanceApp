@@ -2597,34 +2597,18 @@ export struct ChatView {
             .margin({ bottom: 6 })
           }
 
-          Row() {
-            // @ 按钮：仅群聊展示，点击弹成员选择
-            if (this.isGroupChat()) {
-              Text('@')
-                .fontSize(16)
-                .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.accent'))
-                .width(40)
-                .height(40)
-                .textAlign(TextAlign.Center)
-                .backgroundColor($r('app.color.icon_tile'))
-                .border({ width: 1, color: $r('app.color.accent_outline') })
-                .borderRadius(20)
-                .margin({ right: 8 })
-                .onClick(() => {
-                  this.showMentionPicker = true;
-                })
-            }
-            // 多行输入：折叠态默认两行高度、超出内滚动，展开态加高以查看更全面的内容
-            Stack({ alignContent: Alignment.BottomEnd }) {
-              TextArea({ placeholder: '输入您的问题...', text: this.inputText })
+          // 输入卡片（对齐官方 App）：整块圆角卡片，内含输入区 + 能力胶囊 + 发送/停止。
+          // 说明：官方卡片右下还有「+（附件）」与「麦克风」，本项目未做文件输入、且已明确不做
+          // 语音输入，故只保留可用的发送/停止，避免摆一个点了没反应的按钮。
+          Column() {
+            Stack({ alignContent: Alignment.TopEnd }) {
+              TextArea({ placeholder: '发消息…', text: this.inputText })
                 .width('100%')
                 .height(this.inputExpanded ? INPUT_EXPANDED_HEIGHT : INPUT_BASE_HEIGHT)
-                .borderRadius(this.inputExpanded ? 20 : 24)
-                .backgroundColor($r('app.color.input_bg'))
-                .border({ width: 1, color: $r('app.color.border_card') })
+                .backgroundColor('#00000000')
+                .border({ width: 0 })
                 .fontSize(15)
-                .padding({ left: 16, right: 46, top: 12, bottom: 12 })
+                .padding({ left: 4, right: 32, top: 2, bottom: 2 })
                 .onChange((val: string) => {
                   this.inputText = val;
                 })
@@ -2632,75 +2616,77 @@ export struct ChatView {
                   this.onInputFocus();
                 })
 
-              Stack() {
-                Image(this.inputExpanded ? $r('app.media.ic_collapse') : $r('app.media.ic_expand'))
-                  .width(15)
-                  .height(15)
-              }
-              .width(26)
-              .height(26)
-              .backgroundColor($r('app.color.icon_tile'))
-              .border({ width: 1, color: $r('app.color.accent_outline') })
-              .borderRadius(13)
-              .margin({ right: 10, bottom: 10 })
-              .onClick(() => {
-                this.inputExpanded = !this.inputExpanded;
-              })
+              Image(this.inputExpanded ? $r('app.media.ic_collapse') : $r('app.media.ic_expand'))
+                .width(14)
+                .height(14)
+                .margin({ right: 6, top: 8 })
+                .onClick(() => {
+                  this.inputExpanded = !this.inputExpanded;
+                })
             }
-            .layoutWeight(1)
+            .width('100%')
 
-            if (this.isGenerating) {
-              Button('停止')
-                .fontSize(12)
+            Row() {
+              ThinkingButton({
+                isEnabled: this.enableThinking,
+                providerId: this.currentProviderId,
+                modelId: this.currentModelId,
+                onToggle: (val: boolean) => {
+                  this.enableThinking = val;
+                }
+              })
+              WebSearchButton({
+                isEnabled: this.enableWebSearch,
+                providerId: this.currentProviderId,
+                onToggle: (val: boolean) => {
+                  this.setWebSearch(val);
+                }
+              })
+              Blank()
+              if (this.isGenerating) {
+                Column() {
+                  Text('■')
+                    .fontSize(12)
+                    .fontColor('#FFFFFF')
+                }
+                .width(40)
+                .height(40)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+                .borderRadius(20)
                 .backgroundColor($r('app.color.danger_text'))
-                .fontColor('#FFFFFF')
-                .width(58)
-                .height(48)
-                .borderRadius(18)
-                .margin({ left: 8 })
                 .onClick(() => {
                   this.stopGenerating();
                 })
-            } else {
-              Button('↑')
-                .fontSize(21)
-                .fontWeight(FontWeight.Medium)
+              } else {
+                Column() {
+                  Text('↑')
+                    .fontSize(19)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor($r('app.color.accent_contrast'))
+                }
+                .width(40)
+                .height(40)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+                .borderRadius(20)
                 .backgroundColor($r('app.color.accent_solid'))
-                .fontColor($r('app.color.accent_contrast'))
-                .width(48)
-                .height(48)
-                .borderRadius(24)
                 .opacity(this.inputText.trim().length > 0 ? 1 : 0.52)
-                .margin({ left: 8 })
                 .onClick(() => {
                   this.sendMessage();
                 })
+              }
             }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
+            .margin({ top: 2 })
           }
           .width('96%')
-          .alignItems(this.inputExpanded ? VerticalAlign.Bottom : VerticalAlign.Center)
-
-          // 能力胶囊：深度思考（多服务商）+ 联网搜索（仅 DeepSeek 服务端工具，不支持时自身不渲染）。
-          Row() {
-            ThinkingButton({
-              isEnabled: this.enableThinking,
-              providerId: this.currentProviderId,
-              modelId: this.currentModelId,
-              onToggle: (val: boolean) => {
-                this.enableThinking = val;
-              }
-            })
-            WebSearchButton({
-              isEnabled: this.enableWebSearch,
-              providerId: this.currentProviderId,
-              onToggle: (val: boolean) => {
-                this.setWebSearch(val);
-              }
-            })
-          }
-          .width('96%')
-          .justifyContent(FlexAlign.Start)
-          .alignItems(VerticalAlign.Center)
+          .padding({ left: 12, right: 10, top: 10, bottom: 10 })
+          .backgroundColor($r('app.color.input_bg'))
+          .borderRadius(24)
+          .border({ width: 1, color: $r('app.color.border_soft') })
+          .shadow({ radius: 18, color: 'rgba(35,30,20,0.07)', offsetX: 0, offsetY: 6 })
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)

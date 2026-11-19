@@ -1,9 +1,9 @@
 /*
  * ThinkingButton.ets
  *
- * 深度思考开关组件 —— 采用全局温润中性色与墨金强调。
+ * 深度思考开关组件 —— 对齐官方输入框内的能力胶囊（淡蓝底 + 品牌蓝文字 + 图标）：
  * 1. 严格禁用所有 Emoji 表情符与额外修饰文本（无表情、无 ON 标签）；
- * 2. 纯粹「深度思考」胶囊切换：开启时淡蓝紫背景加细边框，关闭时素灰背景；
+ * 2. 开启时淡蓝底/蓝字/细蓝边，关闭时素灰底/次级文字；
  * 3. 自动感应当前服务商与模型（DeepSeek、小米 MiMo、Kimi 等）支持性。
  *
  * 遵循 ArkTS 严格模式规范：无 any/unknown，无解构，强类型定义。
@@ -26,16 +26,20 @@ export struct ThinkingButton {
     if (this.isVisible()) {
       Row() {
         Row() {
+          Image($r('app.media.ic_atom'))
+            .width(13)
+            .height(13)
+            .margin({ right: 5 })
           Text('深度思考')
             .fontSize(13)
-            .fontColor(this.isEnabled ? $r('app.color.accent') : $r('app.color.text_secondary'))
+            .fontColor(this.isEnabled ? $r('app.color.pill_search_text') : $r('app.color.text_secondary'))
             .fontWeight(this.isEnabled ? FontWeight.Medium : FontWeight.Normal)
         }
-        .padding({ left: 14, right: 14, top: 6, bottom: 6 })
-        .backgroundColor(this.isEnabled ? $r('app.color.accent_soft') : $r('app.color.fill'))
+        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+        .backgroundColor(this.isEnabled ? $r('app.color.pill_search_bg') : $r('app.color.fill'))
         .borderRadius(16)
         .borderWidth(1)
-        .borderColor(this.isEnabled ? $r('app.color.accent_outline') : '#00000000')
+        .borderColor(this.isEnabled ? $r('app.color.pill_search_border') : '#00000000')
         .animation({ duration: 200, curve: Curve.FastOutSlowIn })
         .onClick(() => {
           const nextState: boolean = !this.isEnabled;
@@ -43,7 +47,7 @@ export struct ThinkingButton {
         })
       }
       .justifyContent(FlexAlign.Start)
-      .margin({ top: 8 })
+      .margin({ right: 8 })
     }
   }
 }
