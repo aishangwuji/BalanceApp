@@ -1451,9 +1451,11 @@ export struct ChatView {
    */
   private msgRenderKey(msg: ChatMessage): string {
     const collapsed: string = this.isReasonCollapsed(msg.id) ? 'c' : 'e';
-    // 来源胶囊展开态是页面级 @State：它不在消息数据里，必须进 key 才能让该条目重建。
+    // 来源胶囊展开态、朗读态都是页面级 @State：必须进 key，否则 LazyForEach 复用旧快照，
+    // 点开展开/打断朗读按钮的高亮都不会变化。
     const expanded: string = this.expandedSourceMsgId === msg.id ? 'X' : '-';
-    return `${msg.id}_${msg.status}_${collapsed}_${expanded}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
+    const reading: string = this.readingMsgId === msg.id ? 'R' : '-';
+    return `${msg.id}_${msg.status}_${collapsed}_${expanded}_${reading}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
   }
 
   /** 把当前激活分支与渲染键推给 LazyForEach 数据源（结构性/局部刷新由数据源内部判定）。 */
@@ -1573,14 +1575,18 @@ export struct ChatView {
     const voice: string = await SettingsService.getTtsVoice(hostCtx);
     this.stopReadAloud();
     this.readingMsgId = msg.id;
+    // 朗读态进渲染键，按钮高亮/可打断状态需要该条重建。
+    this.syncMessageSource();
     const callbacks: TtsCallbacks = {
       onStart: () => {
       },
       onFinish: () => {
         this.readingMsgId = '';
+        this.syncMessageSource();
       },
       onError: (message: string) => {
         this.readingMsgId = '';
+        this.syncMessageSource();
         this.toast(message);
       }
     };
@@ -1588,8 +1594,12 @@ export struct ChatView {
   }
 
   private stopReadAloud(): void {
+    const wasReading: boolean = this.readingMsgId.length > 0;
     TtsService.stopPlayback();
     this.readingMsgId = '';
+    if (wasReading) {
+      this.syncMessageSource();
+    }
   }
 
   private isReading(msgId: string): boolean {
@@ -2173,12 +2183,18 @@ export struct ChatView {
     this.generateReply(sess, userMsg, this.getCurrentCharacter());
   }
 
-  /** 长按 assistant 点「重新生成」：同一 user 下新建助手兄弟分支。 */
-  private async regenerate(): Promise<void> {
+  /**
+   * 重新生成：同一 user 下新建助手兄弟分支。
+   * Business Rule: 入口在回答下方的操作条（不再走长按菜单），因此直接接收消息对象；
+   *   生成中或未配置 Key 时静默返回（按钮本身也会置灰）。
+   */
+  private async regenerateFrom(assistantMsg: ChatMessage): Promise<void> {
+    if (this.isGenerating) {
+      this.toast('正在生成，请稍候');
+      return;
+    }
     const sess: ChatSession | undefined = this.getCurrentSession();
-    const assistantMsg: ChatMessage | undefined = this.actionMsg();
-    this.closeMsgActions();
-    if (!sess || assistantMsg === undefined || assistantMsg.role !== 'assistant') {
+    if (!sess || assistantMsg.role !== 'assistant') {
       return;
     }
     if (!this.canSend()) {
@@ -2188,6 +2204,8 @@ export struct ChatView {
     if (userMsg === undefined) {
       return;
     }
+    // 换一条回答即换一段朗读内容：先停旧播放，避免旧音频盖住新一轮生成。
+    this.stopReadAloud();
     let speaker: CharacterCard = this.getCurrentCharacter();
     const bySpeaker: CharacterCard | undefined = this.characterById(assistantMsg.speakerId);
     if (bySpeaker !== undefined) {
@@ -2363,17 +2381,20 @@ export struct ChatView {
     }
   }
 
-  private actionIsUser(): boolean {
-    const m: ChatMessage | undefined = this.actionMsg();
-    return m !== undefined && m.role === 'user';
-  }
-
   private copyText(text: string): void {
     try {
       const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
       pasteboard.getSystemPasteboard().setDataSync(data);
+      this.toast('已复制');
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'copy failed: %{public}s', String(err));
+    }
+  }
+
+  /** 复制一条回答的正文（不含思考与来源卡片，与官方一致）。 */
+  private copyMessage(msg: ChatMessage): void {
+    if (msg.content.length > 0) {
+      this.copyText(msg.content);
     }
   }
 
@@ -3484,26 +3505,14 @@ export struct ChatView {
               this.closeMsgActions();
             })
           Column() {
-            Text(this.actionIsUser() ? '编辑消息' : '回复操作')
+            Text('消息操作')
               .fontSize(15)
               .fontWeight(FontWeight.Bold)
               .margin({ top: 18, bottom: 10 })
-            if (this.actionIsUser()) {
-              this.MsgActionRow('编辑并重发', () => {
-                this.beginEdit();
-              })
-            } else {
-              this.MsgActionRow('重新生成', () => {
-                this.regenerate();
-              })
-              this.MsgActionRow(this.isReading(this.actionMsgId) ? '停止朗读' : '朗读', () => {
-                const target: ChatMessage | undefined = this.actionMsg();
-                this.closeMsgActions();
-                if (target !== undefined) {
-                  this.toggleReadAloud(target);
-                }
-              })
-            }
+            // 长按菜单只服务用户消息（编辑并重发）；助手消息的操作已移到回答下方的操作条。
+            this.MsgActionRow('编辑并重发', () => {
+              this.beginEdit();
+            })
             this.MsgActionRow('复制', () => {
               this.copyActionMsg();
             })
@@ -4112,6 +4121,11 @@ export struct ChatView {
             }
           }
 
+          // 回答操作条：复制 / 朗读（再点即打断）/ 重新生成，位置对齐官方 App。
+          if (msg.status !== 'streaming') {
+            this.AnswerActions(msg)
+          }
+
           // 分支切换
           if (this.branchCount(msg) > 1) {
             Row() {
@@ -4125,9 +4139,6 @@ export struct ChatView {
         .alignItems(HorizontalAlign.Start)
         .width('100%')
         .padding({ left: 4, right: 4, top: 4, bottom: 6 })
-        .gesture(LongPressGesture({ repeat: false }).onAction(() => {
-          this.openMsgActions(msg.id);
-        }))
       }
       .width('100%')
     }
@@ -4254,10 +4265,55 @@ export struct ChatView {
     .borderRadius(12)
   }
 
+  /** 回答操作条上的单个图标按钮：34×30 触区，朗读中（active）用柔色底提示可打断。 */
+  @Builder
+  AnswerAction(icon: Resource, active: boolean, disabled: boolean, onTap: () => void) {
+    Row() {
+      Image(icon)
+        .width(16)
+        .height(16)
+        .opacity(disabled ? 0.35 : 1)
+    }
+    .width(34)
+    .height(30)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(VerticalAlign.Center)
+    .borderRadius(15)
+    .backgroundColor(active ? $r('app.color.accent_soft') : '#00000000')
+    .onClick(() => {
+      if (!disabled) {
+        onTap();
+      }
+    })
+  }
+
+  /**
+   * 回答操作条（对齐官方 App 的位置）：复制 / 朗读 / 重新生成。
+   * Business Rule: 朗读与打断朗读是同一个按钮——正在朗读时按钮高亮，再点即停止
+   *   （长按菜单不再承载助手消息的操作，打断朗读必须有可见入口）。
+   */
+  @Builder
+  AnswerActions(msg: ChatMessage) {
+    Row() {
+      this.AnswerAction($r('app.media.ic_copy'), false, msg.content.length === 0, () => {
+        this.copyMessage(msg);
+      })
+      this.AnswerAction($r('app.media.ic_speaker'), this.isReading(msg.id), msg.content.length === 0, () => {
+        this.toggleReadAloud(msg);
+      })
+      Blank()
+      this.AnswerAction($r('app.media.ic_refresh'), false, false, () => {
+        this.regenerateFrom(msg);
+      })
+    }
+    .width('100%')
+    .margin({ top: 4 })
+    .padding({ left: 0, right: 2 })
+  }
+
   // 分支切换控件：< i/n >，仅在存在多个版本时由调用方渲染；箭头加大内边距保触区。
   @Builder
-  BranchSwitcher(msg: ChatMessage) {
-    Row() {
+  BranchSwitcher(msg: ChatMessage) {    Row() {
       Text('‹')
         .fontSize(18)
         .fontColor($r('app.color.accent'))
