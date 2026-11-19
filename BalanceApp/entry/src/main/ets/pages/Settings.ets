@@ -17,8 +17,9 @@ import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../
 import { UpdateService, UpdateInfo } from '../services/UpdateService';
 import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
-  KEY_APP_LOCK_ENABLED,
-  KEY_TTS_VOICE, DEFAULT_TTS_VOICE
+  KEY_APP_LOCK_ENABLED, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
+  KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY,
+  KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI
 } from '../services/SettingsService';
 
 const DOMAIN = 0x0000;
@@ -66,6 +67,22 @@ struct Settings {
   @State showFontSizeSheet: boolean = false;
   @State showPersonalizeSheet: boolean = false;
   @State showVoiceSheet: boolean = false;
+  @State showImageSheet: boolean = false;
+  @State showWebKeySheet: boolean = false;
+  @State showToolProviderSheet: boolean = false;
+  /** 百智云生图 Key：只用于「设置 > 图像生成」，与对话服务商 Key 分开。 */
+  @State imageHasKey: boolean = false;
+  @State imageKeyInput: string = '';
+  /** 百智云联网搜索 Key。 */
+  @State webKeyHasKey: boolean = false;
+  @State webKeyInput: string = '';
+  @StorageProp(KEY_WEB_SEARCH_PROVIDER) webSearchProvider: string = WEB_SEARCH_PROVIDER_DEEPSEEK;
+  @StorageProp(KEY_FEATURE_TITLE) featureTitle: boolean = true;
+  @StorageProp(KEY_FEATURE_FILES) featureFiles: boolean = true;
+  @StorageProp(KEY_FEATURE_ASR) featureAsr: boolean = true;
+  @StorageProp(KEY_FEATURE_TTS) featureTts: boolean = true;
+  @StorageProp(KEY_FEATURE_IMAGE) featureImage: boolean = true;
+  @StorageProp(KEY_FEATURE_SAFETY) featureSafety: boolean = false;
   @State showAppLockSheet: boolean = false;
 
   // 字体大小滑块临时滑动值 (1 ~ 7)
@@ -77,6 +94,8 @@ struct Settings {
     I18nService.init(hostCtx);
     SettingsService.init(hostCtx);
     this.tempFontLevel = this.currentFontLevel;
+    this.loadImageKeyState();
+    this.loadWebKeyState();
   }
 
   private t(key: string): string {
@@ -252,6 +271,37 @@ struct Settings {
     this.openExternal('https://gitee.com/aishangwuji/openchat');
   }
 
+  /** 读取百智云生图 Key 是否已配置（只关心有/无，不回显明文）。 */
+  private async loadImageKeyState(): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const key: string = await SettingsService.getImageKey(hostCtx);
+      this.imageHasKey = key.trim().length > 0;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'loadImageKeyState failed: %{public}s', String(err));
+    }
+  }
+
+  private async saveImageKey(): Promise<void> {
+    const text: string = this.imageKeyInput.trim();
+    if (text.length === 0) {
+      return;
+    }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    await SettingsService.setImageKey(hostCtx, text);
+    this.imageHasKey = true;
+    this.imageKeyInput = '';
+    this.showImageSheet = false;
+  }
+
+  private async clearImageKey(): Promise<void> {
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    await SettingsService.setImageKey(hostCtx, '');
+    this.imageHasKey = false;
+    this.imageKeyInput = '';
+    this.showImageSheet = false;
+  }
+
   private openExternal(url: string): void {
     if (url.length === 0) {
       return;
@@ -338,6 +388,62 @@ struct Settings {
               })
             }
             .width('92%')
+            .backgroundColor($r('app.color.surface'))
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
+
+            // ── 工具 ──
+            Text(this.t('settings_section_tools'))
+              .fontSize(11)
+              .letterSpacing(0.4)
+              .fontColor($r('app.color.text_muted'))
+              .width('92%')
+              .margin({ top: 24, bottom: 10 })
+
+            Column() {
+              this.SettingRow($r('app.media.ic_globe'), this.t('settings_web_provider'),
+                this.webProviderDisplay(), false, () => {
+                  this.showToolProviderSheet = true;
+                })
+              if (this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI) {
+                this.SettingRow($r('app.media.ic_attach'), this.t('settings_web_key'),
+                  this.webKeyHasKey ? this.t('settings_image_key_on') : this.t('settings_image_key_off'), false, () => {
+                    this.showWebKeySheet = true;
+                  })
+              }
+              this.SettingRow($r('app.media.ic_gallery'), this.t('settings_image_key'),
+                this.imageHasKey ? this.t('settings_image_key_on') : this.t('settings_image_key_off'), true, () => {
+                  this.showImageSheet = true;
+                })
+            }
+            .width('92%')
+            .backgroundColor($r('app.color.surface'))
+            .borderRadius(20)
+            .border({ width: 1, color: $r('app.color.border_soft') })
+
+            // 功能开关：默认全开，内容安全默认关闭（开启后有额外审核 token 费用）。
+            Column() {
+              this.ToggleRow(this.t('settings_feature_title'), this.featureTitle, (v: boolean) => {
+                this.toggleFeature(KEY_FEATURE_TITLE, v);
+              }, false)
+              this.ToggleRow(this.t('settings_feature_files'), this.featureFiles, (v: boolean) => {
+                this.toggleFeature(KEY_FEATURE_FILES, v);
+              }, false)
+              this.ToggleRow(this.t('settings_feature_asr'), this.featureAsr, (v: boolean) => {
+                this.toggleFeature(KEY_FEATURE_ASR, v);
+              }, false)
+              this.ToggleRow(this.t('settings_feature_tts'), this.featureTts, (v: boolean) => {
+                this.toggleFeature(KEY_FEATURE_TTS, v);
+              }, false)
+              this.ToggleRow(this.t('settings_feature_image'), this.featureImage, (v: boolean) => {
+                this.toggleFeature(KEY_FEATURE_IMAGE, v);
+              }, false)
+              this.ToggleRow(this.t('settings_feature_safety'), this.featureSafety, (v: boolean) => {
+                this.toggleFeature(KEY_FEATURE_SAFETY, v);
+              }, true)
+            }
+            .width('92%')
+            .margin({ top: 12 })
             .backgroundColor($r('app.color.surface'))
             .borderRadius(20)
             .border({ width: 1, color: $r('app.color.border_soft') })
@@ -439,6 +545,21 @@ struct Settings {
       // 底部弹框：朗读音色面板
       if (this.showVoiceSheet) {
         this.VoiceSheet()
+      }
+
+      // 底部弹框：百智云生图 Key
+      if (this.showImageSheet) {
+        this.ImageKeySheet()
+      }
+
+      // 底部弹框：联网搜索服务商
+      if (this.showToolProviderSheet) {
+        this.ToolProviderSheet()
+      }
+
+      // 底部弹框：百智云搜索 Key
+      if (this.showWebKeySheet) {
+        this.WebKeySheet()
       }
 
       // 底部弹框：应用锁面板
@@ -945,7 +1066,285 @@ struct Settings {
     .height('100%')
   }
 
+  // ── 7. 百智云生图 Key Sheet ──
   @Builder
+  ImageKeySheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill($r('app.color.overlay_scrim'))
+        .onClick(() => {
+          this.showImageSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_image_key'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor($r('app.color.text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showImageSheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+
+        Text(this.t('settings_image_key_desc'))
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .width('90%')
+          .margin({ bottom: 12 })
+
+        TextInput({ placeholder: this.t('settings_image_key_placeholder'), text: this.imageKeyInput })
+          .width('90%')
+          .type(InputType.Password)
+          .height(46)
+          .backgroundColor($r('app.color.fill'))
+          .borderRadius(12)
+          .onChange((v: string) => {
+            this.imageKeyInput = v;
+          })
+
+        Row({ space: 12 }) {
+          if (this.imageHasKey) {
+            Button(this.t('settings_image_clear'))
+              .layoutWeight(1)
+              .height(44)
+              .backgroundColor($r('app.color.fill'))
+              .fontColor($r('app.color.text_primary'))
+              .borderRadius(22)
+              .onClick(() => {
+                this.clearImageKey();
+              })
+          }
+          Button(this.t('settings_image_save'))
+            .layoutWeight(1)
+            .height(44)
+            .backgroundColor($r('app.color.accent_solid'))
+            .fontColor($r('app.color.accent_contrast'))
+            .borderRadius(22)
+            .onClick(() => {
+              this.saveImageKey();
+            })
+        }
+        .width('90%')
+        .margin({ top: 16, bottom: 28 })
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.surface'))
+      .borderRadius({ topLeft: 24, topRight: 24 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+    /** 开关行：标题 + Switch，写回 SettingsService（@StorageProp 驱动页面刷新）。 */
+  @Builder
+  ToggleRow(title: string, isOn: boolean, onChange: (v: boolean) => void, isLast: boolean) {
+    Row() {
+      Text(title)
+        .fontSize(15)
+        .fontColor($r('app.color.text_primary'))
+        .layoutWeight(1)
+      Toggle({ type: ToggleType.Switch, isOn: isOn })
+        .selectedColor($r('app.color.accent_solid'))
+        .onChange((v: boolean) => {
+          onChange(v);
+        })
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    .border({ width: { bottom: isLast ? 0 : 1 }, color: $r('app.color.border_soft') })
+  }
+
+  // ── 8. 联网搜索服务商 Sheet ──
+  @Builder
+  ToolProviderSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill($r('app.color.overlay_scrim'))
+        .onClick(() => {
+          this.showToolProviderSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_web_provider'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor($r('app.color.text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showToolProviderSheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+
+        Text(this.t('settings_web_provider_desc'))
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .width('90%')
+          .margin({ bottom: 12 })
+
+        Column() {
+          this.ProviderOption(this.t('settings_web_provider_deepseek'),
+            this.t('settings_web_provider_deepseek_desc'),
+            this.webSearchProvider === WEB_SEARCH_PROVIDER_DEEPSEEK, () => {
+              this.selectWebProvider(WEB_SEARCH_PROVIDER_DEEPSEEK);
+            })
+          this.ProviderOption(this.t('settings_web_provider_baizhi'),
+            this.t('settings_web_provider_baizhi_desc'),
+            this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI, () => {
+              this.selectWebProvider(WEB_SEARCH_PROVIDER_BAIZHI);
+            })
+        }
+        .width('92%')
+        .margin({ bottom: 26 })
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.surface'))
+      .borderRadius({ topLeft: 24, topRight: 24 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  ProviderOption(title: string, desc: string, selected: boolean, onTap: () => void) {
+    Column() {
+      Row() {
+        Text(title)
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor($r('app.color.text_primary'))
+        Blank()
+        if (selected) {
+          Text('✓')
+            .fontSize(15)
+            .fontColor($r('app.color.accent_solid'))
+        }
+      }
+      .width('100%')
+
+      Text(desc)
+        .fontSize(12)
+        .fontColor($r('app.color.text_muted'))
+        .width('100%')
+        .margin({ top: 4 })
+    }
+    .width('100%')
+    .padding(14)
+    .margin({ bottom: 8 })
+    .backgroundColor($r('app.color.fill'))
+    .borderRadius(14)
+    .onClick(onTap)
+  }
+
+  // ── 9. 百智云搜索 Key Sheet ──
+  @Builder
+  WebKeySheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill($r('app.color.overlay_scrim'))
+        .onClick(() => {
+          this.showWebKeySheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_web_key'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor($r('app.color.text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showWebKeySheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+
+        Text(this.t('settings_web_key_desc'))
+          .fontSize(12)
+          .fontColor($r('app.color.text_secondary'))
+          .width('90%')
+          .margin({ bottom: 12 })
+
+        TextInput({ placeholder: this.t('settings_web_key_placeholder'), text: this.webKeyInput })
+          .width('90%')
+          .type(InputType.Password)
+          .height(46)
+          .backgroundColor($r('app.color.fill'))
+          .borderRadius(12)
+          .onChange((v: string) => {
+            this.webKeyInput = v;
+          })
+
+        Row({ space: 12 }) {
+          if (this.webKeyHasKey) {
+            Button(this.t('settings_image_clear'))
+              .layoutWeight(1)
+              .height(44)
+              .backgroundColor($r('app.color.fill'))
+              .fontColor($r('app.color.text_primary'))
+              .borderRadius(22)
+              .onClick(() => {
+                this.clearWebKey();
+              })
+          }
+          Button(this.t('settings_image_save'))
+            .layoutWeight(1)
+            .height(44)
+            .backgroundColor($r('app.color.accent_solid'))
+            .fontColor($r('app.color.accent_contrast'))
+            .borderRadius(22)
+            .onClick(() => {
+              this.saveWebKey();
+            })
+        }
+        .width('90%')
+        .margin({ top: 16, bottom: 28 })
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.surface'))
+      .borderRadius({ topLeft: 24, topRight: 24 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+@Builder
   SettingRow(icon: Resource, title: string, value: string, isLast: boolean, onTap: () => void) {
     Row() {
       Row() {
@@ -981,5 +1380,54 @@ struct Settings {
     .border({ width: { bottom: isLast ? 0 : 1 }, color: $r('app.color.border_soft') })
     .onClick(onTap)
   }
-}
+  /** 功能开关：写 SettingsService（AppStorage + Preferences），页面通过 @StorageProp 即时生效。 */
+  private async toggleFeature(key: string, enabled: boolean): Promise<void> {
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    await SettingsService.setFeature(hostCtx, key, enabled);
+  }
 
+  /** 联网搜索来源：DeepSeek 服务端工具 / 百智云 OpenAPI。 */
+  private async selectWebProvider(provider: string): Promise<void> {
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    await SettingsService.setWebSearchProvider(hostCtx, provider);
+    this.showToolProviderSheet = false;
+    if (provider === WEB_SEARCH_PROVIDER_BAIZHI) {
+      await this.loadWebKeyState();
+    }
+  }
+
+  private webProviderDisplay(): string {
+    return this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI
+      ? this.t('settings_web_provider_baizhi') : this.t('settings_web_provider_deepseek');
+  }
+
+  private async loadWebKeyState(): Promise<void> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const key: string = await SettingsService.getBaizhiWebKey(hostCtx);
+      this.webKeyHasKey = key.trim().length > 0;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'loadWebKeyState failed: %{public}s', String(err));
+    }
+  }
+
+  private async saveWebKey(): Promise<void> {
+    const text: string = this.webKeyInput.trim();
+    if (text.length === 0) {
+      return;
+    }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    await SettingsService.setBaizhiWebKey(hostCtx, text);
+    this.webKeyHasKey = true;
+    this.webKeyInput = '';
+    this.showWebKeySheet = false;
+  }
+
+  private async clearWebKey(): Promise<void> {
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    await SettingsService.setBaizhiWebKey(hostCtx, '');
+    this.webKeyHasKey = false;
+    this.webKeyInput = '';
+    this.showWebKeySheet = false;
+  }
+}

@@ -8,13 +8,14 @@
  */
 
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { abilityAccessCtrl, common, PermissionRequestResult } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { pasteboard } from '@kit.BasicServicesKit';
 import {
   ChatMessage, ChatSession, CharacterCard, CitationRange, MessageAttachment, ModelInfo, MessageRole, SearchSource, UserIdentityCard
 } from '../models/ChatModels';
-import { ChatService, StreamCallbacks } from '../services/ChatService';
+import { ChatService, StreamCallbacks, ToolCallRequest } from '../services/ChatService';
+import { ImageGenService, ImageTaskStatus, IMAGE_POLL_INTERVAL_MS, IMAGE_TASK_TIMEOUT_MS } from '../services/ImageGenService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
 import { UpdateService, UpdateInfo } from '../services/UpdateService';
@@ -22,8 +23,12 @@ import { AuthService } from '../services/AuthService';
 import { ChatMessageDataSource } from '../services/ChatMessageDataSource';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
 import { SearchProgress, WebSearchService } from '../services/WebSearchService';
+import { BaizhiWebSearchService } from '../services/BaizhiWebSearchService';
 import { TtsCallbacks, TtsService } from '../services/TtsService';
-import { SettingsService } from '../services/SettingsService';
+import {
+  SettingsService, KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS,
+  KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY, KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_BAIZHI
+} from '../services/SettingsService';
 import { FileUploadService, UploadedFile } from '../services/FileUploadService';
 import { VoiceRecorder } from '../services/VoiceRecorder';
 import { AsrService } from '../services/AsrService';
@@ -102,6 +107,16 @@ export struct ChatView {
    * Business Rule: 只有 DeepSeek 服务商会把它写进请求（tools 声明），其余服务商界面不展示该开关。
    */
   @State enableWebSearch: boolean = false;
+  /** 百智云生图 Key 是否已配置：决定本轮是否向模型声明 generate_image 工具。 */
+  @State imageKeyConfigured: boolean = false;
+  /** 工具开关（设置 > 工具）：页面用 @StorageProp 跟随设置实时生效。 */
+  @StorageProp(KEY_FEATURE_TITLE) featureTitle: boolean = true;
+  @StorageProp(KEY_FEATURE_FILES) featureFiles: boolean = true;
+  @StorageProp(KEY_FEATURE_ASR) featureAsr: boolean = true;
+  @StorageProp(KEY_FEATURE_TTS) featureTts: boolean = true;
+  @StorageProp(KEY_FEATURE_IMAGE) featureImage: boolean = true;
+  @StorageProp(KEY_FEATURE_SAFETY) featureSafety: boolean = false;
+  @StorageProp(KEY_WEB_SEARCH_PROVIDER) webSearchProvider: string = 'deepseek';
   /** 展开来源明细的消息 id（'' = 全部收起）；点「N 个网页」胶囊切换。 */
   @State expandedSourceMsgId: string = '';
   /** 正在朗读的消息 id（'' = 未朗读）；用于菜单文案与图标状态。 */
@@ -197,6 +212,8 @@ export struct ChatView {
       // 联网搜索偏好随 balance_prefs 持久化（与 API Key 同库，不额外引入新 Preferences 存储）。
       const webSearchPref: preferences.ValueType = await this.balancePrefs.get('web_search_enabled', false);
       this.enableWebSearch = webSearchPref === true;
+      // 生图工具是否可用：只看百智云 Key 是否配置（避免向模型声明一个必然失败的工具）。
+      this.imageKeyConfigured = (await SettingsService.getImageKey(hostCtx)).trim().length > 0;
 
       // 加载角色卡
       this.characters = await ChatStorageService.loadCharacters();
@@ -249,6 +266,141 @@ export struct ChatView {
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'silent update check failed: %{public}s', String(err));
     }
+  }
+
+  /**
+   * 执行生图工具：建任务 → 轮询 → 图片 URL 追加到助手消息。
+   * Business Rule: 失败不阻塞对话（消息保留文字与失败原因）；只有 completed 才展示图片。
+   *   单次最长 6 分钟（官方通常 1~5 分钟），超时给出可重试提示。
+   */
+  private async runImageTool(msg: ChatMessage, call: ToolCallRequest): Promise<void> {
+    msg.imageState = 'generating';
+    msg.imageHint = '正在生成图片…';
+    this.rebuildSessionReference();
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      const key: string = await SettingsService.getImageKey(hostCtx);
+      if (key.trim().length === 0) {
+        throw new Error('未配置百智云 API Key（设置 > 图像生成）');
+      }
+      let prompt: string = '';
+      let ratio: string = 'auto';
+      let count: number = 1;
+      try {
+        const parsed: ESObject = JSON.parse(call.arguments) as ESObject;
+        if (parsed !== null && typeof parsed === 'object') {
+          const rec: Record<string, ESObject> = parsed as Record<string, ESObject>;
+          const pVal: ESObject = rec['prompt'];
+          if (typeof pVal === 'string') {
+            prompt = (pVal as string).trim();
+          }
+          const rVal: ESObject = rec['ratio'];
+          if (typeof rVal === 'string' && (rVal as string).length > 0) {
+            ratio = rVal as string;
+          }
+          const cVal: ESObject = rec['count'];
+          if (typeof cVal === 'number') {
+            count = Math.max(1, Math.min(4, Math.round(cVal as number)));
+          }
+        }
+      } catch (_parseErr) {
+      }
+      if (prompt.length === 0) {
+        throw new Error('模型未给出画面描述');
+      }
+      msg.imagePrompt = prompt;
+      msg.imageAspect = this.aspectOfRatio(ratio);
+      hilog.info(DOMAIN, TAG, 'image task start: ratio=%{public}s count=%{public}d', ratio, count);
+      const taskId: string = await ImageGenService.createTask(prompt, ratio, '2K', count, key);
+      const startedAt: number = Date.now();
+      let urls: string[] = [];
+      while (Date.now() - startedAt < IMAGE_TASK_TIMEOUT_MS) {
+        await this.sleep(IMAGE_POLL_INTERVAL_MS);
+        const status: ImageTaskStatus = await ImageGenService.queryTask(taskId, key);
+        if (status.status === 'completed') {
+          urls = status.imageUrls;
+          break;
+        }
+        if (status.status === 'failed') {
+          throw new Error(status.message.length > 0 ? status.message : '生成失败');
+        }
+        msg.imageHint = `正在生成图片… ${Math.round((Date.now() - startedAt) / 1000)}s`;
+        this.rebuildSessionReference();
+      }
+      if (urls.length === 0) {
+        throw new Error('生成超时，请稍后重试');
+      }
+      msg.imageUrls = urls;
+      msg.imageState = 'done';
+      msg.imageHint = undefined;
+      const seconds: number = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      msg.imageMeta = '百智云 | ' + ratio + ' | 2K | ' + seconds + 's';
+      hilog.info(DOMAIN, TAG, 'image task done: %{public}d images', urls.length);
+    } catch (err) {
+      msg.imageState = 'failed';
+      msg.imageHint = err instanceof Error ? err.message : String(err);
+      hilog.warn(DOMAIN, TAG, 'image task failed: %{public}s', msg.imageHint);
+    }
+    this.rebuildSessionReference();
+    this.saveState();
+  }
+
+  /** 失败重试：用保存的提示词重新发起一次生图（比例回退 auto）。 */
+  private async retryImage(msg: ChatMessage): Promise<void> {
+    if (msg.imagePrompt === undefined || msg.imagePrompt.length === 0) {
+      return;
+    }
+    const args: Record<string, ESObject> = {
+      'prompt': msg.imagePrompt,
+      'ratio': 'auto',
+      'count': 1
+    };
+    const call: ToolCallRequest = { id: '', name: 'generate_image', arguments: JSON.stringify(args) };
+    msg.imageUrls = undefined;
+    msg.imageState = 'generating';
+    msg.imageHint = '正在重新生成图片…';
+    this.rebuildSessionReference();
+    await this.runImageTool(msg, call);
+  }
+
+  /** 复制图片直链（文本剪贴板）。 */
+  private async copyImageLink(msg: ChatMessage): Promise<void> {
+    if (msg.imageUrls === undefined || msg.imageUrls.length === 0) {
+      return;
+    }
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, msg.imageUrls[0]);
+      await pasteboard.getSystemPasteboard().setData(data);
+      this.toast('图片链接已复制');
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'copy image link failed: %{public}s', String(err));
+      this.toast('复制失败，请改用浏览器打开');
+    }
+  }
+  /** 比例字符串 -> 宽高比数值（宽/高），用于锁定图片容器，避免加载时布局抖动。 */
+  private aspectOfRatio(ratio: string): number {
+    if (ratio === '4:3') {
+      return 4 / 3;
+    }
+    if (ratio === '3:4') {
+      return 3 / 4;
+    }
+    if (ratio === '16:9') {
+      return 16 / 9;
+    }
+    if (ratio === '9:16') {
+      return 9 / 16;
+    }
+    return 1;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    const promise: Promise<void> = new Promise<void>((resolve: () => void) => {
+      setTimeout(() => {
+        resolve();
+      }, ms);
+    });
+    return promise;
   }
 
   // ── 数据辅助逻辑 ──
@@ -1475,7 +1627,9 @@ export struct ChatView {
     // 点开展开/打断朗读按钮的高亮都不会变化。
     const expanded: string = this.expandedSourceMsgId === msg.id ? 'X' : '-';
     const reading: string = this.readingMsgId === msg.id ? 'R' : '-';
-    return `${msg.id}_${msg.status}_${collapsed}_${expanded}_${reading}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
+    // 生图态与图片数量进 key：状态从 generating 变 done 时必须重建该条。
+    const img: string = `${msg.imageState !== undefined ? msg.imageState : '-'}${msg.imageUrls !== undefined ? msg.imageUrls.length : 0}`;
+    return `${msg.id}_${msg.status}_${collapsed}_${expanded}_${reading}_${img}_${Math.round(this.appFontScale * 100)}_${this.appDark ? 'd' : 'l'}_${this.msgContentPhaseKey(msg)}`;
   }
 
   /** 把当前激活分支与渲染键推给 LazyForEach 数据源（结构性/局部刷新由数据源内部判定）。 */
@@ -1948,6 +2102,10 @@ export struct ChatView {
    */
   /** 附件入口的前置校验：服务商/Key/数量，返回可用的 DeepSeek Key（'' 表示已提示过、不继续）。 */
   private async resolveAttachKey(): Promise<string> {
+    if (!this.featureFiles) {
+      this.toast('文件解析已在「设置 > 工具」关闭');
+      return '';
+    }
     if (this.currentProviderId !== 'deepseek') {
       this.toast('文件与图片输入目前仅支持 DeepSeek');
       return '';
@@ -2325,11 +2483,38 @@ export struct ChatView {
   */
 
   /** 为 parentMsg 挂 assistant 占位并流式生成；历史取根->parentMsg 的分支路径。 */
-  private generateReply(sess: ChatSession, parentMsg: ChatMessage, speaker: CharacterCard): Promise<void> {
+  private async generateReply(sess: ChatSession, parentMsg: ChatMessage, speaker: CharacterCard): Promise<void> {
+    // 百智云联网搜索：发送前先检索，把摘要注入系统提示、来源挂到本条消息。
+    // Business Rule: 检索失败降级为普通回答（toast 提示），绝不阻塞对话。
+    let webContext: string = '';
+    let preSources: SearchSource[] = [];
+    if (this.enableWebSearch && this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI) {
+      try {
+        const searchCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+        const webKey: string = await SettingsService.getBaizhiWebKey(searchCtx);
+        if (webKey.trim().length === 0) {
+          throw new Error('未配置百智云搜索 Key（设置 > 工具）');
+        }
+        const query: string = parentMsg.content.trim();
+        if (query.length > 0) {
+          const results: SearchSource[] = await BaizhiWebSearchService.search(query, webKey, 8);
+          if (results.length > 0) {
+            preSources = results;
+            webContext = BaizhiWebSearchService.buildContextMessage(results);
+          }
+        }
+      } catch (err) {
+        const reason: string = err instanceof Error ? err.message : String(err);
+        this.toast('联网搜索失败，改为普通回答：' + reason);
+      }
+    }
     return new Promise<void>((resolve: () => void) => {
       const assistantMsg: ChatMessage = this.buildMessage('assistant', '', parentMsg.id);
       assistantMsg.status = 'streaming';
       assistantMsg.speakerId = speaker.id;
+      if (preSources.length > 0) {
+        assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, preSources);
+      }
       this.attach(sess, assistantMsg);
       sess.updatedAt = Date.now();
       this.rebuildSessionReference();
@@ -2389,6 +2574,9 @@ export struct ChatView {
       // 流式 Markdown 驱动器：随本轮回复创建，随完成/失败/停止销毁。
       const mdCtl: MarkdownController = new MarkdownController({});
       this.mdControllers.set(assistantMsg.id, mdCtl);
+
+      // 本轮模型可能发起的客户端工具调用（generate_image），流结束后统一执行。
+      let roundToolCalls: ToolCallRequest[] = [];
 
       const callbacks: StreamCallbacks = {
         onToken: (token: string, reasoningChunk?: string) => {
@@ -2456,6 +2644,18 @@ export struct ChatView {
           sess.title = title;
           this.rebuildSessionReference();
         },
+        onToolCalls: (calls: ToolCallRequest[]) => {
+          roundToolCalls = calls;
+        },
+        onRefusal: (reason: string) => {
+          // 官方要求：拒答时删除已展示的回答，改为拒答文案。
+          assistantMsg.content = '';
+          assistantMsg.reasoningContent = undefined;
+          assistantMsg.status = 'error';
+          assistantMsg.errorMessage = reason + '（可在「设置 > 工具」关闭内容安全后重试）';
+          this.finishMarkdown(assistantMsg, true);
+          this.rebuildSessionReference();
+        },
         onComplete: () => {
           assistantMsg.status = 'success';
           this.isGenerating = false;
@@ -2484,6 +2684,16 @@ export struct ChatView {
           // Reason: status 与折叠态都进入单条消息渲染键；同步数据源可刷新当前项而不重建整表。
           this.rebuildSessionReference();
           this.saveState();
+          // 生图工具：模型决定调用后，后台跑百智云任务，结果追加到本条消息（不阻塞收尾）。
+          if (roundToolCalls.length > 0) {
+            let gi: number = 0;
+            while (gi < roundToolCalls.length) {
+              if (roundToolCalls[gi].name === 'generate_image') {
+                this.runImageTool(assistantMsg, roundToolCalls[gi]);
+              }
+              gi += 1;
+            }
+          }
           finish();
         },
         onError: (errMsg: string) => {
@@ -2501,7 +2711,7 @@ export struct ChatView {
 
       // 会话标题：每个会话只请求一次（session.autoTitled），且只在标题仍是自动生成时覆盖；
       // 服务端最多多等 5 秒，标题不计费。非 DeepSeek 服务商由 ChatService 内部拦掉。
-      const titleEnabled: boolean = !sess.autoTitled && this.isAutoTitle(sess);
+      const titleEnabled: boolean = this.featureTitle && !sess.autoTitled && this.isAutoTitle(sess);
 
       this.abortStreaming = ChatService.streamChat({
         providerId: this.currentProviderId,
@@ -2509,11 +2719,19 @@ export struct ChatView {
         model: this.currentModelId,
         temperature: speaker.temperature,
         messages: history,
-        systemPrompt: this.systemPromptFor(sess, speaker),
+        systemPrompt: this.systemPromptFor(sess, speaker) + (webContext.length > 0 ? '\n\n' + webContext : ''),
         enableThinking: this.enableThinking,
         reasoningEffort: 'high',
         // 联网搜索：服务端工具只在 DeepSeek 生效；关闭时不声明 tools，行为与旧版完全一致。
-        enableWebSearch: this.enableWebSearch && WebSearchService.isSupported(this.currentProviderId),
+        // 百智云模式在发送前已由客户端检索，不能再声明 DeepSeek 服务端工具（否则会搜两次）。
+        enableWebSearch: this.enableWebSearch && this.webSearchProvider !== WEB_SEARCH_PROVIDER_BAIZHI &&
+          WebSearchService.isSupported(this.currentProviderId),
+        // 生图：客户端函数工具，仅在开关打开、配置了百智云 Key 且服务商为 DeepSeek 时声明。
+        enableImageTool: this.featureImage && this.imageKeyConfigured && this.currentProviderId === 'deepseek',
+        // 内容安全：官方基础风控（可关）。
+        enableSafety: this.featureSafety,
+        // 文件解析开关：关闭后历史附件不再以 content 块回传。
+        enableFiles: this.featureFiles,
         // 会话标题：服务端扩展字段（仅 DeepSeek），首轮才开启。
         enableTitle: titleEnabled
       }, callbacks);
@@ -3253,7 +3471,7 @@ export struct ChatView {
                 .onClick(() => {
                   this.sendMessage();
                 })
-              } else {
+              } else if (this.featureAsr) {
                 // 输入框为空：麦克风切换到「按住说话」模式。
                 Column() {
                   Image($r('app.media.ic_mic'))
@@ -4802,6 +5020,100 @@ export struct ChatView {
               .margin({ top: 6 })
           }
 
+          // 生图结果模块：进度 / 元数据条 / 比例锁定画廊 / 操作行 / 失败重试。
+          // Business Rule: 容器宽高比来自请求参数（imageAspect），加载前后尺寸一致，避免布局抖动。
+          if (msg.imageState === 'generating') {
+            Row() {
+              LoadingProgress().width(15).height(15).color($r('app.color.chat_accent'))
+              Text(`  ${msg.imageHint !== undefined ? msg.imageHint : '正在生成图片…'}`)
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
+            .padding({ top: 8 })
+          } else if (msg.imageState === 'failed') {
+            Column() {
+              Text(`生图失败：${msg.imageHint !== undefined ? msg.imageHint : '未知原因'}`)
+                .fontSize(12)
+                .fontColor($r('app.color.danger_text'))
+                .width('100%')
+              if (msg.imagePrompt !== undefined && msg.imagePrompt.length > 0) {
+                Text('重试')
+                  .fontSize(12)
+                  .fontColor($r('app.color.chat_accent'))
+                  .padding({ top: 6 })
+                  .onClick(() => {
+                    this.retryImage(msg);
+                  })
+              }
+            }
+            .width('100%')
+            .padding({ left: 10, right: 10, top: 8, bottom: 8 })
+            .backgroundColor($r('app.color.danger_fill'))
+            .borderRadius(10)
+            .margin({ top: 6 })
+          }
+          if (msg.imageUrls !== undefined && msg.imageUrls.length > 0) {
+            // 元数据条：模型 | 比例 | 画质 | 耗时（低饱和小字，紧贴成图上方）。
+            if (msg.imageMeta !== undefined && msg.imageMeta.length > 0) {
+              Text(msg.imageMeta)
+                .fontSize(11)
+                .fontColor($r('app.color.text_muted'))
+                .width('100%')
+                .margin({ top: 8, bottom: 6 })
+            }
+            Column({ space: 8 }) {
+              ForEach(msg.imageUrls, (url: string) => {
+                Column() {
+                  Image(url)
+                    .width('100%')
+                    .height('100%')
+                    .objectFit(ImageFit.Contain)
+                    .borderRadius(16)
+                    .onClick(() => {
+                      this.previewImage = url;
+                    })
+                }
+                .width(msg.imageUrls !== undefined && msg.imageUrls.length > 1 ? '78%' : '82%')
+                .aspectRatio(msg.imageAspect !== undefined ? msg.imageAspect : 1)
+                .backgroundColor($r('app.color.chat_fill'))
+                .borderRadius(16)
+                .border({ width: 1, color: $r('app.color.chat_border') })
+              }, (url: string) => url)
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+
+            // 轻量操作行：预览 / 复制链接 / 浏览器打开（移动端无 hover，常驻显示）。
+            Row({ space: 16 }) {
+              Text('预览')
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .onClick(() => {
+                  if (msg.imageUrls !== undefined && msg.imageUrls.length > 0) {
+                    this.previewImage = msg.imageUrls[0];
+                  }
+                })
+              Text('复制链接')
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .onClick(() => {
+                  this.copyImageLink(msg);
+                })
+              Text('浏览器打开')
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .onClick(() => {
+                  if (msg.imageUrls !== undefined && msg.imageUrls.length > 0) {
+                    this.openExternalUrl(msg.imageUrls[0]);
+                  }
+                })
+            }
+            .width('100%')
+            .margin({ top: 6 })
+          }
           // 联网搜索来源：官方同款胶囊（站点图标堆叠 + N 个网页），点开在下方展开明细。
           if (this.sourcesOf(msg).length > 0) {
             this.SourcePill(msg)
@@ -4988,9 +5300,11 @@ export struct ChatView {
       this.AnswerAction($r('app.media.ic_copy'), false, msg.content.length === 0, () => {
         this.copyMessage(msg);
       })
-      this.AnswerAction($r('app.media.ic_speaker'), this.isReading(msg.id), msg.content.length === 0, () => {
-        this.toggleReadAloud(msg);
-      })
+      if (this.featureTts) {
+        this.AnswerAction($r('app.media.ic_speaker'), this.isReading(msg.id), msg.content.length === 0, () => {
+          this.toggleReadAloud(msg);
+        })
+      }
       Blank()
       this.AnswerAction($r('app.media.ic_refresh'), false, false, () => {
         this.regenerateFrom(msg);
@@ -5027,3 +5341,8 @@ export struct ChatView {
     .borderRadius(14)
   }
 }
+
+
+
+
+
