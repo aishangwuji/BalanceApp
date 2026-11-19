@@ -210,6 +210,19 @@ last_verified: 2026-11-19
   18 条；`hvigor assembleHap` 构建通过。真机 E2E 被应用锁挡住（系统人脸/指纹不可远程驱动），
   需用户解锁后自行发一条提问确认。
 
+## 更新检查（2026-11-19，构建通过）
+
+- `services/UpdateService.ets`：运行时读 `BundleInfo.versionName` 与 release `tag_name` 做逐段数值比较；
+  源顺序 **Gitee API → GitHub API**（国内 GitHub 常不可达）；资产优先 `.hap`，其次 `.apk`/首个附件；
+  网络失败返回 null、不抛错；静默检查 12 小时节流（`update_prefs.last_check_ts`）。
+- 设置页「关于」分组：检查更新（显示当前版本，发现新版弹窗展示 release body + 去下载）、
+  开源主页；下载用 `startAbility(viewData)` 交给系统浏览器——HarmonyOS 不允许应用静默安装 HAP。
+- 对话页 `aboutToAppear` 静默检查一次，有新版只 toast 提示一次。
+- 发布约束（详见 `docs/release.md`）：`versionName` 与 tag 必须同步递增；release 必须挂 `.hap`；
+  GitHub 与 Gitee 都要发，否则国内用户会落到 GitHub 兜底而检查失败。
+- 签名：`BalanceApp/build-profile.json5` 入库版本**不含 signingConfigs**（本机路径+加密密码），
+  开发者本地用 DevEco 生成；本机用 `git update-index --skip-worktree` 保持干净。
+
 ## 已移除：上下文净化 Topic Gate / Jev（2026-11-19 删除）
 
 - 原实现（2026-10-20 落地）：写时按句判定切题、把掩码随消息持久化，回放时投影；
