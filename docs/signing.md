@@ -80,3 +80,13 @@ git update-index --skip-worktree BalanceApp/build-profile.json5
 - 换 `bundleName`（例如从 `com.example.balanceapp` 改成 `com.example.openchat`）→ 视为新应用，
   旧数据不共享、旧证书也不能再用，必须重新签名；
 - 发布新版只要 `versionName/versionCode` 递增，签名保持一致即可原地升级。
+
+### 命令行签名（可选，等价于 DevEco 图形操作）
+
+```powershell
+devecocli auth login          # 浏览器登录华为开发者账号，只需一次
+devecocli signature generate --force
+```
+
+`signature generate` 会生成 p12/csr/cer/p7b 并写回 `build-profile.json5`，
+随后 `hvigorw assembleHap` 即可产出已签名 HAP。
