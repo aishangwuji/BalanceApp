@@ -41,6 +41,26 @@ last_verified: 2026-11-19
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 聊天页蓝白化（2026-11-19，构建通过）
+
+- 范围：只切聊天页（ChatView + 两个能力胶囊组件 + Markdown 正文），设置页/资产页仍为暖金，
+  用户选择分阶段迁移。新增 `chat_*` 语义色，base/dark 各一套：
+  `chat_surface`(#FFFFFF/#1B1B1F)、`chat_surface_alt`、`chat_border`、`chat_fill`、
+  `chat_user_bubble`(#E8EEFC/#26304F)、`chat_user_text`、`chat_accent`(#4D6BFE/#8FA6FF)、
+  `chat_accent_soft`、`chat_accent_soft_selected`、`chat_accent_solid`、`chat_accent_contrast`、
+  `chat_accent_outline`。
+- 做法：ChatView 内原 `accent* / surface* / border_* / input_bg / icon_tile / fill / user_bubble_text`
+  全部按 token 粒度替换为 `chat_*`（139 处），组件 ThinkingButton/WebSearchButton 的
+  off 态底色改用 `chat_fill`。**不要改全局 accent**——那会连带设置/资产页。
+- 版式：用户气泡 22/22/6/22 圆角、无描边、16 号字；消息区左右 20；思考条 14；来源胶囊
+  38 高 / 19 圆角 / 13 号字；输入卡片 28 圆角、16 内边距、占位 16 号；卡片下方加
+  「回答由 AI 生成，内容仅供参考」；能力胶囊 32 高。
+- 顶栏：新增喇叭（朗读最后一条有正文的回答，朗读中柔蓝底高亮）与写消息（新建会话并直接
+  进入角色选择，复用抽屉「+ 新会话」流程）两个入口；标题 16 号。
+- 回答操作条图标由 #8A8578 加深到 #6A6C72（纯白底上更清楚）。
+- 真机 dumpLayout 核对：`新对话` 标题、`深度思考`/`智能搜索` 胶囊（y≈2406）、
+  底部说明（y≈2568）均在屏内，底边留白正常。
+
 ## 自动会话标题（2026-11-19，构建通过）
 
 - 请求：Chat Completions 顶层加 `title:{enabled:true}`（DeepSeek 扩展字段，其他服务商透传会 400，
@@ -84,9 +104,12 @@ last_verified: 2026-11-19
   - `POST https://api.deepseek.com/v1/tools/tts`，体 `{text, voice_id, format:'wav'}`，
     `expectDataType=ARRAY_BUFFER`；服务端默认 `filter_markdown=true`，客户端不清洗 Markdown；
     文本按 UTF-16 长度截断到 10000（服务端计费字符上限更宽松）。
-  - 音频写 `context.cacheDir/tts_<ts>.wav`，AVPlayer `fdSrc` 播放；completed/error/替换/离开页面
-    统一 `stopPlayback()`：release 播放器、关 fd、删缓存。
-  - 旧播放的迟到回调按 `session` 自增号丢弃（避免误清新会话状态）。
+  - **本地缓存**：音频写 `cacheDir/tts_cache/<FNV-1a(voice|text)>.wav`，同一段回答 + 同一音色
+    只合成一次；停止播放**不删文件**，再次点朗读直接命中缓存播放——不发请求、不重复计费。
+    先写 `.tmp` 再 rename，避免半截文件被当成缓存；缓存按 16 个 / 40MB 水位按 mtime 淘汰最旧。
+  - 并发守卫：`pendingKey` 让同一段正在合成时的重复点击直接忽略；`callId`（复用 session 自增号）
+    让旧请求回来时不再抢占播放器。
+  - AVPlayer `fdSrc` 播放；completed/error 释放播放器与 fd 句柄。
   - Key 取 `key_deepseek`（TTS 是 DeepSeek 专属能力，与当前服务商无关），缺失时提示去资产监控配置。
   - 入口：回答下方操作条 `AnswerActions`（复制 / 朗读 / 重新生成，图标 `ic_copy`、`ic_speaker`、
     `ic_refresh`）——朗读与「打断朗读」是同一个按钮，播放中按钮以柔色底高亮；再点即停。
