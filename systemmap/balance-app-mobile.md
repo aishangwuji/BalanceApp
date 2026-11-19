@@ -115,7 +115,10 @@ last_verified: 2026-10-23
   厂商内置兜底（DeepSeek/Kimi/MiMo），其余返回空。
 - 仅列出已配置 Key 的厂商：`ChatController.loadConfiguredProviders` 逐个读安全存储。
 
-### Jev 上下文净化
+### Jev 上下文净化（鸿蒙端已移除，移动端待同步）
+
+> 2026-11-19：鸿蒙端已整体删除上下文净化（`TopicGateService`/`JevService`/设置面板），
+> 判断为「多余功能」；移动端 Flutter 侧暂保留，后续做功能对齐时应一并移除，避免两端能力分叉。
 
 - `JevService`：固定两个渠道与模型（`typesafe` / `openrouter`），一次请求合并所有分段，
   Noul 问句返回 `answers.segment_i.noul`。
