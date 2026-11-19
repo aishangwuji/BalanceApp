@@ -17,7 +17,6 @@ import {
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
 import { ChatStorageService } from '../services/ChatStorageService';
-import { TopicGateService, TopicGateConfig } from '../services/TopicGateService';
 import { AuthService } from '../services/AuthService';
 import { ChatMessageDataSource } from '../services/ChatMessageDataSource';
 import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
@@ -699,29 +698,6 @@ export struct ChatView {
   private async saveState(): Promise<void> {
     await ChatStorageService.saveSessions(this.sessions);
     await ChatStorageService.saveActiveSessionId(this.currentSessionId);
-  }
-
-  /**
-   * 写时上下文净化：为刚写入历史的助手回复附加切题掩码。
-   * Business Rule: 主题取产生该回复的用户消息（parentMsg），不是当前会话主题——
-   *   会话漂移后仍按当时的主题判定，避免误删当时切题的内容。
-   *   判定失败/未配置时静默跳过（fail-open），绝不阻塞或回滚已交付的回复。
-   */
-  private async gateTopic(message: ChatMessage, topicText: string): Promise<void> {
-    try {
-      const uiCtx = this.getUIContext();
-      const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
-      const config: TopicGateConfig = await TopicGateService.loadConfig(hostCtx);
-      if (!config.enabled) {
-        return;
-      }
-      const attached: boolean = await TopicGateService.annotate(message, topicText, config);
-      if (attached) {
-        await this.saveState();
-      }
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'topic gate annotation failed: %{public}s', String(err));
-    }
   }
 
   private scrollToBottom(): void {
@@ -2384,7 +2360,6 @@ export struct ChatView {
           activeChildId: h.activeChildId,
           speakerId: h.speakerId,
           mentionedIds: [],
-          topicMask: h.topicMask,
           // 文档附件必须随历史回传，否则追问会丢上下文（服务端靠 file_id 还原文档）。
           attachments: h.attachments,
         };
@@ -2493,8 +2468,6 @@ export struct ChatView {
           // Reason: status 与折叠态都进入单条消息渲染键；同步数据源可刷新当前项而不重建整表。
           this.rebuildSessionReference();
           this.saveState();
-          // 写时上下文净化：判定在回复交付之后异步进行，不影响本轮输出。
-          this.gateTopic(assistantMsg, parentMsg.content);
           finish();
         },
         onError: (errMsg: string) => {
@@ -2720,14 +2693,6 @@ export struct ChatView {
           // 中断时搜索可能仍在进行：清掉过程态，保留已拿到的来源（用户仍可回看）。
           lastMsg.searchState = undefined;
           lastMsg.searchHint = undefined;
-          // 中断的回复同样会落入历史，按同一规则判定其产生时的主题。
-          const sess: ChatSession | undefined = this.getCurrentSession();
-          if (sess !== undefined) {
-            const parent: ChatMessage | undefined = this.findMessage(sess, lastMsg.parentId);
-            if (parent !== undefined) {
-              this.gateTopic(lastMsg, parent.content);
-            }
-          }
         }
       }
       this.rebuildSessionReference();

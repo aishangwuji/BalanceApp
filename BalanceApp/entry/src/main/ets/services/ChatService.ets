@@ -21,7 +21,6 @@ import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ChatMessage, CitationRange, MessageAttachment } from '../models/ChatModels';
 import { findProvider, ProviderDefinition } from './ProviderRegistry';
-import { applyTopicMask } from './TopicGateService';
 import { SearchProgress, WebSearchService } from './WebSearchService';
 
 const DOMAIN = 0x0000;
@@ -336,9 +335,7 @@ export class ChatService {
       if (m.role !== 'user' && m.role !== 'assistant') {
         continue;
       }
-      // 写时净化：助手历史按持久化掩码投影（原文与界面不变，仅影响本次请求）。
-      // 掩码缺失/长度不符时 applyTopicMask 原样返回，故旧数据无需迁移。
-      const replayContent: string = m.role === 'assistant' ? applyTopicMask(m.content, m.topicMask) : m.content;
+      const replayContent: string = m.content;
       // 纯附件消息（只发文件不打字）也必须保留，否则追问会丢文档。
       const hasAtts: boolean = m.role === 'user' && enableFiles &&
         m.attachments !== undefined && m.attachments.length > 0;

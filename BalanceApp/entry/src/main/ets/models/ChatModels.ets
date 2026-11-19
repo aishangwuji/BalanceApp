@@ -8,17 +8,6 @@
 export type MessageRole = 'user' | 'assistant' | 'system';
 
 /**
- * 写时上下文净化掩码（topic gate）。
- * Business Rule: 判定只在消息写入历史时做一次，之后回放按 keep 投影；
- *   topic 记录该消息产生时的主题（非当前主题），避免会话漂移后误删当时切题的内容。
- *   keep 与切段结果一一对应，长度不符时回放 fail-open（保留全文）。
- */
-export interface TopicGateMask {
-  topic: string;
-  keep: boolean[];
-}
-
-/**
  * 联网搜索结构化来源（DeepSeek 服务端工具 web_search_tool_result / url_citation）。
  * Business Rule: url 是来源的唯一身份，合并去重一律按 url；其余字段只用于展示，
  *   缺失时由界面兜底（站点名回退到主机名、标题回退到 url）。
@@ -79,8 +68,6 @@ export interface ChatMessage {
   speakerId: string;
   /** 本条用户消息 @ 的角色卡 id（助手消息为空）。 */
   mentionedIds: string[];
-  /** 助手消息的上下文净化掩码；未判定/不适用时缺省。 */
-  topicMask?: TopicGateMask;
   /**
    * 联网搜索来源（按 url 去重、按出现顺序排列）。持久化，历史会话可直接回看来源卡片。
    * Reason: 服务端工具只在本轮把来源下发给客户端，后续轮次不再重现，故必须本地留存。

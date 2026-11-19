@@ -30,20 +30,6 @@ export const KEY_APP_DARK = 'app_dark'; // boolean
 export const KEY_APP_LOCK_ENABLED = 'app_lock_enabled'; // boolean
 /** 当前应用是否处于锁定态；由 EntryAbility 切后台时置 true，认证通过后置 false。 */
 export const KEY_APP_LOCKED = 'app_locked'; // boolean
-/** 上下文净化（Jev topic gate）开关；关闭时不发起任何判定。 */
-export const KEY_TOPIC_GATE_ENABLED = 'topic_gate_enabled'; // boolean
-/**
- * System One 渠道：'typesafe'（Jev 官方直连）| 'openrouter'。
- * Business Rule: 两个渠道各有独立的 Key，互不复用——OpenRouter Key 不能打官方端点。
- */
-export const KEY_TOPIC_GATE_CHANNEL = 'topic_gate_channel'; // string
-export const KEY_SYSTEM_ONE_KEY_TYPESAFE = 'key_jev_typesafe'; // string
-export const KEY_SYSTEM_ONE_KEY_OPENROUTER = 'key_jev_openrouter'; // string
-export const SYSTEM_ONE_CHANNEL_TYPESAFE = 'typesafe';
-export const SYSTEM_ONE_CHANNEL_OPENROUTER = 'openrouter';
-/** 切题概率阈值，低于该值的分段不参与回放。 */
-export const KEY_TOPIC_GATE_THRESHOLD = 'topic_gate_threshold'; // number 0~1
-export const DEFAULT_TOPIC_GATE_THRESHOLD: number = 0.5;
 
 // 7 档字体缩放系数，第 3 档为标准大小 (1.0)
 export const FONT_SCALE_LEVELS: number[] = [0.85, 0.92, 1.0, 1.08, 1.16, 1.25, 1.35];
@@ -107,22 +93,6 @@ export class SettingsService {
       } else if (!appLockEnabled) {
         AppStorage.setOrCreate<boolean>(KEY_APP_LOCKED, false);
       }
-
-      // 5. 上下文净化：启用态与阈值进 AppStorage，Key/端点留 Preferences（不扩散）。
-      const gateVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_TOPIC_GATE_ENABLED, false);
-      let gateEnabled: boolean = false;
-      if (typeof gateVal === 'boolean') {
-        gateEnabled = gateVal;
-      }
-      AppStorage.setOrCreate<boolean>(KEY_TOPIC_GATE_ENABLED, gateEnabled);
-
-      const thresholdVal: preferences.ValueType =
-        await SettingsService.prefsInstance.get(KEY_TOPIC_GATE_THRESHOLD, DEFAULT_TOPIC_GATE_THRESHOLD);
-      let threshold: number = DEFAULT_TOPIC_GATE_THRESHOLD;
-      if (typeof thresholdVal === 'number' && thresholdVal >= 0 && thresholdVal <= 1) {
-        threshold = thresholdVal;
-      }
-      AppStorage.setOrCreate<number>(KEY_TOPIC_GATE_THRESHOLD, threshold);
 
       hilog.info(DOMAIN, TAG, 'SettingsService initialized successfully: appearance=%{public}s, fontLevel=%{public}d, autoCollapse=%{public}s, appLock=%{public}s',
         appearance, fontLevel, String(autoCollapse), String(appLockEnabled));
@@ -291,109 +261,7 @@ export class SettingsService {
   }
 
   /**
-   * 上下文净化开关。
-   * Business Rule: 关闭时立即停止判定与回放投影，已写入历史的掩码保留但不生效（可随时重开）。
-   */
-  public static async setTopicGateEnabled(context: common.UIAbilityContext, enabled: boolean): Promise<void> {
-    AppStorage.setOrCreate<boolean>(KEY_TOPIC_GATE_ENABLED, enabled);
-
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      await SettingsService.prefsInstance.put(KEY_TOPIC_GATE_ENABLED, enabled);
-      await SettingsService.prefsInstance.flush();
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'setTopicGateEnabled save failed: %{public}s', String(err));
-    }
-  }
-
-  /** 切题概率阈值（0~1，越严格越高）。 */
-  public static async setTopicGateThreshold(context: common.UIAbilityContext, threshold: number): Promise<void> {
-    const valid: number = Math.max(0, Math.min(1, threshold));
-    AppStorage.setOrCreate<number>(KEY_TOPIC_GATE_THRESHOLD, valid);
-
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      await SettingsService.prefsInstance.put(KEY_TOPIC_GATE_THRESHOLD, valid);
-      await SettingsService.prefsInstance.flush();
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'setTopicGateThreshold save failed: %{public}s', String(err));
-    }
-  }
-
-  /** 选择 System One 渠道并持久化。 */
-  public static async setTopicGateChannel(context: common.UIAbilityContext, channel: string): Promise<void> {
-    const valid: string = channel === SYSTEM_ONE_CHANNEL_OPENROUTER
-      ? SYSTEM_ONE_CHANNEL_OPENROUTER : SYSTEM_ONE_CHANNEL_TYPESAFE;
-
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      await SettingsService.prefsInstance.put(KEY_TOPIC_GATE_CHANNEL, valid);
-      await SettingsService.prefsInstance.flush();
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'setTopicGateChannel save failed: %{public}s', String(err));
-    }
-  }
-
-  public static async getTopicGateChannel(context: common.UIAbilityContext): Promise<string> {
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      const val: preferences.ValueType =
-        await SettingsService.prefsInstance.get(KEY_TOPIC_GATE_CHANNEL, SYSTEM_ONE_CHANNEL_TYPESAFE);
-      return typeof val === 'string' && (val as string) === SYSTEM_ONE_CHANNEL_OPENROUTER
-        ? SYSTEM_ONE_CHANNEL_OPENROUTER : SYSTEM_ONE_CHANNEL_TYPESAFE;
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'getTopicGateChannel failed: %{public}s', String(err));
-      return SYSTEM_ONE_CHANNEL_TYPESAFE;
-    }
-  }
-
-  /** 保存指定 System One 渠道的 Key；传空字符串表示清除。Key 只落本机 Preferences，不进日志。 */
-  public static async setSystemOneKey(
-    context: common.UIAbilityContext,
-    channel: string,
-    apiKey: string
-  ): Promise<void> {
-    const prefKey: string = channel === SYSTEM_ONE_CHANNEL_OPENROUTER
-      ? KEY_SYSTEM_ONE_KEY_OPENROUTER : KEY_SYSTEM_ONE_KEY_TYPESAFE;
-
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      await SettingsService.prefsInstance.put(prefKey, apiKey.trim());
-      await SettingsService.prefsInstance.flush();
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'setSystemOneKey save failed: %{public}s', String(err));
-    }
-  }
-
-  /** 读取指定 System One 渠道的 Key（设置页回显与判定服务共用）。 */
-  public static async getSystemOneKey(context: common.UIAbilityContext, channel: string): Promise<string> {
-    const prefKey: string = channel === SYSTEM_ONE_CHANNEL_OPENROUTER
-      ? KEY_SYSTEM_ONE_KEY_OPENROUTER : KEY_SYSTEM_ONE_KEY_TYPESAFE;
-
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      const val: preferences.ValueType = await SettingsService.prefsInstance.get(prefKey, '');
-      return typeof val === 'string' ? val as string : '';
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'getSystemOneKey failed: %{public}s', String(err));
-      return '';
-    }
-  }
-
-  /**
-   * System Two 渠道 Key：与资产监控共用 `key_<providerId>`，不另存第二份。
+   * 对话服务商 Key：与资产监控共用 `key_<providerId>`，不另存第二份。
    * Business Rule: 两处入口写同一个偏好键，避免「设置页改了、资产页还是旧 Key」的双源问题。
    */
   public static async getProviderKey(context: common.UIAbilityContext, providerId: string): Promise<string> {
