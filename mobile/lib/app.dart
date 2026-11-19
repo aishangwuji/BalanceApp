@@ -43,7 +43,7 @@ class _AppView extends StatelessWidget {
     final Locale locale =
         Locale(settings.language == 'en-US' ? 'en' : 'zh');
     return MaterialApp(
-      title: 'BalanceApp',
+      title: 'openchat',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
@@ -150,3 +150,4 @@ class _StartupGateState extends State<StartupGate> {
     return const ChatPage();
   }
 }
+
