@@ -131,6 +131,11 @@ export interface ChatSession {
   userIdentityId: string;
   /** 保密会话：打开该会话记录前必须通过人脸/指纹认证。 */
   isPrivate: boolean;
+  /**
+   * 是否已尝试过自动生成会话标题（首轮回答完成即置 true，不再重复请求）。
+   * Business Rule: 服务端标题最多多等 5 秒且只在首轮有价值；用该位保证每个会话只试一次。
+   */
+  autoTitled: boolean;
 }
 
 export interface ModelInfo {

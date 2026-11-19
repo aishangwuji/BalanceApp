@@ -298,6 +298,7 @@ export class ChatStorageService {
         joinMap: joinMap,
         userIdentityId: typeof rec['userIdentityId'] === 'string' ? rec['userIdentityId'] as string : '',
         isPrivate: rec['isPrivate'] === true,
+        autoTitled: rec['autoTitled'] === true,
       };
       out.push(session);
     }

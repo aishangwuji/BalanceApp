@@ -43,6 +43,11 @@ export interface StreamCallbacks {
   onSearch?: (progress: SearchProgress) => void;
   /** 服务端下发的引用位标（末块 annotations）；按区间保留，展示层再按 url 归并来源。 */
   onCitations?: (citations: CitationRange[]) => void;
+  /**
+   * 会话标题（仅首轮请求声明 title 时下发，位于最后一个 chunk 的 delta.title）。
+   * Business Rule: 服务端不保证给标题（拒答/出错时没有），调用方需保留本地兜底标题。
+   */
+  onTitle?: (title: string) => void;
 }
 
 export interface ChatRequestOptions {
@@ -61,6 +66,11 @@ export interface ChatRequestOptions {
    * Business Rule: 仅 DeepSeek 支持，是否真的发起搜索由模型判断（客户端不跑工具循环）。
    */
   enableWebSearch?: boolean;
+  /**
+   * 会话标题开关：声明 DeepSeek 的 `title:{enabled:true}`，回答末尾顺带返回简短标题。
+   * Business Rule: 只在会话首轮开启（服务端最多多等 5 秒）；标题不计费。
+   */
+  enableTitle?: boolean;
 }
 
 export class ChatService {
@@ -161,6 +171,13 @@ export class ChatService {
                       const cites: CitationRange[] = WebSearchService.parseCitations(delta);
                       if (cites.length > 0) {
                         callbacks.onCitations(cites);
+                      }
+                    }
+                    // 会话标题同样只出现在最后一个 chunk 的 delta 里。
+                    if (callbacks.onTitle !== undefined) {
+                      const titleVal: ESObject = deltaRec['title'];
+                      if (typeof titleVal === 'string' && (titleVal as string).trim().length > 0) {
+                        callbacks.onTitle((titleVal as string).trim());
                       }
                     }
                   }
@@ -381,6 +398,12 @@ export class ChatService {
     //   故保留下面的温度配置不影响行为，也无需为开关另开分支。
     if (options.enableWebSearch === true && WebSearchService.isSupported(options.providerId)) {
       payloadObj['tools'] = WebSearchService.buildToolDeclaration() as ESObject;
+    }
+
+    // 会话标题：DeepSeek 扩展字段，与 tools 并列放在顶层；其他服务商不认这个字段，不能透传。
+    if (options.enableTitle === true && options.providerId === 'deepseek') {
+      const titleCfg: Record<string, boolean> = { 'enabled': true };
+      payloadObj['title'] = titleCfg as ESObject;
     }
 
     const thinkingOn: boolean = options.enableThinking === true && def.supportsThinking === true;

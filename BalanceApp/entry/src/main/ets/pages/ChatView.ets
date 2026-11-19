@@ -875,6 +875,7 @@ export struct ChatView {
       joinMap: {},
       userIdentityId: '',
       isPrivate: false,
+      autoTitled: false,
     };
     this.currentCharacterId = '';
 
@@ -1829,6 +1830,34 @@ export struct ChatView {
     return path.length > 0 ? path[path.length - 1].id : '';
   }
 
+  /**
+   * 本地兜底标题：取用户消息前 14 字。
+   * Business Rule: 服务端标题可能缺失（拒答/出错），且只在本轮返回一次；
+   *   因此发送时就先写一个兜底标题，拿到服务端标题再覆盖。
+   */
+  private defaultTitleFor(text: string): string {
+    const trimmed: string = text.trim();
+    return trimmed.length > 14 ? `${trimmed.substring(0, 14)}...` : trimmed;
+  }
+
+  /** 当前分支上第一条用户消息（用于判断标题是否仍为自动生成）。 */
+  private firstUserText(): string {
+    const path: ChatMessage[] = this.activePath();
+    let i: number = 0;
+    while (i < path.length) {
+      if (path[i].role === 'user') {
+        return path[i].content;
+      }
+      i += 1;
+    }
+    return '';
+  }
+
+  /** 标题是否仍为自动生成（用户手动重命名过就不再让服务端覆盖）。 */
+  private isAutoTitle(sess: ChatSession): boolean {
+    return sess.title === '新对话' || sess.title === this.defaultTitleFor(this.firstUserText());
+  }
+
   private async sendMessage(): Promise<void> {
     const text: string = this.inputText.trim();
     if (text.length === 0 || this.isGenerating) {
@@ -1848,7 +1877,7 @@ export struct ChatView {
     this.noticeText = '';
 
     if (sess.title === '新对话') {
-      sess.title = text.length > 14 ? `${text.substring(0, 14)}...` : text;
+      sess.title = this.defaultTitleFor(text);
     }
 
     // 新消息挂在当前激活分支的叶节点之下；@ 以选择器+文本扫描双通道校对后落库。
@@ -2026,6 +2055,14 @@ export struct ChatView {
           assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, citeSources);
           this.rebuildSessionReference();
         },
+        onTitle: (title: string) => {
+          // 用户已手动重命名过就不覆盖；否则用服务端标题替换本地兜底标题。
+          if (!this.isAutoTitle(sess)) {
+            return;
+          }
+          sess.title = title;
+          this.rebuildSessionReference();
+        },
         onComplete: () => {
           assistantMsg.status = 'success';
           this.isGenerating = false;
@@ -2047,6 +2084,10 @@ export struct ChatView {
           // 过程态只服务流式展示：落盘前清掉，避免历史里留下永不结束的「搜索中」。
           assistantMsg.searchState = undefined;
           assistantMsg.searchHint = undefined;
+          // 标题只试一次：本轮开过 title 就记下，后续回复不再请求（失败时保留兜底标题）。
+          if (titleEnabled) {
+            sess.autoTitled = true;
+          }
           // Reason: status 与折叠态都进入单条消息渲染键；同步数据源可刷新当前项而不重建整表。
           this.rebuildSessionReference();
           this.saveState();
@@ -2067,6 +2108,10 @@ export struct ChatView {
         }
       };
 
+      // 会话标题：每个会话只请求一次（session.autoTitled），且只在标题仍是自动生成时覆盖；
+      // 服务端最多多等 5 秒，标题不计费。非 DeepSeek 服务商由 ChatService 内部拦掉。
+      const titleEnabled: boolean = !sess.autoTitled && this.isAutoTitle(sess);
+
       this.abortStreaming = ChatService.streamChat({
         providerId: this.currentProviderId,
         apiKey: this.currentApiKey,
@@ -2077,7 +2122,9 @@ export struct ChatView {
         enableThinking: this.enableThinking,
         reasoningEffort: 'high',
         // 联网搜索：服务端工具只在 DeepSeek 生效；关闭时不声明 tools，行为与旧版完全一致。
-        enableWebSearch: this.enableWebSearch && WebSearchService.isSupported(this.currentProviderId)
+        enableWebSearch: this.enableWebSearch && WebSearchService.isSupported(this.currentProviderId),
+        // 会话标题：服务端扩展字段（仅 DeepSeek），首轮才开启。
+        enableTitle: titleEnabled
       }, callbacks);
     });
   }
