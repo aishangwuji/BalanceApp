@@ -6,3 +6,6 @@
 # 编辑器
 .idea/
 .vscode/
+
+dist/
+
