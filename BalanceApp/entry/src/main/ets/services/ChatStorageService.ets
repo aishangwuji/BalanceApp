@@ -8,7 +8,7 @@
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { CharacterCard, ChatMessage, ChatSession, CitationRange, MessageRole, SearchSource, TopicGateMask, UserIdentityCard } from '../models/ChatModels';
+import { CharacterCard, ChatMessage, ChatSession, CitationRange, MessageAttachment, MessageRole, SearchSource, TopicGateMask, UserIdentityCard } from '../models/ChatModels';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatStorageService';
@@ -21,6 +21,8 @@ const KEY_ACTIVE_SESSION_ID = 'active_session_id';
 const MAX_SEARCH_SOURCES = 24;
 /** 单条消息引用位标上限（正常回答远小于此，仅防异常数据）。 */
 const MAX_CITATIONS = 200;
+/** 单条消息的文档附件上限（与官方单请求 20 个文档一致）。 */
+const MAX_ATTACHMENTS = 20;
 
 /**
  * 默认角色卡列表：空。
@@ -353,6 +355,7 @@ export class ChatStorageService {
       topicMask: ChatStorageService.normalizeTopicMask(rec['topicMask']),
       sources: ChatStorageService.normalizeSources(rec['sources']),
       citations: ChatStorageService.normalizeCitations(rec['citations']),
+      attachments: ChatStorageService.normalizeAttachments(rec['attachments']),
     };
     const childRaw: ESObject = rec['childIds'];
     if (Array.isArray(childRaw)) {
@@ -503,6 +506,40 @@ export class ChatStorageService {
         end: end
       };
       out.push(cite);
+    }
+    return out.length > 0 ? out : undefined;
+  }
+
+  /**
+   * 边界校验：文档附件来自持久化 JSON。
+   * Business Rule: file_id 必须是非空字符串（否则请求里无法引用），文件名缺失给占位；
+   *   上限 20（服务端单请求最多引用 20 个文档）。
+   */
+  private static normalizeAttachments(raw: ESObject): MessageAttachment[] | undefined {
+    if (!Array.isArray(raw)) {
+      return undefined;
+    }
+    const arr: ESObject[] = raw as ESObject[];
+    const out: MessageAttachment[] = [];
+    let i: number = 0;
+    while (i < arr.length && out.length < MAX_ATTACHMENTS) {
+      const item: ESObject = arr[i];
+      i += 1;
+      if (item === null || typeof item !== 'object') {
+        continue;
+      }
+      const rec: Record<string, ESObject> = item as Record<string, ESObject>;
+      const idVal: ESObject = rec['fileId'];
+      if (typeof idVal !== 'string' || (idVal as string).trim().length === 0) {
+        continue;
+      }
+      const att: MessageAttachment = {
+        fileId: (idVal as string).trim(),
+        fileName: typeof rec['fileName'] === 'string' ? rec['fileName'] as string : '文件',
+        purpose: typeof rec['purpose'] === 'string' ? rec['purpose'] as string : 'text_recognition',
+        bytes: typeof rec['bytes'] === 'number' ? rec['bytes'] as number : 0
+      };
+      out.push(att);
     }
     return out.length > 0 ? out : undefined;
   }

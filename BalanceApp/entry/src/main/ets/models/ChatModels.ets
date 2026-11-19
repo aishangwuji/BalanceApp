@@ -46,6 +46,19 @@ export interface CitationRange {
   end: number;
 }
 
+/**
+ * 用户消息上的文档附件（DeepSeek Files API 的 file_id）。
+ * Business Rule: 文档由服务端解析后只保留 file_id；请求里以
+ *   content:[{type:'file', file_id}, {type:'text', text}] 引用，不再上传原文。
+ */
+export interface MessageAttachment {
+  fileId: string;
+  fileName: string;
+  /** 上传时的解析方式：text_recognition / rich_layout_recognition / user_data。 */
+  purpose: string;
+  bytes: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -82,6 +95,8 @@ export interface ChatMessage {
    * 持久化——历史会话重开时仍要能还原角标位置。
    */
   citations?: CitationRange[];
+  /** 用户消息携带的文档（DeepSeek Files API）；持久化，历史轮次继续以 file_id 引用。 */
+  attachments?: MessageAttachment[];
 }
 
 export interface CharacterCard {

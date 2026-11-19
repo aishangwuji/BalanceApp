@@ -19,7 +19,7 @@
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { ChatMessage, CitationRange } from '../models/ChatModels';
+import { ChatMessage, CitationRange, MessageAttachment } from '../models/ChatModels';
 import { findProvider, ProviderDefinition } from './ProviderRegistry';
 import { applyTopicMask } from './TopicGateService';
 import { SearchProgress, WebSearchService } from './WebSearchService';
@@ -35,8 +35,13 @@ const READ_TIMEOUT = 90000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_CHARS = 12000;
 
-export interface StreamCallbacks {
-  onToken: (token: string, reasoningChunk?: string) => void;
+/** 待发消息条目：item 为最终请求体，chars 仅用于本地历史预算（非服务端 token 估算）。 */
+interface ApiMessageEntry {
+  item: Record<string, ESObject>;
+  chars: number;
+}
+
+export interface StreamCallbacks {  onToken: (token: string, reasoningChunk?: string) => void;
   onComplete: () => void;
   onError: (error: string) => void;
   /** 服务端联网工具过程事件（deepseek_web_search）；未声明工具的请求不会回调。 */
@@ -97,8 +102,9 @@ export class ChatService {
     const decoder: util.TextDecoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
 
     // 多轮拼接：/chat/completions 无状态，须每轮回传 system + 历史（见 buildApiMessages）。
-    const formattedMessages: Record<string, string>[] =
-      ChatService.buildApiMessages(options.messages, options.systemPrompt);
+    const formattedMessages: Record<string, ESObject>[] =
+      ChatService.buildApiMessages(options.messages, options.systemPrompt,
+        options.providerId === 'deepseek');
 
     const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, true);
     const bodyStr: string = JSON.stringify(payloadObj);
@@ -255,8 +261,9 @@ export class ChatService {
     const req: http.HttpRequest = http.createHttp();
 
     try {
-      const formattedMessages: Record<string, string>[] =
-        ChatService.buildApiMessages(options.messages, options.systemPrompt);
+      const formattedMessages: Record<string, ESObject>[] =
+        ChatService.buildApiMessages(options.messages, options.systemPrompt,
+          options.providerId === 'deepseek');
 
       const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, false);
 
@@ -310,17 +317,18 @@ export class ChatService {
    * Reason: 长会话无截断会撑爆上下文窗口导致 400/变慢；多会话隔离与持久化由
    *   ChatStorageService 按 session 存全量承担，此处只裁剪本次请求。
    */
-  private static buildApiMessages(messages: ChatMessage[], systemPrompt?: string): Record<string, string>[] {
-    const out: Record<string, string>[] = [];
+  private static buildApiMessages(messages: ChatMessage[], systemPrompt: string | undefined,
+    enableFiles: boolean): Record<string, ESObject>[] {
+    const out: Record<string, ESObject>[] = [];
     if (systemPrompt !== undefined && systemPrompt.trim().length > 0) {
-      const sysMsg: Record<string, string> = {
+      const sysMsg: Record<string, ESObject> = {
         'role': 'system',
         'content': systemPrompt.trim()
       };
       out.push(sysMsg);
     }
     // 先过滤 user/assistant 并拼出待选（含 Preserved Thinking 回传）。
-    const candidates: Record<string, string>[] = [];
+    const candidates: ApiMessageEntry[] = [];
     let i: number = 0;
     while (i < messages.length) {
       const m: ChatMessage = messages[i];
@@ -331,19 +339,47 @@ export class ChatService {
       // 写时净化：助手历史按持久化掩码投影（原文与界面不变，仅影响本次请求）。
       // 掩码缺失/长度不符时 applyTopicMask 原样返回，故旧数据无需迁移。
       const replayContent: string = m.role === 'assistant' ? applyTopicMask(m.content, m.topicMask) : m.content;
-      if (replayContent.length === 0 && !(m.reasoningContent && m.reasoningContent.length > 0)) {
+      // 纯附件消息（只发文件不打字）也必须保留，否则追问会丢文档。
+      const hasAtts: boolean = m.role === 'user' && enableFiles &&
+        m.attachments !== undefined && m.attachments.length > 0;
+      const hasReasoning: boolean = m.reasoningContent !== undefined && m.reasoningContent.length > 0;
+      if (replayContent.length === 0 && !hasReasoning && !hasAtts) {
         continue;
       }
-      const item: Record<string, string> = {
-        'role': m.role,
-        'content': replayContent
+      const item: Record<string, ESObject> = {
+        'role': m.role
       };
+      let chars: number = replayContent.length;
+      // 文档附件：只有 DeepSeek 支持 file 块；其他服务商退回纯文本，避免 400。
+      const atts: MessageAttachment[] | undefined =
+        m.role === 'user' && enableFiles ? m.attachments : undefined;
+      if (atts !== undefined && atts.length > 0) {
+        const parts: ESObject[] = [];
+        let ai: number = 0;
+        // Business Rule: 文档块在前、用户文字在后（官方示例顺序），模型据此定位问题。
+        while (ai < atts.length) {
+          const a: MessageAttachment = atts[ai];
+          ai += 1;
+          const filePart: Record<string, string> = { 'type': 'file', 'file_id': a.fileId };
+          parts.push(filePart as ESObject);
+          chars += a.fileName.length;
+        }
+        if (replayContent.length > 0) {
+          const textPart: Record<string, string> = { 'type': 'text', 'text': replayContent };
+          parts.push(textPart as ESObject);
+        }
+        item['content'] = parts as ESObject;
+      } else {
+        item['content'] = replayContent;
+      }
       // 保留式思考（Preserved Thinking）：Kimi/小米 MiMo 回传 reasoning_content 保多轮思维连贯；
       // DeepSeek 等无 tools 场景传了也被忽略，统一回传无害。
       if (m.role === 'assistant' && m.reasoningContent && m.reasoningContent.length > 0) {
         item['reasoning_content'] = m.reasoningContent;
+        chars += m.reasoningContent.length;
       }
-      candidates.push(item);
+      const entry: ApiMessageEntry = { item: item, chars: chars };
+      candidates.push(entry);
     }
     // 条数截断：仅保留最新 MAX_HISTORY_MESSAGES 条。
     let start: number = 0;
@@ -351,26 +387,21 @@ export class ChatService {
       start = candidates.length - MAX_HISTORY_MESSAGES;
     }
     // 字符截断：从新到旧累加，超预算即丢弃更旧的。
-    const kept: Record<string, string>[] = [];
+    const kept: ApiMessageEntry[] = [];
     let used: number = 0;
     let j: number = candidates.length - 1;
     while (j >= start) {
-      const c: Record<string, string> = candidates[j];
-      let rcLen: number = 0;
-      if (typeof c['reasoning_content'] === 'string') {
-        rcLen = (c['reasoning_content'] as string).length;
-      }
-      const total: number = c['content'].length + c['role'].length + 8 + rcLen;
-      if (kept.length > 0 && used + total > MAX_HISTORY_CHARS) {
+      const c: ApiMessageEntry = candidates[j];
+      if (kept.length > 0 && used + c.chars > MAX_HISTORY_CHARS) {
         break;
       }
       kept.unshift(c);
-      used += total;
+      used += c.chars;
       j -= 1;
     }
     let k: number = 0;
     while (k < kept.length) {
-      out.push(kept[k]);
+      out.push(kept[k].item);
       k += 1;
     }
     return out;
@@ -382,7 +413,7 @@ export class ChatService {
   private static buildPayload(
     options: ChatRequestOptions,
     def: ProviderDefinition,
-    formattedMessages: Record<string, string>[],
+    formattedMessages: Record<string, ESObject>[],
     isStream: boolean
   ): Record<string, ESObject> {
     const payloadObj: Record<string, ESObject> = {

@@ -12,7 +12,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
-  ChatMessage, ChatSession, CharacterCard, CitationRange, ModelInfo, MessageRole, SearchSource, UserIdentityCard
+  ChatMessage, ChatSession, CharacterCard, CitationRange, MessageAttachment, ModelInfo, MessageRole, SearchSource, UserIdentityCard
 } from '../models/ChatModels';
 import { ChatService, StreamCallbacks } from '../services/ChatService';
 import { ModelService } from '../services/ModelService';
@@ -24,6 +24,7 @@ import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from
 import { SearchProgress, WebSearchService } from '../services/WebSearchService';
 import { TtsCallbacks, TtsService } from '../services/TtsService';
 import { SettingsService } from '../services/SettingsService';
+import { FileUploadService, UploadedFile } from '../services/FileUploadService';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
 import { WebSearchButton } from '../components/WebSearchButton';
@@ -43,6 +44,15 @@ const EMPTY_CHARACTER: CharacterCard = {
   id: '', name: '', avatarIcon: '', description: '',
   systemPrompt: '', firstMessage: '', temperature: 0.7, knowledge: '', createdAt: 0,
 };
+
+/** 输入框里待发送的文档（上传/解析完成后才有 fileId）。 */
+interface PendingFile {
+  fileName: string;
+  purpose: string;
+  status: 'uploading' | 'ready';
+  fileId: string;
+  bytes: number;
+}
 
 @Component
 export struct ChatView {
@@ -94,6 +104,8 @@ export struct ChatView {
   @State expandedSourceMsgId: string = '';
   /** 正在朗读的消息 id（'' = 未朗读）；用于菜单文案与图标状态。 */
   @State readingMsgId: string = '';
+  /** 输入框里已选、正在解析或已就绪的文档（最多 3 个）。 */
+  @State pendingFiles: PendingFile[] = [];
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
   @State configuredProviders: ProviderDefinition[] = [];
@@ -1891,9 +1903,137 @@ export struct ChatView {
     return sess.title === '新对话' || sess.title === this.defaultTitleFor(this.firstUserText());
   }
 
+  /** 输入框里已就绪（拿到 file_id）的附件。 */
+  private readyAttachments(): MessageAttachment[] {
+    const out: MessageAttachment[] = [];
+    let i: number = 0;
+    while (i < this.pendingFiles.length) {
+      const pf: PendingFile = this.pendingFiles[i];
+      i += 1;
+      if (pf.status === 'ready' && pf.fileId.length > 0) {
+        const att: MessageAttachment = {
+          fileId: pf.fileId,
+          fileName: pf.fileName,
+          purpose: pf.purpose,
+          bytes: pf.bytes
+        };
+        out.push(att);
+      }
+    }
+    return out;
+  }
+
+  private hasUploadingFile(): boolean {
+    let i: number = 0;
+    while (i < this.pendingFiles.length) {
+      if (this.pendingFiles[i].status === 'uploading') {
+        return true;
+      }
+      i += 1;
+    }
+    return false;
+  }
+
+  /**
+   * 选文件 → 上传解析 → 进入待发送列表。
+   * Business Rule: 文件接口是 DeepSeek 专属，且解析完成才拿到 file_id；
+   *   解析期间不允许发送（见 sendMessage），失败只提示、不占位。
+   */
+  private async pickAttachment(): Promise<void> {
+    if (this.currentProviderId !== 'deepseek') {
+      this.toast('文件解析目前仅支持 DeepSeek');
+      return;
+    }
+    if (this.pendingFiles.length >= 3) {
+      this.toast('一次最多添加 3 个文件');
+      return;
+    }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const key: string = await SettingsService.getProviderKey(hostCtx, 'deepseek');
+    if (key.trim().length === 0) {
+      this.toast('请先在「设置 > 资产监控」配置 DeepSeek API Key');
+      return;
+    }
+    const uri: string = await FileUploadService.pick(hostCtx);
+    if (uri.length === 0) {
+      return;
+    }
+    const fileName: string = FileUploadService.nameFromUri(uri);
+    const purpose: string = FileUploadService.purposeFor(fileName);
+    if (purpose.length === 0) {
+      this.toast('暂不支持该文件格式');
+      return;
+    }
+    const pending: PendingFile = {
+      fileName: fileName,
+      purpose: purpose,
+      status: 'uploading',
+      fileId: '',
+      bytes: 0
+    };
+    this.pendingFiles = this.pendingFiles.concat([pending]);
+
+    try {
+      const up: UploadedFile = await FileUploadService.upload(hostCtx, uri, key, purpose);
+      const next: PendingFile[] = [];
+      let i: number = 0;
+      while (i < this.pendingFiles.length) {
+        const cur: PendingFile = this.pendingFiles[i];
+        i += 1;
+        if (cur === pending) {
+          const ready: PendingFile = {
+            fileName: up.fileName,
+            purpose: up.purpose,
+            status: 'ready',
+            fileId: up.fileId,
+            bytes: up.bytes
+          };
+          next.push(ready);
+        } else {
+          next.push(cur);
+        }
+      }
+      this.pendingFiles = next;
+    } catch (err) {
+      const remain: PendingFile[] = [];
+      let ri: number = 0;
+      while (ri < this.pendingFiles.length) {
+        const cur: PendingFile = this.pendingFiles[ri];
+        ri += 1;
+        if (cur !== pending) {
+          remain.push(cur);
+        }
+      }
+      this.pendingFiles = remain;
+      const reason: string = err instanceof Error ? err.message : String(err);
+      this.toast(`文件解析失败：${reason}`);
+    }
+  }
+
+  private removePendingFile(target: PendingFile): void {
+    const remain: PendingFile[] = [];
+    let i: number = 0;
+    while (i < this.pendingFiles.length) {
+      const cur: PendingFile = this.pendingFiles[i];
+      i += 1;
+      if (cur !== target) {
+        remain.push(cur);
+      }
+    }
+    this.pendingFiles = remain;
+  }
+
   private async sendMessage(): Promise<void> {
     const text: string = this.inputText.trim();
-    if (text.length === 0 || this.isGenerating) {
+    if (this.isGenerating) {
+      return;
+    }
+    if (this.hasUploadingFile()) {
+      this.toast('文件正在解析，请稍候');
+      return;
+    }
+    const attachments: MessageAttachment[] = this.readyAttachments();
+    if (text.length === 0 && attachments.length === 0) {
       return;
     }
 
@@ -1910,12 +2050,16 @@ export struct ChatView {
     this.noticeText = '';
 
     if (sess.title === '新对话') {
-      sess.title = this.defaultTitleFor(text);
+      sess.title = text.length > 0 ? this.defaultTitleFor(text) : this.defaultTitleFor(attachments[0].fileName);
     }
 
     // 新消息挂在当前激活分支的叶节点之下；@ 以选择器+文本扫描双通道校对后落库。
     const parentId: string = this.currentLeafId(sess);
     const userMsg: ChatMessage = this.buildMessage('user', text, parentId);
+    if (attachments.length > 0) {
+      userMsg.attachments = attachments;
+      this.pendingFiles = [];
+    }
     let mi: number = 0;
     while (mi < this.pendingMentions.length) {
       const mid: string = this.pendingMentions[mi];
@@ -2018,6 +2162,8 @@ export struct ChatView {
           speakerId: h.speakerId,
           mentionedIds: [],
           topicMask: h.topicMask,
+          // 文档附件必须随历史回传，否则追问会丢上下文（服务端靠 file_id 还原文档）。
+          attachments: h.attachments,
         };
         history.push(tagged);
         hi += 1;
@@ -2242,6 +2388,10 @@ export struct ChatView {
       return;
     }
     const userMsg: ChatMessage = this.buildMessage('user', newText, original.parentId);
+    // 编辑只改文字，附件沿原消息继承（否则重发后文档上下文会丢）。
+    if (original.attachments !== undefined && original.attachments.length > 0) {
+      userMsg.attachments = original.attachments;
+    }
     let oi: number = 0;
     while (oi < original.mentionedIds.length) {
       userMsg.mentionedIds.push(original.mentionedIds[oi]);
@@ -2708,10 +2858,44 @@ export struct ChatView {
             .margin({ bottom: 6 })
           }
 
-          // 输入卡片（对齐官方 App）：整块圆角卡片，内含输入区 + 能力胶囊 + 发送/停止。
-          // 说明：官方卡片右下还有「+（附件）」与「麦克风」，本项目未做文件输入、且已明确不做
-          // 语音输入，故只保留可用的发送/停止，避免摆一个点了没反应的按钮。
+          // 输入卡片（对齐官方 App）：整块圆角卡片，内含待发送文档、输入区、能力胶囊与发送/停止。
           Column() {
+            // 待发送文档：解析中显示状态，就绪后可直接发送（点 × 移除）。
+            if (this.pendingFiles.length > 0) {
+              Scroll() {
+                Row() {
+                  ForEach(this.pendingFiles, (pf: PendingFile) => {
+                    Row() {
+                      Image($r('app.media.ic_attach'))
+                        .width(13)
+                        .height(13)
+                        .margin({ right: 4 })
+                      Text(pf.status === 'uploading' ? `${pf.fileName} 解析中…` : pf.fileName)
+                        .fontSize(12)
+                        .fontColor($r('app.color.text_primary'))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .constraintSize({ maxWidth: 170 })
+                      Text('×')
+                        .fontSize(14)
+                        .fontColor($r('app.color.text_muted'))
+                        .margin({ left: 6 })
+                        .onClick(() => {
+                          this.removePendingFile(pf);
+                        })
+                    }
+                    .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+                    .backgroundColor($r('app.color.chat_fill'))
+                    .borderRadius(10)
+                    .margin({ right: 6, bottom: 4 })
+                  }, (pf: PendingFile) => `${pf.fileName}_${pf.status}`)
+                }
+              }
+              .scrollable(ScrollDirection.Horizontal)
+              .scrollBar(BarState.Off)
+              .width('100%')
+            }
+
             Stack({ alignContent: Alignment.TopEnd }) {
               TextArea({ placeholder: '发消息…', text: this.inputText })
                 .width('100%')
@@ -2755,6 +2939,24 @@ export struct ChatView {
                 }
               })
               Blank()
+              // 附件（DeepSeek Files API）：选文件 → 解析 → 随消息以 file_id 引用。
+              Row() {
+                Image($r('app.media.ic_plus'))
+                  .width(18)
+                  .height(18)
+              }
+              .width(34)
+              .height(34)
+              .justifyContent(FlexAlign.Center)
+              .alignItems(VerticalAlign.Center)
+              .borderRadius(17)
+              .border({ width: 1.6, color: $r('app.color.chat_border') })
+              .margin({ right: 8 })
+              .opacity(this.currentProviderId === 'deepseek' ? 1 : 0.4)
+              .onClick(() => {
+                this.pickAttachment();
+              })
+
               if (this.isGenerating) {
                 Column() {
                   Text('■')
@@ -2783,7 +2985,7 @@ export struct ChatView {
                 .alignItems(HorizontalAlign.Center)
                 .borderRadius(20)
                 .backgroundColor($r('app.color.chat_accent_solid'))
-                .opacity(this.inputText.trim().length > 0 ? 1 : 0.52)
+                .opacity(this.inputText.trim().length > 0 || this.pendingFiles.length > 0 ? 1 : 0.52)
                 .onClick(() => {
                   this.sendMessage();
                 })
@@ -2799,12 +3001,6 @@ export struct ChatView {
           .borderRadius(28)
           .border({ width: 1, color: $r('app.color.chat_border') })
           .shadow({ radius: 18, color: 'rgba(0,0,0,0.06)', offsetX: 0, offsetY: 4 })
-
-          // 官方同款底部说明（AI 生成内容提示）。
-          Text('回答由 AI 生成，内容仅供参考')
-            .fontSize(12)
-            .fontColor($r('app.color.text_faint'))
-            .margin({ top: 8 })
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)
@@ -4062,14 +4258,41 @@ export struct ChatView {
               .fontColor($r('app.color.reasoning_muted'))
               .margin({ bottom: 4 })
           }
+          // 文档附件（DeepSeek Files API）：只展示文件名，内容由服务端按 file_id 还原。
+          if (msg.attachments !== undefined && msg.attachments.length > 0) {
+            Column() {
+              ForEach(msg.attachments, (att: MessageAttachment) => {
+                Row() {
+                  Image($r('app.media.ic_attach'))
+                    .width(13)
+                    .height(13)
+                    .margin({ right: 4 })
+                  Text(att.fileName)
+                    .fontSize(12)
+                    .fontColor($r('app.color.chat_user_text'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .constraintSize({ maxWidth: 200 })
+                }
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .backgroundColor($r('app.color.chat_user_bubble'))
+                .borderRadius(10)
+                .margin({ bottom: 4 })
+              }, (att: MessageAttachment) => att.fileId)
+            }
+            .alignItems(HorizontalAlign.End)
+          }
           // 用户气泡：官方蓝白版式（淡蓝底、右下收角），不描边，避免大色块打断阅读。
-          Text(msg.content)
-            .fontSize(16 * this.appFontScale)
-            .fontColor($r('app.color.chat_user_text'))
-            .lineHeight(23 * this.appFontScale)
-            .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-            .backgroundColor($r('app.color.chat_user_bubble'))
-            .borderRadius({ topLeft: 22, topRight: 22, bottomRight: 6, bottomLeft: 22 })
+          // 纯附件消息没有文字，不再渲染空气泡。
+          if (msg.content.length > 0) {
+            Text(msg.content)
+              .fontSize(16 * this.appFontScale)
+              .fontColor($r('app.color.chat_user_text'))
+              .lineHeight(23 * this.appFontScale)
+              .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+              .backgroundColor($r('app.color.chat_user_bubble'))
+              .borderRadius({ topLeft: 22, topRight: 22, bottomRight: 6, bottomLeft: 22 })
+          }
           // @ 对象
           if (msg.mentionedIds.length > 0) {
             Text(this.mentionText(msg))
