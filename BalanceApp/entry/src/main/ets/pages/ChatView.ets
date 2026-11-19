@@ -106,6 +106,8 @@ export struct ChatView {
   @State readingMsgId: string = '';
   /** 输入框里已选、正在解析或已就绪的文档（最多 3 个）。 */
   @State pendingFiles: PendingFile[] = [];
+  /** 附件来源面板（拍照 / 相册 / 文件）。 */
+  @State showAttachSheet: boolean = false;
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
   @State configuredProviders: ProviderDefinition[] = [];
@@ -1939,74 +1941,132 @@ export struct ChatView {
    * Business Rule: 文件接口是 DeepSeek 专属，且解析完成才拿到 file_id；
    *   解析期间不允许发送（见 sendMessage），失败只提示、不占位。
    */
-  private async pickAttachment(): Promise<void> {
+  /** 附件入口的前置校验：服务商/Key/数量，返回可用的 DeepSeek Key（'' 表示已提示过、不继续）。 */
+  private async resolveAttachKey(): Promise<string> {
     if (this.currentProviderId !== 'deepseek') {
-      this.toast('文件解析目前仅支持 DeepSeek');
-      return;
+      this.toast('文件与图片输入目前仅支持 DeepSeek');
+      return '';
     }
     if (this.pendingFiles.length >= 3) {
       this.toast('一次最多添加 3 个文件');
-      return;
+      return '';
     }
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const key: string = await SettingsService.getProviderKey(hostCtx, 'deepseek');
     if (key.trim().length === 0) {
       this.toast('请先在「设置 > 资产监控」配置 DeepSeek API Key');
+      return '';
+    }
+    return key;
+  }
+
+  /** 拍照：系统相机 UI，不需要应用申请相机权限。 */
+  private async attachFromCamera(): Promise<void> {
+    this.showAttachSheet = false;
+    const key: string = await this.resolveAttachKey();
+    if (key.length === 0) {
       return;
     }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const uri: string = await FileUploadService.capturePhoto(hostCtx);
+    if (uri.length === 0) {
+      return;
+    }
+    await this.uploadAttachments([uri], key);
+  }
+
+  /** 相册：系统图库选择器，可多选，最多补满 3 个。 */
+  private async attachFromGallery(): Promise<void> {
+    this.showAttachSheet = false;
+    const key: string = await this.resolveAttachKey();
+    if (key.length === 0) {
+      return;
+    }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const room: number = 3 - this.pendingFiles.length;
+    const uris: string[] = await FileUploadService.pickImages(hostCtx, room);
+    await this.uploadAttachments(uris, key);
+  }
+
+  /** 文件：系统文件选择器（PDF/Office/文本等）。 */
+  private async attachFromFiles(): Promise<void> {
+    this.showAttachSheet = false;
+    const key: string = await this.resolveAttachKey();
+    if (key.length === 0) {
+      return;
+    }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const uri: string = await FileUploadService.pick(hostCtx);
     if (uri.length === 0) {
       return;
     }
-    const fileName: string = FileUploadService.nameFromUri(uri);
-    const purpose: string = FileUploadService.purposeFor(fileName);
-    if (purpose.length === 0) {
-      this.toast('暂不支持该文件格式');
-      return;
-    }
-    const pending: PendingFile = {
-      fileName: fileName,
-      purpose: purpose,
-      status: 'uploading',
-      fileId: '',
-      bytes: 0
-    };
-    this.pendingFiles = this.pendingFiles.concat([pending]);
+    await this.uploadAttachments([uri], key);
+  }
 
-    try {
-      const up: UploadedFile = await FileUploadService.upload(hostCtx, uri, key, purpose);
-      const next: PendingFile[] = [];
-      let i: number = 0;
-      while (i < this.pendingFiles.length) {
-        const cur: PendingFile = this.pendingFiles[i];
-        i += 1;
-        if (cur === pending) {
-          const ready: PendingFile = {
-            fileName: up.fileName,
-            purpose: up.purpose,
-            status: 'ready',
-            fileId: up.fileId,
-            bytes: up.bytes
-          };
-          next.push(ready);
-        } else {
-          next.push(cur);
-        }
+  /**
+   * 逐个上传（串行，避免同时占满服务端 15 路上传配额）。
+   * Business Rule: 解析完成才拿到 file_id；失败只移除该条并提示，不影响其它文件。
+   */
+  private async uploadAttachments(uris: string[], key: string): Promise<void> {
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    let i: number = 0;
+    while (i < uris.length) {
+      if (this.pendingFiles.length >= 3) {
+        this.toast('一次最多添加 3 个文件');
+        return;
       }
-      this.pendingFiles = next;
-    } catch (err) {
-      const remain: PendingFile[] = [];
-      let ri: number = 0;
-      while (ri < this.pendingFiles.length) {
-        const cur: PendingFile = this.pendingFiles[ri];
-        ri += 1;
-        if (cur !== pending) {
-          remain.push(cur);
-        }
+      const uri: string = uris[i];
+      i += 1;
+      const fileName: string = FileUploadService.nameFromUri(uri);
+      const purpose: string = FileUploadService.purposeFor(fileName);
+      if (purpose.length === 0) {
+        this.toast(`暂不支持该格式：${fileName}`);
+        continue;
       }
-      this.pendingFiles = remain;
-      const reason: string = err instanceof Error ? err.message : String(err);
-      this.toast(`文件解析失败：${reason}`);
+      const pending: PendingFile = {
+        fileName: fileName,
+        purpose: purpose,
+        status: 'uploading',
+        fileId: '',
+        bytes: 0
+      };
+      this.pendingFiles = this.pendingFiles.concat([pending]);
+
+      try {
+        const up: UploadedFile = await FileUploadService.upload(hostCtx, uri, key, purpose);
+        const next: PendingFile[] = [];
+        let pi: number = 0;
+        while (pi < this.pendingFiles.length) {
+          const cur: PendingFile = this.pendingFiles[pi];
+          pi += 1;
+          if (cur === pending) {
+            const ready: PendingFile = {
+              fileName: up.fileName,
+              purpose: up.purpose,
+              status: 'ready',
+              fileId: up.fileId,
+              bytes: up.bytes
+            };
+            next.push(ready);
+          } else {
+            next.push(cur);
+          }
+        }
+        this.pendingFiles = next;
+      } catch (err) {
+        const remain: PendingFile[] = [];
+        let ri: number = 0;
+        while (ri < this.pendingFiles.length) {
+          const cur: PendingFile = this.pendingFiles[ri];
+          ri += 1;
+          if (cur !== pending) {
+            remain.push(cur);
+          }
+        }
+        this.pendingFiles = remain;
+        const reason: string = err instanceof Error ? err.message : String(err);
+        this.toast(`上传失败：${reason}`);
+      }
     }
   }
 
@@ -2954,7 +3014,7 @@ export struct ChatView {
               .margin({ right: 8 })
               .opacity(this.currentProviderId === 'deepseek' ? 1 : 0.4)
               .onClick(() => {
-                this.pickAttachment();
+                this.showAttachSheet = true;
               })
 
               if (this.isGenerating) {
@@ -3230,6 +3290,11 @@ export struct ChatView {
         .height('100%')
         .backgroundColor($r('app.color.overlay_scrim'))
         .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
+      }
+
+      // ── 1.5 附件来源面板（拍照 / 相册 / 文件） ──
+      if (this.showAttachSheet) {
+        this.AttachSheet()
       }
 
       // ── 2. 模型与供应商选择弹窗 ──
@@ -4241,6 +4306,84 @@ export struct ChatView {
     .margin({ bottom: 6 })
     .backgroundColor($r('app.color.chat_surface_alt'))
     .borderRadius(12)
+    .onClick(onTap)
+  }
+
+  /** 附件来源面板：拍照 / 相册 / 文件（对齐官方底栏），选中后立刻上传解析。 */
+  @Builder
+  AttachSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill($r('app.color.overlay_scrim'))
+        .onClick(() => {
+          this.showAttachSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text('添加图片或文件')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(15)
+            .fontColor($r('app.color.text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showAttachSheet = false;
+            })
+        }
+        .width('92%')
+        .margin({ top: 14, bottom: 14 })
+
+        Row() {
+          this.AttachTile($r('app.media.ic_camera'), '拍照', () => {
+            this.attachFromCamera();
+          })
+          this.AttachTile($r('app.media.ic_gallery'), '相册', () => {
+            this.attachFromGallery();
+          })
+          this.AttachTile($r('app.media.ic_attach'), '文件', () => {
+            this.attachFromFiles();
+          })
+        }
+        .width('92%')
+        .justifyContent(FlexAlign.SpaceBetween)
+        .margin({ bottom: 26 })
+      }
+      .width('100%')
+      .backgroundColor($r('app.color.chat_surface'))
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: $r('app.color.chat_border') })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  AttachTile(icon: Resource, label: string, onTap: () => void) {
+    Column() {
+      Image(icon)
+        .width(26)
+        .height(26)
+      Text(label)
+        .fontSize(13)
+        .fontColor($r('app.color.text_primary'))
+        .margin({ top: 8 })
+    }
+    .width('30%')
+    .height(88)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .backgroundColor($r('app.color.chat_fill'))
+    .borderRadius(18)
     .onClick(onTap)
   }
 
