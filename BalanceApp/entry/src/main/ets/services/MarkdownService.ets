@@ -316,7 +316,7 @@ export class MarkdownService {
       }
       const scale: number = fontScale > 0 ? fontScale : 1.0;
       theme.document.font = {
-        fontSize: LengthMetrics.vp(Math.round(15 * scale)),
+        fontSize: LengthMetrics.vp(Math.round(16 * scale)),
         fontColor: dark ? '#E9E4D9' : '#292822',
       };
       // Reason: 图片样式（theme.image）本次回退不设 —— 曾尝试 textBlock 居中 + maxHeight 限高，

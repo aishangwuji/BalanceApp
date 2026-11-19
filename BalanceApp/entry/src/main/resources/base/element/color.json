@@ -151,6 +151,54 @@
     {
       "name": "pill_search_border",
       "value": "#D8E3FF"
+    },
+    {
+      "name": "chat_surface",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "chat_surface_alt",
+      "value": "#F7F8FA"
+    },
+    {
+      "name": "chat_border",
+      "value": "#ECEDF0"
+    },
+    {
+      "name": "chat_fill",
+      "value": "#F2F3F5"
+    },
+    {
+      "name": "chat_user_bubble",
+      "value": "#E8EEFC"
+    },
+    {
+      "name": "chat_user_text",
+      "value": "#1B1B1F"
+    },
+    {
+      "name": "chat_accent",
+      "value": "#4D6BFE"
+    },
+    {
+      "name": "chat_accent_soft",
+      "value": "#EDF2FF"
+    },
+    {
+      "name": "chat_accent_soft_selected",
+      "value": "#E2E9FF"
+    },
+    {
+      "name": "chat_accent_solid",
+      "value": "#4D6BFE"
+    },
+    {
+      "name": "chat_accent_contrast",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "chat_accent_outline",
+      "value": "#D6E0FF"
     }
   ]
 }

@@ -35,8 +35,9 @@ export struct ThinkingButton {
             .fontColor(this.isEnabled ? $r('app.color.pill_search_text') : $r('app.color.text_secondary'))
             .fontWeight(this.isEnabled ? FontWeight.Medium : FontWeight.Normal)
         }
-        .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-        .backgroundColor(this.isEnabled ? $r('app.color.pill_search_bg') : $r('app.color.fill'))
+        .height(32)
+        .padding({ left: 12, right: 12 })
+        .backgroundColor(this.isEnabled ? $r('app.color.pill_search_bg') : $r('app.color.chat_fill'))
         .borderRadius(16)
         .borderWidth(1)
         .borderColor(this.isEnabled ? $r('app.color.pill_search_border') : '#00000000')
