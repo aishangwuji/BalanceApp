@@ -210,6 +210,24 @@ last_verified: 2026-11-19
   18 条；`hvigor assembleHap` 构建通过。真机 E2E 被应用锁挡住（系统人脸/指纹不可远程驱动），
   需用户解锁后自行发一条提问确认。
 
+## 工具能力：联网搜索服务商 / 生图 / 内容安全（2026-11-19）
+
+- 设置 > 工具：联网搜索服务商二选一（`deepseek` 内置工具 / `baizhi` OpenAPI），两套百智云 Key
+  （`key_baizhi_web` 搜索、`key_baizhi_image` 生图）分开授权；6 个功能开关
+  （自动标题 / 文件与图片 / 语音输入 / 朗读 / 图片生成 / 内容安全）存 Preferences 并同步 AppStorage，
+  页面用 `@StorageProp` 即时生效。深度思考、智能搜索胶囊位置未变。
+- 百智云搜索 `services/BaizhiWebSearchService.ets`：客户端先检索（`POST /openapi/search`），
+  把「标题 + 站点 + 摘要 + 链接」拼成系统提示注入，来源挂到 `message.sources`（复用来源胶囊）；
+  选 baizhi 时**不再**声明 DeepSeek 服务端工具，避免搜两次；检索失败降级为普通回答。
+- 生图 `services/ImageGenService.ets` + ChatService 函数工具：模型判断要画图 → 声明
+  `generate_image`（流式 `delta.tool_calls` 按 index 合并）→ 客户端建任务、每 4s 轮询、
+  最长 6 分钟 → 结果 URL 挂到消息。旧会话的 `tool_calls` 不落历史（只留图）。
+  图片 URL 有时效，持久化后过期会显示空白占位。
+- 生图展示：容器按请求比例锁定 `imageAspect`（零布局抖动）、元数据条「百智云 | 比例 | 2K | 耗时」、
+  失败原因 + 重试、常驻操作行（预览 / 复制链接 / 浏览器打开）。保存到相册未做（需要媒体写权限）。
+- 内容安全：开启后请求带 `safety_check:{level:'high'}`；`finish_reason=content_filter` 或
+  `delta.refusal` 触发 `onRefusal`，页面清空已展示文本并给拒答提示（官方要求）。
+  审核 token 按输出计费，默认关闭。
 ## 更新检查（2026-11-19，构建通过）
 
 - `services/UpdateService.ets`：运行时读 `BundleInfo.versionName` 与 release `tag_name` 做逐段数值比较；
