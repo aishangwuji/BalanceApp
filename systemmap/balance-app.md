@@ -41,6 +41,23 @@ last_verified: 2026-11-19
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 语音输入（ASR，2026-11-19，构建通过）
+
+- 交互：输入框为空（且没有就绪附件）时右侧显示麦克风；**点按开始、再点结束**，不做「按住说话」
+  （避免和列表滚动/输入手势抢事件）。有文字或附件立刻切回发送钮；生成中仍显示停止钮。
+- 录音 `services/VoiceRecorder.ets`：AudioCapturer 16 kHz / 单声道 / S16LE / RAW；
+  打开文件先占 44 字节 WAV 头，录完回填（RIFF/fmt/data 手写）；上限 120 秒（官方时长上限，
+  16k×2B×120s≈3.8 MB，远低于 8 MiB 限制）；`stop` 幂等，失败清残片，离开页面 `cancel`。
+- 转写 `services/AsrService.ets`：multipart 只带 `file` 字段 POST `/v1/tools/asr`，解析 `text`；
+  语种由服务端自动识别（无参数）；无论成败删除临时 WAV；400/413/429/503/504 映射成中文提示。
+- 权限：`ohos.permission.MICROPHONE`（user_grant；module.json5 带 reason 与 usedScene），
+  首次点麦克风时 `requestPermissionsFromUser` 申请，拒绝则提示且不启动录音。
+- UI 状态：录音中红点 + 计时「正在录音 0:12 · 点右侧停止」；识别中加载态并禁用输入框；
+  转写文本回填输入框但**不自动发送**（留给用户确认/修改）。
+- 实测：拿 TTS 生成的一段 wav（207 KB）打 `/v1/tools/asr`，返回
+  「你好，我是DeepSeek，这是一次语音合成测试。」`duration_ms=4320`，说明端点与 multipart
+  形状（只有 file 字段）正确。计费按音频时长（0.78 元/小时，限时 5 折）。
+
 ## 文档问答（DeepSeek Files API，2026-11-19，构建通过）
 
 - 上传 `services/FileUploadService.ets`：系统文件选择器（`DocumentViewPicker`）→ 把 URI 复制到
@@ -110,8 +127,8 @@ last_verified: 2026-11-19
 - 能力胶囊改为官方样式：`深度思考`（`ic_atom`）+ `智能搜索`（`ic_globe`，原「联网搜索」），
   淡蓝底 + 品牌蓝文字 + 细蓝边，关闭态为素灰底；新增语义色 `pill_search_bg/text/border`
   （base/dark 各一套）。开启态仍只决定是否下发 thinking / tools，行为未变。
-- 未做：官方卡片里的「麦克风」（按住说话）已明确不做；「+（附件）」已接 DeepSeek Files API
-  （见下方「文档问答」小节）。占位文案因此用「发消息…」而不是「发消息或按住说话」。
+- 已做：「+（附件）」接 DeepSeek Files API（见「文档问答」）；麦克风接语音输入（见「语音输入（ASR）」）。
+  占位文案为「发消息，或点麦克风说话」。
 - 注意：胶囊行现在在卡片内部，`ThinkingButton` / `WebSearchButton` 的外边距已改为 0（后者右 8），
   两个组件目前只在卡片这一处使用。
 
@@ -149,8 +166,8 @@ last_verified: 2026-11-19
   的 `tts_voice_id`，默认 stella；AppStorage 同步供 UI 回显。账户/关于两组按用户要求不做。
 - 实测：TTS 接口 200 / `audio/wav` / RIFF 头 / 单句 207KB；引用注入用真实 SSE 复算：
   11 条引用全部命中（0 条落在代码围栏），含代理对文本（码点数 277 vs UTF-16 278）仍位置正确。
-- 语音输入（ASR / 按住说话）**已明确不做**（2026-11-19 用户决策）：语音能力只保留「朗读回答」。
-  后续不要再引入录音、麦克风权限与 `/v1/tools/asr`；移动端对齐见 TD-006。
+- 语音输入（ASR）**已实现**（`042ea20` 服务层、`a79a2df` UI）：点按麦克风开始录音、再点结束，
+  转写文本回填输入框；详见下方「语音输入（ASR）」小节。此前"不做语音输入"的决策已作废。
 
 ## 联网搜索（DeepSeek 服务端工具，2026-11-19，构建通过）
 
