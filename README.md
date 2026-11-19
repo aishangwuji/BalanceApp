@@ -22,6 +22,52 @@ GitHub 侧由 Actions 从 Gitee 自动镜像（`.github/workflows/mirror-from-gi
 - **外观**：浅色 / 深色 / 跟随系统，7 档字号，中英双语。
 - **安全**：应用锁（锁屏密码 / 指纹 / 人脸），切后台即锁定。
 
+## 安装与签名（先读这一段）
+
+开源的是**源码**，不是签名。鸿蒙应用必须带签名才能装进手机，而签名材料和开发者账号绑定，
+不能公开——所以仓库里不包含任何证书，也没有「下载就能装」的通用安装包。
+完整的签名步骤与报错排查见 [docs/signing.md](docs/signing.md)。
+
+### 1. 自己构建 + 自己签名（推荐，任何人都可以）
+
+```text
+1. 安装 DevEco Studio 6.x（带 HarmonyOS SDK 6.1.1(24)）
+2. 用 DevEco 打开 BalanceApp/ 目录
+3. File > Project Structure > Signing Configs → 勾选 "Automatically generate signature"
+4. 登录华为开发者账号（免费注册即可）；手机开启开发者模式 + USB 调试并连接
+5. DevEco 会自动登记设备 UDID、生成调试证书并写入 build-profile.json5（这一步不要提交）
+6. 点 Run，或命令行构建后安装
+```
+
+命令行构建：
+
+```powershell
+$env:DEVECO_SDK_HOME = "D:/Program Files/Huawei/DevEco Studio/sdk"
+cd BalanceApp
+node "D:/Program Files/Huawei/DevEco Studio/tools/hvigor/bin/hvigorw.js" assembleHap `
+  --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
+
+hdc -t <serial> install -r entry/build/default/outputs/default/entry-default-signed.hap
+hdc -t <serial> shell aa start -a EntryAbility -b com.example.openchat
+```
+
+### 2. Release 里的 HAP 为什么别人装不上
+
+Release 附件里的 HAP 是**作者本机调试签名**，profile 只登记了作者自己的设备。
+换一台手机安装会报 `9568320 signature verify failed` / 设备不在 profile 里——这是鸿蒙的机制，
+不是包坏了。这个包只用于作者自测，**不建议其他人下载安装**。
+
+### 3. 想让普通用户直接装，正路是上架
+
+调试签名永远不能分发给他人。要给别人用只有两条路：
+
+- **让他们自己签名**（上面的步骤 1，适合开发者）；
+- **上架 AppGallery**：华为开发者账号（个人/企业认证）+ 应用审核，用发布证书签名的包由应用市场分发。
+
+仓库里没有、也不会包含 `.p12`（私钥）、`.p7b`（profile）、`.cer`（证书）——这些一旦公开，
+别人就能冒用你的应用身份签名和发布。`BalanceApp/build-profile.json5` 的 `signingConfigs`
+因此留空，每个人用自己的账号生成。
+
 ## 构建
 
 环境：DevEco Studio 6.x（HarmonyOS SDK 6.1.1(24)）、Node 18+。
@@ -33,16 +79,13 @@ node "D:/Program Files/Huawei/DevEco Studio/tools/hvigor/bin/hvigorw.js" assembl
   --mode module -p module=entry@default -p product=default -p buildMode=debug --no-daemon
 ```
 
-产物：`BalanceApp/entry/build/default/outputs/default/entry-default-signed.hap`。
+产物：`BalanceApp/entry/build/default/outputs/default/entry-default-signed.hap`
+（前提是已按上一节完成本地签名，否则构建会在 `SignHap` 阶段报 bundleName 不匹配）。
 
-**签名**：仓库中的 `BalanceApp/build-profile.json5` 不含签名配置（本机证书路径与密码不入库）。
-首次构建请在 DevEco Studio 里打开工程 → *Project Structure → Signing Configs* → 勾选自动签名，
-生成后即可本地编译；这些改动不要提交。
-
-安装到真机：
+安装到真机（签名步骤见上一节）：
 
 ```powershell
-hdc -t <serial> install -r entry-default-signed.hap
+hdc -t <serial> install -r entry/build/default/outputs/default/entry-default-signed.hap
 hdc -t <serial> shell aa start -a EntryAbility -b com.example.openchat
 ```
 
