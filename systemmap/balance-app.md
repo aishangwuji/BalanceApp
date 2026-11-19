@@ -41,6 +41,28 @@ last_verified: 2026-11-19
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 文档问答（DeepSeek Files API，2026-11-19，构建通过）
+
+- 上传 `services/FileUploadService.ets`：系统文件选择器（`DocumentViewPicker`）→ 把 URI 复制到
+  `cacheDir` 临时文件 → `multipart/form-data POST https://api.deepseek.com/files`。
+  **`purpose` 必须排在 `file` 之前**（官方硬要求，MultiFormData 数组顺序即字段顺序）；
+  解析完成才返回 `file_id`，故 `readTimeout` 给到 300s（上传 120s + 解析 120s）。
+  本地临时副本在 finally 删除；服务端限制 100 MiB（user_data 32 MiB）。
+- purpose 选择：文本/表格/电子书（txt/md/csv/json/代码/xlsx/xls/epub/mobi）→ `user_data`
+  （不解析、不计费）；PDF/Word/PPT/图片 → `text_recognition`（只取文字，不裁图，省图片额度）。
+  未接 `rich_layout_recognition`（需要图表时再说，见下）。
+- 引用：`ChatMessage.attachments`（fileId/fileName/purpose/bytes）持久化；
+  `ChatService.buildApiMessages` 对 user 消息生成 `content:[{type:'file',file_id},{type:'text',text}]`，
+  仅 DeepSeek 生效（其他服务商退回纯文本，避免 400）；纯附件消息不会因空文本被丢弃；
+  编辑重发继承原附件；历史轮次按 `file_id` 原样回放（官方保证文档内容留在上下文）。
+- UI：输入卡片「+」仅在 DeepSeek 可点（其他服务商半透明+提示），选中后立刻上传；
+  卡片内显示「文件名 解析中…/文件名 ×」，解析期间禁止发送；单次最多 3 个文件（服务端上限 20）；
+  用户气泡上方显示附件行（纸夹图标 + 文件名）。
+- 实测：上传 txt（user_data）返回 `file-api-8401f188-…`；随后对话请求用 content 数组问
+  「内部代号是什么」→ 正确答出文档里的「蓝鲸」，说明两步协议与字段顺序都正确。
+- 已知边界：`file_id` 与账号绑定——换 DeepSeek Key 或换账号后旧附件的 `file_id` 失效，
+  追问会 400/失败，需重新上传；界面暂无「重新上传」引导，后续按需补。
+
 ## 聊天页蓝白化（2026-11-19，构建通过）
 
 - 范围：只切聊天页（ChatView + 两个能力胶囊组件 + Markdown 正文），设置页/资产页仍为暖金，
@@ -80,8 +102,8 @@ last_verified: 2026-11-19
 - 能力胶囊改为官方样式：`深度思考`（`ic_atom`）+ `智能搜索`（`ic_globe`，原「联网搜索」），
   淡蓝底 + 品牌蓝文字 + 细蓝边，关闭态为素灰底；新增语义色 `pill_search_bg/text/border`
   （base/dark 各一套）。开启态仍只决定是否下发 thinking / tools，行为未变。
-- 未做：官方卡片里的「+（附件）」与「麦克风」——文件输入尚未支持、语音输入已明确不做，
-  不放点了没反应的按钮；占位文案因此用「发消息…」而不是「发消息或按住说话」。
+- 未做：官方卡片里的「麦克风」（按住说话）已明确不做；「+（附件）」已接 DeepSeek Files API
+  （见下方「文档问答」小节）。占位文案因此用「发消息…」而不是「发消息或按住说话」。
 - 注意：胶囊行现在在卡片内部，`ThinkingButton` / `WebSearchButton` 的外边距已改为 0（后者右 8），
   两个组件目前只在卡片这一处使用。
 
