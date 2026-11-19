@@ -8,7 +8,7 @@
  */
 
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { common } from '@kit.AbilityKit';
+import { abilityAccessCtrl, common, PermissionRequestResult } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { pasteboard } from '@kit.BasicServicesKit';
 import {
@@ -25,6 +25,8 @@ import { SearchProgress, WebSearchService } from '../services/WebSearchService';
 import { TtsCallbacks, TtsService } from '../services/TtsService';
 import { SettingsService } from '../services/SettingsService';
 import { FileUploadService, UploadedFile } from '../services/FileUploadService';
+import { VoiceRecorder } from '../services/VoiceRecorder';
+import { AsrService } from '../services/AsrService';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
 import { WebSearchButton } from '../components/WebSearchButton';
@@ -108,6 +110,11 @@ export struct ChatView {
   @State pendingFiles: PendingFile[] = [];
   /** 附件来源面板（拍照 / 相册 / 文件）。 */
   @State showAttachSheet: boolean = false;
+  /** 语音输入：录音中 / 识别中 / 已录秒数（输入框无文字时右侧显示麦克风）。 */
+  @State recording: boolean = false;
+  @State transcribing: boolean = false;
+  @State recordSeconds: number = 0;
+  private recordTimer: number = -1;
   @State availableModels: ModelInfo[] = [];
   @State fetchingModels: boolean = false;
   @State configuredProviders: ProviderDefinition[] = [];
@@ -230,6 +237,8 @@ export struct ChatView {
   aboutToDisappear(): void {
     // 离开对话页即停朗读：避免音频在后台继续播放，也顺手释放 AVPlayer 与缓存文件。
     this.stopReadAloud();
+    // 录音同理：离开页面直接丢弃未完成的录音。
+    this.abortRecording();
   }
 
   private getCurrentSession(): ChatSession | undefined {
@@ -2083,6 +2092,121 @@ export struct ChatView {
     this.pendingFiles = remain;
   }
 
+  /** 输入框是否已有可发送内容（文字或已就绪附件）：决定右侧显示发送还是麦克风。 */
+  private hasSendableInput(): boolean {
+    return this.inputText.trim().length > 0 || this.readyAttachments().length > 0;
+  }
+
+  private async ensureMicPermission(): Promise<boolean> {
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
+      const result: PermissionRequestResult =
+        await atManager.requestPermissionsFromUser(hostCtx, ['ohos.permission.MICROPHONE']);
+      return result.authResults.length > 0 && result.authResults[0] === 0;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'mic permission failed: %{public}s', String(err));
+      return false;
+    }
+  }
+
+  private recordTimeText(): string {
+    const minutes: number = Math.floor(this.recordSeconds / 60);
+    const seconds: number = this.recordSeconds % 60;
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  }
+
+  private startRecordTimer(): void {
+    this.clearRecordTimer();
+    this.recordTimer = setInterval(() => {
+      this.recordSeconds += 1;
+      if (this.recordSeconds >= 120) {
+        this.finishRecording();
+      }
+    }, 1000);
+  }
+
+  private clearRecordTimer(): void {
+    if (this.recordTimer >= 0) {
+      clearInterval(this.recordTimer);
+      this.recordTimer = -1;
+    }
+  }
+
+  /** 语音按钮：空闲时开始录音，录音中再点即结束并转写（不用按住，避免手势冲突）。 */
+  private async toggleVoice(): Promise<void> {
+    if (this.transcribing) {
+      return;
+    }
+    if (this.recording) {
+      await this.finishRecording();
+      return;
+    }
+    if (this.isGenerating) {
+      this.toast('正在生成，请稍候');
+      return;
+    }
+    const granted: boolean = await this.ensureMicPermission();
+    if (!granted) {
+      this.toast('需要麦克风权限才能语音输入');
+      return;
+    }
+    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const started: boolean = await VoiceRecorder.start(hostCtx);
+    if (!started) {
+      this.toast('无法启动录音');
+      return;
+    }
+    this.recording = true;
+    this.recordSeconds = 0;
+    this.startRecordTimer();
+  }
+
+  /** 结束录音并转写：文本回填输入框但不自动发送，留给用户确认/修改。 */
+  private async finishRecording(): Promise<void> {
+    if (!this.recording) {
+      return;
+    }
+    this.recording = false;
+    this.clearRecordTimer();
+    this.transcribing = true;
+    try {
+      const path: string = await VoiceRecorder.stop();
+      if (path.length === 0) {
+        this.toast('录音失败，请重试');
+        return;
+      }
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      const key: string = await SettingsService.getProviderKey(hostCtx, 'deepseek');
+      if (key.trim().length === 0) {
+        this.toast('请先在「设置 > 资产监控」配置 DeepSeek API Key');
+        return;
+      }
+      const text: string = await AsrService.transcribe(hostCtx, path, key);
+      if (text.length === 0) {
+        this.toast('没有识别到语音');
+        return;
+      }
+      const existing: string = this.inputText;
+      this.inputText = existing.trim().length > 0 ? `${existing} ${text}` : text;
+    } catch (err) {
+      const reason: string = err instanceof Error ? err.message : String(err);
+      this.toast(`语音识别失败：${reason}`);
+    } finally {
+      this.transcribing = false;
+    }
+  }
+
+  /** 放弃录音（离开页面等）：停录并删除临时音频。 */
+  private abortRecording(): void {
+    if (!this.recording) {
+      return;
+    }
+    this.recording = false;
+    this.clearRecordTimer();
+    VoiceRecorder.cancel();
+  }
+
   private async sendMessage(): Promise<void> {
     const text: string = this.inputText.trim();
     if (this.isGenerating) {
@@ -2956,8 +3080,37 @@ export struct ChatView {
               .width('100%')
             }
 
+            // 录音 / 识别状态提示（占位在输入区上方，不打断输入框布局）。
+            if (this.recording) {
+              Row() {
+                Row()
+                  .width(8)
+                  .height(8)
+                  .backgroundColor($r('app.color.danger_text'))
+                  .borderRadius(4)
+                  .margin({ right: 6 })
+                Text(`正在录音 ${this.recordTimeText()} · 点右侧停止`)
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_secondary'))
+              }
+              .width('100%')
+              .margin({ bottom: 4 })
+            } else if (this.transcribing) {
+              Row() {
+                LoadingProgress()
+                  .width(13)
+                  .height(13)
+                  .color($r('app.color.chat_accent'))
+                Text('  正在识别语音…')
+                  .fontSize(12)
+                  .fontColor($r('app.color.text_secondary'))
+              }
+              .width('100%')
+              .margin({ bottom: 4 })
+            }
+
             Stack({ alignContent: Alignment.TopEnd }) {
-              TextArea({ placeholder: '发消息…', text: this.inputText })
+              TextArea({ placeholder: '发消息，或点麦克风说话', text: this.inputText })
                 .width('100%')
                 .height(this.inputExpanded ? INPUT_EXPANDED_HEIGHT : INPUT_BASE_HEIGHT)
                 .backgroundColor('#00000000')
@@ -2965,6 +3118,7 @@ export struct ChatView {
                 .fontSize(16)
                 .placeholderColor($r('app.color.text_faint'))
                 .padding({ left: 4, right: 32, top: 2, bottom: 2 })
+                .enabled(!this.recording)
                 .onChange((val: string) => {
                   this.inputText = val;
                 })
@@ -3017,7 +3171,36 @@ export struct ChatView {
                 this.showAttachSheet = true;
               })
 
-              if (this.isGenerating) {
+              if (this.recording) {
+                // 录音中：红色停止钮（再点结束并转写）
+                Column() {
+                  Row()
+                    .width(12)
+                    .height(12)
+                    .backgroundColor('#FFFFFF')
+                    .borderRadius(3)
+                }
+                .width(40)
+                .height(40)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+                .borderRadius(20)
+                .backgroundColor($r('app.color.danger_text'))
+                .onClick(() => {
+                  this.finishRecording();
+                })
+              } else if (this.transcribing) {
+                Column() {
+                  LoadingProgress()
+                    .width(22)
+                    .height(22)
+                    .color($r('app.color.chat_accent'))
+                }
+                .width(40)
+                .height(40)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+              } else if (this.isGenerating) {
                 Column() {
                   Text('■')
                     .fontSize(12)
@@ -3032,7 +3215,7 @@ export struct ChatView {
                 .onClick(() => {
                   this.stopGenerating();
                 })
-              } else {
+              } else if (this.hasSendableInput()) {
                 Column() {
                   Text('↑')
                     .fontSize(19)
@@ -3045,9 +3228,24 @@ export struct ChatView {
                 .alignItems(HorizontalAlign.Center)
                 .borderRadius(20)
                 .backgroundColor($r('app.color.chat_accent_solid'))
-                .opacity(this.inputText.trim().length > 0 || this.pendingFiles.length > 0 ? 1 : 0.52)
                 .onClick(() => {
                   this.sendMessage();
+                })
+              } else {
+                // 输入框为空：显示语音输入（点按开始，再点结束）
+                Column() {
+                  Image($r('app.media.ic_mic'))
+                    .width(20)
+                    .height(20)
+                }
+                .width(40)
+                .height(40)
+                .justifyContent(FlexAlign.Center)
+                .alignItems(HorizontalAlign.Center)
+                .borderRadius(20)
+                .border({ width: 1.6, color: $r('app.color.chat_border') })
+                .onClick(() => {
+                  this.toggleVoice();
                 })
               }
             }
