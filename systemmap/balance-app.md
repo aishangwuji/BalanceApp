@@ -49,8 +49,16 @@ last_verified: 2026-11-19
   解析完成才返回 `file_id`，故 `readTimeout` 给到 300s（上传 120s + 解析 120s）。
   本地临时副本在 finally 删除；服务端限制 100 MiB（user_data 32 MiB）。
 - purpose 选择：文本/表格/电子书（txt/md/csv/json/代码/xlsx/xls/epub/mobi）→ `user_data`
-  （不解析、不计费）；PDF/Word/PPT/图片 → `text_recognition`（只取文字，不裁图，省图片额度）。
-  未接 `rich_layout_recognition`（需要图表时再说，见下）。
+  （不解析、不计费）；PDF/Word/PPT → `text_recognition`（只取文字，不裁图，省图片额度）。
+- **图片（视觉）**：png/jpg/jpeg/webp/gif 必须用 `user_data` 上传，再以 `{type:'file', file_id}`
+  引用，模型才能看到画面；用 `text_recognition` 上传只会被 OCR 成文字——实测同一张深海鲸 logo：
+  `user_data` 答「蓝白配色的扁平化鲸鱼标志」，`text_recognition` 只答「数字 1」。
+  bmp/tiff 视觉不支持，仍走 `text_recognition`。官方视觉限制：单图 base64/URL 32 MiB、
+  `file_id` 64 MiB、单请求最多 600 张、请求体 48 MiB。
+- 附件三来源（底部面板）：拍照（`cameraPicker`，系统相机，不需要应用申请相机权限）、
+  相册（`PhotoViewPicker` 多选，最多补满 3 个）、文件（`DocumentViewPicker`）。
+- 失败诊断：上传失败会打 hilog（`FileUploadService`，含文件名与 purpose），
+  真机 toast 一闪而过时用 `hilog -x -t app` 定位。
 - 引用：`ChatMessage.attachments`（fileId/fileName/purpose/bytes）持久化；
   `ChatService.buildApiMessages` 对 user 消息生成 `content:[{type:'file',file_id},{type:'text',text}]`，
   仅 DeepSeek 生效（其他服务商退回纯文本，避免 400）；纯附件消息不会因空文本被丢弃；
