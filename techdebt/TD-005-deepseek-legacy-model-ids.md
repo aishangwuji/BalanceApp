@@ -23,3 +23,4 @@ DeepSeek 官方已于 2026-07-24 下线 `deepseek-chat` / `deepseek-reasoner`，
 
 联网搜索的 `deepseek_web_search` 只在 DeepSeek 可用，旧模型名会话即便不迁移也不会
 影响其它服务商；该项与联网搜索本身无耦合，单独排期即可。
+

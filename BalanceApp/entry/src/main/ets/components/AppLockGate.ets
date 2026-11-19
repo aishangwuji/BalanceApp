@@ -62,7 +62,7 @@ export struct AppLockGate {
     }
     const session: number = ++this.authSession;
     this.authenticating = true;
-    const ok: boolean = await AuthService.authenticate('解锁 BalanceApp');
+    const ok: boolean = await AuthService.authenticate('解锁 openchat');
     if (session !== this.authSession) {
       return;
     }
@@ -137,3 +137,4 @@ export struct AppLockGate {
     }
   }
 }
+

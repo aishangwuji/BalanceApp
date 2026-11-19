@@ -249,7 +249,7 @@ struct Settings {
   }
 
   private openProjectPage(): void {
-    this.openExternal('https://gitee.com/aishangwuji/BalanceApp');
+    this.openExternal('https://gitee.com/aishangwuji/openchat');
   }
 
   private openExternal(url: string): void {
@@ -982,3 +982,4 @@ struct Settings {
     .onClick(onTap)
   }
 }
+

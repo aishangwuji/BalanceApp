@@ -1,4 +1,4 @@
-# BalanceApp
+# openchat
 
 一个鸿蒙（HarmonyOS / ArkTS）小应用，两个目标合在一个壳里：
 
@@ -8,8 +8,8 @@
 > 代码按功能模块组织，`systemmap/` 记录模块职责与设计决策，`techdebt/` 记录已知债务。
 > 应用内提供「检查更新」（Gitee 优先、GitHub 兜底），发布流程见 [docs/release.md](docs/release.md)。
 
-仓库：GitHub [aishangwuji/BalanceApp](https://github.com/aishangwuji/BalanceApp) ·
-Gitee [aishangwuji/BalanceApp](https://gitee.com/aishangwuji/BalanceApp)（国内镜像，`origin`）。
+仓库：GitHub [aishangwuji/openchat](https://github.com/aishangwuji/openchat) ·
+Gitee [aishangwuji/openchat](https://gitee.com/aishangwuji/openchat)（国内镜像，`origin`）。
 GitHub 侧由 Actions 从 Gitee 自动镜像（`.github/workflows/mirror-from-gitee.yml`）。
 
 ## 功能
@@ -43,7 +43,7 @@ node "D:/Program Files/Huawei/DevEco Studio/tools/hvigor/bin/hvigorw.js" assembl
 
 ```powershell
 hdc -t <serial> install -r entry-default-signed.hap
-hdc -t <serial> shell aa start -a EntryAbility -b com.example.balanceapp
+hdc -t <serial> shell aa start -a EntryAbility -b com.example.openchat
 ```
 
 ## 目录
@@ -75,3 +75,5 @@ docs/                  设计稿与发布流程
 ## 许可证
 
 MIT，见 [LICENSE](LICENSE)。
+
+

@@ -5,7 +5,7 @@
 
 1. `BalanceApp/AppScope/app.json5` 的 `versionName` 递增（`versionCode` 也要递增，安装器用它比较）；
 2. 打 `vX.Y.Z` 标签；
-3. release 里挂上 `BalanceApp-X.Y.Z.hap`；
+3. release 里挂上 `openchat-X.Y.Z.hap`；
 4. GitHub 与 Gitee 两个源都发（应用先查 Gitee、失败再查 GitHub）。
 
 ## 1. 改版本号
@@ -48,9 +48,9 @@ GitHub 那边**不要直接 push**：本机直连 `github.com` 会被重置（`a
 `.github/workflows/mirror-from-gitee.yml`，从 Gitee 拉镜像推回 GitHub：
 
 ```powershell
-gh workflow run mirror-from-gitee.yml --repo aishangwuji/BalanceApp
-gh run list --repo aishangwuji/BalanceApp --limit 1     # 等 success
-gh api repos/aishangwuji/BalanceApp/git/ref/tags/v1.0.1  # 确认 tag 已同步
+gh workflow run mirror-from-gitee.yml --repo aishangwuji/openchat
+gh run list --repo aishangwuji/openchat --limit 1     # 等 success
+gh api repos/aishangwuji/openchat/git/ref/tags/v1.0.1  # 确认 tag 已同步
 ```
 
 不手动触发也可以，工作流每 2 小时跑一次。
@@ -58,8 +58,8 @@ gh api repos/aishangwuji/BalanceApp/git/ref/tags/v1.0.1  # 确认 tag 已同步
 ## 4. 发 GitHub Release
 
 ```powershell
-gh release create v1.0.1 "dist/BalanceApp-1.0.1.hap" `
-  --repo aishangwuji/BalanceApp `
+gh release create v1.0.1 "dist/openchat-1.0.1.hap" `
+  --repo aishangwuji/openchat `
   --title "v1.0.1" `
   --notes "## 变更`n- 修复 xxx`n- 新增 yyy"
 ```
@@ -72,24 +72,24 @@ gh release create v1.0.1 "dist/BalanceApp-1.0.1.hap" `
 ## 5. 发 Gitee Release 并挂 HAP
 
 ```powershell
-gitee release create --repo aishangwuji/BalanceApp --tag v1.0.1 `
+gitee release create --repo aishangwuji/openchat --tag v1.0.1 `
   -n "v1.0.1" -b "变更说明"
 ```
 
 Gitee CLI 的 `release create` 没有 `--attach`，附件用 API 补：
 
 ```powershell
-$id  = (gitee api "/repos/aishangwuji/BalanceApp/releases/tags/v1.0.1" | ConvertFrom-Json).id
+$id  = (gitee api "/repos/aishangwuji/openchat/releases/tags/v1.0.1" | ConvertFrom-Json).id
 $tok = gitee auth token
-curl.exe -s -X POST "https://gitee.com/api/v5/repos/aishangwuji/BalanceApp/releases/$id/attach_files" `
-  -F "access_token=$tok" -F "file=@dist/BalanceApp-1.0.1.hap"
+curl.exe -s -X POST "https://gitee.com/api/v5/repos/aishangwuji/openchat/releases/$id/attach_files" `
+  -F "access_token=$tok" -F "file=@dist/openchat-1.0.1.hap"
 ```
 
 ## 6. 校验
 
 ```powershell
-gh release view v1.0.1 --repo aishangwuji/BalanceApp --json tagName,assets
-curl.exe -s https://gitee.com/api/v5/repos/aishangwuji/BalanceApp/releases/latest
+gh release view v1.0.1 --repo aishangwuji/openchat --json tagName,assets
+curl.exe -s https://gitee.com/api/v5/repos/aishangwuji/openchat/releases/latest
 ```
 
 再在应用里「设置 → 关于 → 检查更新」确认弹窗能拿到说明与下载链接。
@@ -98,12 +98,12 @@ curl.exe -s https://gitee.com/api/v5/repos/aishangwuji/BalanceApp/releases/lates
 
 ```powershell
 git remote -v
-# origin  https://gitee.com/aishangwuji/BalanceApp.git      （可直连，日常 push）
-# github  https://github.com/aishangwuji/BalanceApp.git     （仅作参照，不直接 push）
+# origin  https://gitee.com/aishangwuji/openchat.git      （可直连，日常 push）
+# github  https://github.com/aishangwuji/openchat.git     （仅作参照，不直接 push）
 
 # 每次发布后
 git push origin main --tags
-gh workflow run mirror-from-gitee.yml --repo aishangwuji/BalanceApp
+gh workflow run mirror-from-gitee.yml --repo aishangwuji/openchat
 ```
 
 若只想推代码、不发 release，两个动作即可；应用内检查会因为没有新 tag 而静默跳过。
@@ -117,3 +117,5 @@ gh workflow run mirror-from-gitee.yml --repo aishangwuji/BalanceApp
 - **装了新版还提示更新**：`versionName` 没改，或 release tag 与 `versionName` 不一致。
 - **HAP 装了报签名错误**：仓库里发的是作者本机 debug 签名的包，只能装到签名时登记过的设备；
   其他设备需自己用 DevEco 重新签名。
+
+

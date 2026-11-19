@@ -23,10 +23,11 @@ jobs:
       - name: Clone Gitee repository
         run: |
           set -euo pipefail
-          git clone --mirror https://gitee.com/aishangwuji/BalanceApp.git repo.git
+          git clone --mirror https://gitee.com/aishangwuji/openchat.git repo.git
 
       - name: Push mirror to GitHub
         run: |
           set -euo pipefail
           cd repo.git
           git push --mirror "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+

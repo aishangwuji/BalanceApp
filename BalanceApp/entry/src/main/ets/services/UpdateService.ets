@@ -22,9 +22,9 @@ const TAG = 'UpdateService';
 
 /** 仓库坐标：公开发布后固定，改仓只需改这两组。 */
 const GITEE_OWNER = 'aishangwuji';
-const GITEE_REPO = 'BalanceApp';
+const GITEE_REPO = 'openchat';
 const GITHUB_OWNER = 'aishangwuji';
-const GITHUB_REPO = 'BalanceApp';
+const GITHUB_REPO = 'openchat';
 const GITEE_API = `https://gitee.com/api/v5/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/latest`;
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 
@@ -156,7 +156,7 @@ export class UpdateService {
         method: http.RequestMethod.GET,
         header: {
           'Accept': 'application/json',
-          'User-Agent': 'BalanceApp-UpdateChecker'
+          'User-Agent': 'openchat-UpdateChecker'
         },
         connectTimeout: CONNECT_TIMEOUT,
         readTimeout: READ_TIMEOUT,
@@ -237,3 +237,6 @@ export class UpdateService {
     return hap.length > 0 ? hap : (apk.length > 0 ? apk : first);
   }
 }
+
+
+

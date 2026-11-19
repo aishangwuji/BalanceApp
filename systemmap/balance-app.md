@@ -356,7 +356,7 @@ last_verified: 2026-11-19
 
 ## 本次任务所涉现状
 
-- 空目录脚手架 → `devecocli create BalanceApp (API 24, com.example.balanceapp)`，debug 构建成功。
+- 空目录脚手架 → `devecocli create BalanceApp (API 24, com.example.openchat)`，debug 构建成功。
 - 真机 `6UNBB26820047956`（UDID `5FB0F2328…BD1E4`）已在 AGC 登记，`devecocli signature generate`
   自动签名成功，`devecocli run` 签名构建+安装成功，`aa start` 启动成功，真机截屏确认
   查询页正常渲染（供应商选择/BaseURL/Key输入/查询-清空按钮/底部说明）。
@@ -491,3 +491,4 @@ last_verified: 2026-11-19
   会话/角色，头部与发送会用错厂商）。
 - 待办（本次未动，已识别）：多语言仅 Settings 覆盖、字号仅 ChatView 生效、模型选择
   无手动输入、移除服务商无二次确认、MiMo 余额端点 `/v1/models` 恒 0 等，见审查清单。
+

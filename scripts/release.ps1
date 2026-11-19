@@ -40,7 +40,7 @@ if (-not (Test-Path $hap)) {
 }
 
 New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-$target = Join-Path $distDir "BalanceApp-$versionName.hap"
+$target = Join-Path $distDir "openchat-$versionName.hap"
 Copy-Item $hap $target -Force
 $sizeMb = [math]::Round((Get-Item $target).Length / 1MB, 1)
 
@@ -50,11 +50,13 @@ Write-Host ""
 Write-Host "后续手动执行（发布前先确认版本号与 changelog）："
 Write-Host "  git add -A; git commit -m `"chore: 发布 v$versionName`"; git tag v$versionName"
 Write-Host "  git push origin main --tags                                    # origin = Gitee"
-Write-Host "  gh workflow run mirror-from-gitee.yml --repo aishangwuji/BalanceApp   # 同步到 GitHub"
-Write-Host "  gitee release create -R aishangwuji/BalanceApp --tag v$versionName -n `"v$versionName`" -b `"变更说明`""
+Write-Host "  gh workflow run mirror-from-gitee.yml --repo aishangwuji/openchat   # 同步到 GitHub"
+Write-Host "  gitee release create -R aishangwuji/openchat --tag v$versionName -n `"v$versionName`" -b `"变更说明`""
 Write-Host "  # Gitee 附件（CLI 无 --attach）："
-Write-Host "  `$id = (gitee api '/repos/aishangwuji/BalanceApp/releases/tags/v$versionName' | ConvertFrom-Json).id"
-Write-Host "  curl.exe -s -X POST `"https://gitee.com/api/v5/repos/aishangwuji/BalanceApp/releases/`$id/attach_files`" -F `"access_token=`$(gitee auth token)`" -F `"file=@$target`""
-Write-Host "  gh release create v$versionName `"$target`" --repo aishangwuji/BalanceApp --title `"v$versionName`" --notes `"变更说明`""
+Write-Host "  `$id = (gitee api '/repos/aishangwuji/openchat/releases/tags/v$versionName' | ConvertFrom-Json).id"
+Write-Host "  curl.exe -s -X POST `"https://gitee.com/api/v5/repos/aishangwuji/openchat/releases/`$id/attach_files`" -F `"access_token=`$(gitee auth token)`" -F `"file=@$target`""
+Write-Host "  gh release create v$versionName `"$target`" --repo aishangwuji/openchat --title `"v$versionName`" --notes `"变更说明`""
 Write-Host ""
 Write-Host "详见 docs/release.md"
+
+
