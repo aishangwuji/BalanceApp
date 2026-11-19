@@ -32,13 +32,44 @@ covered_paths:
   - BalanceApp/entry/src/main/resources/base/media/ic_personalize.svg
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
-last_verified_commit: 4f5fbd6
+  - BalanceApp/entry/src/main/ets/services/TtsService.ets
+last_verified_commit: 595db48
 last_verified: 2026-11-19
 ---
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 引用角标、来源胶囊与语音朗读（2026-11-19，构建通过）
+
+- 引用角标（对齐官方 App 正文里的小数字）：`annotations` 的 `url_citation` 带
+  `start_index`/`end_index`（**Unicode 码点**，不是 UTF-16 下标）。`WebSearchService.parseCitations`
+  保留区间，`ChatMessage.citations` 持久化；渲染时 `MarkdownService.injectCitations` 把区间末尾
+  换算成 UTF-16 下标后插入 `[N](#cite-N)`，点击落 `#cite-N` → 打开对应来源。
+  - 围栏代码块内的区间不插（避免污染示例代码）；
+  - 从后往前插，避免前面的插入挤动后面的下标；同位置多角标先插大序号，最终呈现 `[1][2]`；
+  - 只在非流式（完成后）注入——流式中 `annotations` 还没到，且注入会让 Typing 增量跳变。
+- 来源胶囊：`SourcePill` 用 3 个站点图标叠放 + 「N 个网页」，样式为白底细边框胶囊、宽度随内容；
+  点一下在下方展开 `SourceList` 明细（再点收起）。图标先画站点首字母、网络图标盖在上面，
+  图标加载失败不会留空。
+  - **坑**：展开态是页面级 `@State`，不在消息数据里；LazyForEach 同 key 复用旧快照，
+    必须把展开态写进 `msgRenderKey` 并显式 `syncMessageSource()`，否则点了没反应。
+- 回到底部：由「↓ + 回到底部」文字胶囊改为 42vp 圆形图标按钮（`ic_scroll_down.svg`）。
+- 语音朗读 `services/TtsService.ets`：
+  - `POST https://api.deepseek.com/v1/tools/tts`，体 `{text, voice_id, format:'wav'}`，
+    `expectDataType=ARRAY_BUFFER`；服务端默认 `filter_markdown=true`，客户端不清洗 Markdown；
+    文本按 UTF-16 长度截断到 10000（服务端计费字符上限更宽松）。
+  - 音频写 `context.cacheDir/tts_<ts>.wav`，AVPlayer `fdSrc` 播放；completed/error/替换/离开页面
+    统一 `stopPlayback()`：release 播放器、关 fd、删缓存。
+  - 旧播放的迟到回调按 `session` 自增号丢弃（避免误清新会话状态）。
+  - Key 取 `key_deepseek`（TTS 是 DeepSeek 专属能力，与当前服务商无关），缺失时提示去资产监控配置。
+  - 入口：长按助手消息 → 朗读 / 停止朗读；切换会话、新建会话、离开页面自动停。
+- 设置页：新增「语音 > 朗读音色」（`stella` 海星女声 / `tide` 暗潮男声），存 balance_prefs
+  的 `tts_voice_id`，默认 stella；AppStorage 同步供 UI 回显。账户/关于两组按用户要求不做。
+- 实测：TTS 接口 200 / `audio/wav` / RIFF 头 / 单句 207KB；引用注入用真实 SSE 复算：
+  11 条引用全部命中（0 条落在代码围栏），含代理对文本（码点数 277 vs UTF-16 278）仍位置正确。
+- 未做：语音输入（ASR：录音 + `/v1/tools/asr` multipart 上传），下一轮；移动端对齐见 TD-006。
 
 ## 联网搜索（DeepSeek 服务端工具，2026-11-19，构建通过）
 
