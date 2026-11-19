@@ -30,13 +30,52 @@ covered_paths:
   - BalanceApp/entry/src/main/resources/base/media/ic_font.svg
   - BalanceApp/entry/src/main/resources/base/media/ic_language.svg
   - BalanceApp/entry/src/main/resources/base/media/ic_personalize.svg
-last_verified_commit: da8544e
-last_verified: 2026-10-23
+  - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
+  - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
+last_verified_commit: 4f5fbd6
+last_verified: 2026-11-19
 ---
 
 > 前瞻设计：多角色群聊（@ + Jev 路由 + 记忆隔离）详见 `docs/group-chat-design.md`。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 联网搜索（DeepSeek 服务端工具，2026-11-19，构建通过）
+
+- 路径选择：官方新开放的独立 Search/Fetch 接口要客户端自己拼检索上下文并按次计费；
+  这里改用 Chat Completions 的**服务端工具** `deepseek_web_search`：是否联网由模型判断，
+  开深度思考时自动变「深度思考搜索」（一轮多步 search / open_page / find_in_page），
+  搜索与抓取都在服务端完成、不计费（只计模型 token）。非 DeepSeek 服务商不展示该开关。
+- 请求 `services/ChatService.ets`：`ChatRequestOptions.enableWebSearch` 为真时下发
+  `tools: [{type:'deepseek_web_search'}]`。声明后 temperature/top_p/seed/n 等由服务端忽略
+  （官方《被忽略的参数》），故温度分支未改；`tool_choice` 不能指向该工具，也不能与其他 tools 混用。
+- 解析 `services/WebSearchService.ets`（纯逻辑层，可独立审查）：
+  - `parseToolEvent` 读 `choice.server_tool_event`（与 delta 并列，一次 chunk 最多一个）：
+    `call_started` 带 action.queries，`call_completed` 带 status/sources。**实测
+    call_completed 的 call 不带 kind**，故 kind 缺失一律放行，只丢弃明确的非搜索 kind。
+  - `parseAnnotations` 读末块 `delta.annotations`（url_citation，只有 url/title）。
+  - `mergeSources` 按 url 去重：先到先得，后到只补空字段，避免搜索结果的 snippet/site_name
+    被更短的引用标题覆盖；上限 24 条。
+- 展示 `pages/ChatView.ets`：
+  - 开关 `WebSearchButton` 与 `ThinkingButton` 并排（胶囊行 96% 宽）；开关值存
+    balance_prefs 的 `web_search_enabled`，跨会话/重启保留，只在
+    `WebSearchService.isSupported(providerId)`（=deepseek）时渲染。
+  - 检索进度复用「思考中...」占位行（`generationHint`），按 action 区分搜索/阅读网页/页内查找；
+    `searchState`/`searchHint` 是非持久化字段，完成/出错/停止时清空。
+  - 来源卡片 `SourceList` 挂在正文下方，序号即引用序号；点击走系统浏览器（http/https 白名单）。
+  - 渲染键 `msgContentPhaseKey` 在正文出现前追加 `S<state><来源数>H<提示长度>`，保证搜索态
+    逐帧刷新；正文出现后仍为 `C`，不破坏「MarkdownBody 只挂载一次」的稳定实例约定。
+- 持久化 `services/ChatStorageService.ets`：`normalizeSources` 校验 http/https、按 url 去重、
+  上限 24；过程态字段不落盘（历史里不会残留「搜索中」）。
+- 未做：`deepseek_read_url`（阅读用户发的链接）与内联引用角标（annotations 的
+  start_index/end_index 是 Unicode 码点，需正文插标）见 `techdebt/TD-002`；
+  移动端对齐见 `techdebt/TD-006`；旧模型名会话迁移见 `techdebt/TD-005`。
+- 顺带修正 `services/ModelService.ets` 兜底模型名：deepseek-chat / deepseek-reasoner 已于
+  2026-07-24 下线，改为 deepseek-flash / deepseek-v4-pro（实测两者都支持联网工具）。
+- 验证：无 mock。用本机 Key 实跑 `deepseek-flash` 普通搜索与深度思考搜索，把真实 SSE 按同一
+  规则复算：普通搜索 1 次调用 → 15 条去重来源（含 snippet/site_name），深搜 6 次调用 →
+  18 条；`hvigor assembleHap` 构建通过。真机 E2E 被应用锁挡住（系统人脸/指纹不可远程驱动），
+  需用户解锁后自行发一条提问确认。
 
 ## 上下文净化 Topic Gate（2026-10-20，已落地，构建通过）
 
