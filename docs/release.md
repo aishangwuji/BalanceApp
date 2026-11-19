@@ -40,39 +40,56 @@ node "D:/Program Files/Huawei/DevEco Studio/tools/hvigor/bin/hvigorw.js" assembl
 git add -A
 git commit -m "chore: 发布 v1.0.1"
 git tag v1.0.1
-git push origin main
-git push origin v1.0.1
+git push origin main --tags        # origin = Gitee（本机可直连）
 ```
+
+GitHub 那边**不要直接 push**：本机直连 `github.com` 会被重置（`api.github.com` 正常，
+但 git 走 443 的 `github.com` 不通）。仓库里已放 Actions 工作流
+`.github/workflows/mirror-from-gitee.yml`，从 Gitee 拉镜像推回 GitHub：
+
+```powershell
+gh workflow run mirror-from-gitee.yml --repo aishangwuji/BalanceApp
+gh run list --repo aishangwuji/BalanceApp --limit 1     # 等 success
+gh api repos/aishangwuji/BalanceApp/git/ref/tags/v1.0.1  # 确认 tag 已同步
+```
+
+不手动触发也可以，工作流每 2 小时跑一次。
 
 ## 4. 发 GitHub Release
 
 ```powershell
 gh release create v1.0.1 "dist/BalanceApp-1.0.1.hap" `
+  --repo aishangwuji/BalanceApp `
   --title "v1.0.1" `
   --notes "## 变更`n- 修复 xxx`n- 新增 yyy"
 ```
 
+`gh` 走 API 上传资产，实测可用（不受 `github.com` 直连被重置影响）。
+
 `--notes` 的内容会原样显示在应用的更新弹窗里（应用内截断到 600 字），建议用简短的
 「变更」列表，而不是整段提交日志。
 
-## 5. 发 Gitee Release 并同步仓库
+## 5. 发 Gitee Release 并挂 HAP
 
 ```powershell
 gitee release create --repo aishangwuji/BalanceApp --tag v1.0.1 `
-  --title "v1.0.1" --notes "变更说明" --attach "dist/BalanceApp-1.0.1.hap"
-
-git push gitee main
-git push gitee v1.0.1
+  -n "v1.0.1" -b "变更说明"
 ```
 
-`gitee release create` 的参数以 `gitee release create --help` 为准；如果 CLI 版本不支持
-`--attach`，就在 Gitee 网页的「发行版」里手动上传附件。
+Gitee CLI 的 `release create` 没有 `--attach`，附件用 API 补：
+
+```powershell
+$id  = (gitee api "/repos/aishangwuji/BalanceApp/releases/tags/v1.0.1" | ConvertFrom-Json).id
+$tok = gitee auth token
+curl.exe -s -X POST "https://gitee.com/api/v5/repos/aishangwuji/BalanceApp/releases/$id/attach_files" `
+  -F "access_token=$tok" -F "file=@dist/BalanceApp-1.0.1.hap"
+```
 
 ## 6. 校验
 
 ```powershell
-gh release view v1.0.1 --json tagName,assets
-gitee release view v1.0.1 -R aishangwuji/BalanceApp
+gh release view v1.0.1 --repo aishangwuji/BalanceApp --json tagName,assets
+curl.exe -s https://gitee.com/api/v5/repos/aishangwuji/BalanceApp/releases/latest
 ```
 
 再在应用里「设置 → 关于 → 检查更新」确认弹窗能拿到说明与下载链接。
@@ -81,19 +98,22 @@ gitee release view v1.0.1 -R aishangwuji/BalanceApp
 
 ```powershell
 git remote -v
-# origin  https://github.com/aishangwuji/BalanceApp.git
-# gitee   https://gitee.com/aishangwuji/BalanceApp.git
+# origin  https://gitee.com/aishangwuji/BalanceApp.git      （可直连，日常 push）
+# github  https://github.com/aishangwuji/BalanceApp.git     （仅作参照，不直接 push）
 
-# 每次发布后同步两边
+# 每次发布后
 git push origin main --tags
-git push gitee  main --tags
+gh workflow run mirror-from-gitee.yml --repo aishangwuji/BalanceApp
 ```
 
-若只想推代码、不发 release，两个 `git push` 即可；应用内检查会因为没有新 tag 而静默跳过。
+若只想推代码、不发 release，两个动作即可；应用内检查会因为没有新 tag 而静默跳过。
 
 ## 常见问题
 
 - **检查更新提示失败**：Gitee/GitHub API 都可能被网络限制；应用静默失败不打扰用户，
   设置页会提示「暂时无法检查更新」。确认 release 是公开的（私有仓库的 API 需要 token）。
 - **弹窗里没有下载按钮**：release 没挂 `.hap` 资产时，应用回退到 release 页面链接。
+  Gitee release 的 `html_url` 可能为空，此时务必挂 HAP。
 - **装了新版还提示更新**：`versionName` 没改，或 release tag 与 `versionName` 不一致。
+- **HAP 装了报签名错误**：仓库里发的是作者本机 debug 签名的包，只能装到签名时登记过的设备；
+  其他设备需自己用 DevEco 重新签名。

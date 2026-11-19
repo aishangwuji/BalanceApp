@@ -8,6 +8,10 @@
 > 代码按功能模块组织，`systemmap/` 记录模块职责与设计决策，`techdebt/` 记录已知债务。
 > 应用内提供「检查更新」（Gitee 优先、GitHub 兜底），发布流程见 [docs/release.md](docs/release.md)。
 
+仓库：GitHub [aishangwuji/BalanceApp](https://github.com/aishangwuji/BalanceApp) ·
+Gitee [aishangwuji/BalanceApp](https://gitee.com/aishangwuji/BalanceApp)（国内镜像，`origin`）。
+GitHub 侧由 Actions 从 Gitee 自动镜像（`.github/workflows/mirror-from-gitee.yml`）。
+
 ## 功能
 
 - **资产**：密钥只存本机 Preferences；余额支持自动刷新与 keep-last-good。

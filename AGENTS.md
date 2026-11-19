@@ -64,7 +64,9 @@ Jev模型文档："C:\Users\15216\Desktop\文档\jve模型.md"
   不许「多功能合集」。同一文件里混了多件事时，用「备份完整版 → 还原 → 只重放单件 → 提交 →
   回填完整版 → 再提交」的方式拆（历史 `8424d70` 用过此法）。被顺带修掉的问题要么单独提交，
   要么至少在提交信息首行之外单列一段说明，不能只混在 diff 里。
-- 开源与发布（2026-11-19）：仓库已公开（GitHub `aishangwuji/BalanceApp` + Gitee 镜像）；
+- 开源与发布（2026-11-19）：仓库已公开，`origin` = Gitee（本机可直连），`github` 仅作参照；
+  直连 `github.com` 的 git 被重置，GitHub 侧由 Actions 工作流
+  `.github/workflows/mirror-from-gitee.yml` 从 Gitee 镜像（`gh workflow run` 可立即触发）。
   `BalanceApp/build-profile.json5` 入库版本不含 signingConfigs，本机用
   `git update-index --skip-worktree BalanceApp/build-profile.json5` 保留本地签名块；
   发版流程见 `docs/release.md`（应用内检查更新依赖 release tag + `.hap` 资产）。
