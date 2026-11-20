@@ -7,6 +7,7 @@ import '../../data/models/provider.dart';
 import '../../state/chat_controller.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/thinking_button.dart';
+import '../widgets/web_search_button.dart';
 import 'chat_sheets.dart';
 import 'settings_page.dart';
 
@@ -468,11 +469,21 @@ class _ChatPageState extends State<ChatPage> {
             ],
           ),
           const SizedBox(height: 8),
-          ThinkingButton(
-            enabled: chat.enableThinking,
-            providerId: chat.currentProviderId,
-            modelId: chat.currentModelId,
-            onToggle: chat.setEnableThinking,
+          Row(
+            children: <Widget>[
+              ThinkingButton(
+                enabled: chat.enableThinking,
+                providerId: chat.currentProviderId,
+                modelId: chat.currentModelId,
+                onToggle: chat.setEnableThinking,
+              ),
+              const SizedBox(width: 8),
+              WebSearchButton(
+                enabled: chat.enableWebSearch,
+                providerId: chat.currentProviderId,
+                onToggle: chat.setEnableWebSearch,
+              ),
+            ],
           ),
         ],
       ),

@@ -19,11 +19,23 @@ class ChatStreamEvent {
     this.content = '',
     this.reasoning = '',
     this.done = false,
+    this.searchHint = '',
+    this.sources = const <SearchSource>[],
+    this.citations = const <CitationRange>[],
+    this.title = '',
   });
 
   final String content;
   final String reasoning;
   final bool done;
+  /// 检索过程提示（server_tool_event）；空串表示本块没有搜索事件。
+  final String searchHint;
+  /// 本块新出现的来源（已按 url 去重由调用方合并）。
+  final List<SearchSource> sources;
+  /// 正文引用区间（delta.annotations）。
+  final List<CitationRange> citations;
+  /// 会话标题（仅首轮声明 title 时下发）。
+  final String title;
 
   bool get hasPayload => content.isNotEmpty || reasoning.isNotEmpty;
 }
@@ -38,6 +50,7 @@ class ChatRequestOptions {
     this.systemPrompt,
     this.enableThinking = false,
     this.reasoningEffort = 'high',
+    this.enableWebSearch = false,
   });
 
   final String providerId;
@@ -48,6 +61,8 @@ class ChatRequestOptions {
   final String? systemPrompt;
   final bool enableThinking;
   final String reasoningEffort;
+  /// 联网搜索：仅 DeepSeek 声明服务端工具 deepseek_web_search。
+  final bool enableWebSearch;
 }
 
 /// OpenAI-compatible streaming engine.
@@ -155,9 +170,23 @@ class ChatService {
       }
       final Object? content = delta['content'];
       final Object? reasoning = delta['reasoning_content'];
+      final String hint = _searchHint(choice['server_tool_event']);
+      final List<CitationRange> citations = _parseAnnotations(delta['annotations']);
+      final List<SearchSource> sources = <SearchSource>[];
+      for (final CitationRange cite in citations) {
+        if (!sources.any((SearchSource s) => s.url == cite.url)) {
+          sources.add(SearchSource(url: cite.url, title: cite.title));
+        }
+      }
+      final Object? titleRaw = delta['title'];
+      final String title = titleRaw is String ? titleRaw.trim() : '';
       return ChatStreamEvent(
         content: content is String ? content : '',
         reasoning: reasoning is String ? reasoning : '',
+        searchHint: hint,
+        sources: sources,
+        citations: citations,
+        title: title,
       );
     } catch (_) {
       // Ignore keep-alive or malformed single lines.
@@ -232,6 +261,12 @@ class ChatService {
       'messages': buildApiMessages(options.messages, options.systemPrompt),
       'stream': isStream,
     };
+    // 联网搜索：仅 DeepSeek 声明服务端工具（搜索/抓取由服务端完成）。
+    if (options.enableWebSearch && options.providerId == 'deepseek') {
+      payload['tools'] = <Map<String, String>>[
+        <String, String>{'type': 'deepseek_web_search'},
+      ];
+    }
     final bool thinkingOn =
         options.enableThinking && def.supportsThinking;
     final String model = options.model.toLowerCase();
@@ -275,4 +310,55 @@ class ChatService {
 
   static String _truncate(String text) =>
       text.length <= 500 ? text : '${text.substring(0, 500)}…';
+
+  /// server_tool_event → 一行中文进度提示；未知事件返回空串。
+  static String _searchHint(Object? raw) {
+    if (raw is! Map) {
+      return '';
+    }
+    final Object? phase = raw['phase'];
+    if (phase == 'started') {
+      return '正在联网搜索…';
+    }
+    if (phase == 'completed') {
+      return '已搜索';
+    }
+    return '';
+  }
+
+  /// 解析 delta.annotations 中的 url_citation；偏移是 Unicode 码点。
+  static List<CitationRange> _parseAnnotations(Object? raw) {
+    if (raw is! List) {
+      return const <CitationRange>[];
+    }
+    final List<CitationRange> out = <CitationRange>[];
+    for (final Object? item in raw) {
+      if (item is! Map || item['type'] != 'url_citation') {
+        continue;
+      }
+      final Object? payload = item['url_citation'];
+      if (payload is! Map) {
+        continue;
+      }
+      final Object? url = payload['url'];
+      if (url is! String || !(url.startsWith('http://') || url.startsWith('https://'))) {
+        continue;
+      }
+      final Object? start = payload['start_index'];
+      final Object? end = payload['end_index'];
+      if (start is! num || end is! num) {
+        continue;
+      }
+      final Object? title = payload['title'];
+      out.add(
+        CitationRange(
+          url: url,
+          title: title is String && title.isNotEmpty ? title : url,
+          start: start.toInt(),
+          end: end.toInt(),
+        ),
+      );
+    }
+    return out;
+  }
 }

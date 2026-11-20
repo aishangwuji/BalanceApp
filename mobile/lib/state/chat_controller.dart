@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../data/models/chat_models.dart';
 import '../data/models/provider.dart';
 import '../data/services/auth_service.dart';
+import '../data/services/baizhi_web_search_service.dart';
 import '../data/services/chat_service.dart';
 import '../data/services/chat_storage_service.dart';
 import '../data/services/key_store.dart';
@@ -57,6 +58,7 @@ class ChatController extends ChangeNotifier {
   String _currentModelId = '';
   String _currentApiKey = '';
   bool _enableThinking = true;
+  bool _enableWebSearch = true;
   bool _isGenerating = false;
   bool _fetchingModels = false;
   bool _initialized = false;
@@ -81,6 +83,7 @@ class ChatController extends ChangeNotifier {
   String get currentProviderId => _currentProviderId;
   String get currentModelId => _currentModelId;
   bool get enableThinking => _enableThinking;
+  bool get enableWebSearch => _enableWebSearch;
   bool get isGenerating => _isGenerating;
   bool get fetchingModels => _fetchingModels;
   String get noticeText => _noticeText;
@@ -649,6 +652,11 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setEnableWebSearch(bool value) {
+    _enableWebSearch = value;
+    notifyListeners();
+  }
+
   void clearNotice() {
     if (_noticeText.isEmpty) {
       return;
@@ -697,11 +705,11 @@ class ChatController extends ChangeNotifier {
     generateReply(session, userMsg, currentCharacter);
   }
 
-  void generateReply(
+  Future<void> generateReply(
     ChatSession session,
     ChatMessage parentMessage,
     CharacterCard speaker,
-  ) {
+  ) async {
     final ChatMessage assistant = buildMessage(
       MessageRole.assistant,
       '',
@@ -743,6 +751,30 @@ class ChatController extends ChangeNotifier {
       );
     }).toList(growable: false);
 
+    // 百智云联网搜索：发送前先检索，把摘要注入系统提示、来源挂到本条消息。
+    // Business Rule: 检索失败降级为普通回答，绝不阻塞对话。
+    String webContext = '';
+    if (_enableWebSearch &&
+        _settings.webSearchProvider == webSearchProviderBaizhi) {
+      assistant
+        ..searching = true
+        ..searchHint = '正在联网搜索…';
+      notifyListeners();
+      try {
+        final String key = await _settings.readBaizhiWebKey();
+        final List<SearchSource> results =
+            await BaizhiWebSearchService.search(parentMessage.content, key);
+        if (results.isNotEmpty) {
+          assistant.sources = results;
+          webContext = BaizhiWebSearchService.buildContext(results);
+        }
+      } catch (error) {
+        assistant.searchHint = '联网搜索失败，改为普通回答';
+      }
+      assistant.searching = false;
+      notifyListeners();
+    }
+    final List<CitationRange> citations = <CitationRange>[];
     final int thinkingStart = DateTime.now().millisecondsSinceEpoch;
     int thinkingEnd = 0;
     bool finished = false;
@@ -772,7 +804,15 @@ class ChatController extends ChangeNotifier {
           _collapsedReasons.add(assistant.id);
         }
       }
-      _isGenerating = false;
+      assistant.searching = false;
+      assistant.searchHint = null;
+      if (citations.isNotEmpty && assistant.content.isNotEmpty) {
+        assistant.content = injectCitationMarkers(
+          assistant.content,
+          citations,
+          assistant.sources,
+        );
+      }      _isGenerating = false;
       unawaited(_saveState());
       notifyListeners();
       if (!stopped) {
@@ -804,9 +844,13 @@ class ChatController extends ChangeNotifier {
         model: _currentModelId,
         temperature: speaker.temperature,
         messages: history,
-        systemPrompt: _systemPromptFor(session, speaker),
+        systemPrompt: _systemPromptFor(session, speaker) +
+            (webContext.isEmpty ? '' : '\n\n$webContext'),
         enableThinking: _enableThinking,
         reasoningEffort: 'high',
+
+        enableWebSearch: _enableWebSearch &&
+            _settings.webSearchProvider != webSearchProviderBaizhi,
       ),
     );
 
@@ -818,6 +862,25 @@ class ChatController extends ChangeNotifier {
         if (event.done) {
           complete(stopped: false);
           return;
+        }
+        if (event.searchHint.isNotEmpty) {
+          assistant.searchHint = event.searchHint;
+          assistant.searching = event.searchHint.contains('正在');
+        }
+        if (event.sources.isNotEmpty) {
+          for (final SearchSource source in event.sources) {
+            if (!assistant.sources.any((SearchSource s) => s.url == source.url)) {
+              assistant.sources.add(source);
+            }
+          }
+        }
+        if (event.citations.isNotEmpty) {
+          citations.addAll(event.citations);
+        }
+        if (event.title.isNotEmpty &&
+            _settings.featureTitle &&
+            session.title == '新对话') {
+          session.title = event.title;
         }
         if (event.reasoning.isNotEmpty) {
           assistant.reasoningContent =
@@ -1039,4 +1102,49 @@ class ChatController extends ChangeNotifier {
     _subscription?.cancel();
     super.dispose();
   }
+}
+
+/// 在正文引用区间的末尾插入 [N](#cite-N) 标记。
+///
+/// Business Rule: 偏移以 Unicode 码点计（与 DeepSeek annotations 一致），
+/// 越界或找不到来源的区间直接跳过，不影响正文。
+String injectCitationMarkers(
+  String content,
+  List<CitationRange> citations,
+  List<SearchSource> sources,
+) {
+  if (content.isEmpty || citations.isEmpty) {
+    return content;
+  }
+  final Map<int, List<int>> atEnd = <int, List<int>>{};
+  for (final CitationRange cite in citations) {
+    final int number =
+        sources.indexWhere((SearchSource s) => s.url == cite.url) + 1;
+    if (number <= 0 || cite.end < 0) {
+      continue;
+    }
+    final List<int> numbers = atEnd.putIfAbsent(cite.end, () => <int>[]);
+    if (!numbers.contains(number)) {
+      numbers.add(number);
+    }
+  }
+  if (atEnd.isEmpty) {
+    return content;
+  }
+  final StringBuffer out = StringBuffer();
+  int index = 0;
+  for (final int rune in content.runes) {
+    out.writeCharCode(rune);
+    index++;
+    final List<int>? numbers = atEnd[index];
+    if (numbers == null) {
+      continue;
+    }
+    numbers.sort();
+    for (final int number in numbers) {
+      final String marker = number.toString();
+      out.write('[$marker](#cite-$marker)');
+    }
+  }
+  return out.toString();
 }

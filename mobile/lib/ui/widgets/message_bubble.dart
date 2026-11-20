@@ -174,11 +174,23 @@ class _AssistantBubble extends StatelessWidget {
               ),
               isStreaming: streaming,
               onLinkTap: (String url, String? title) =>
-                  _openLink(context, url),
+                  _openLink(context, url, sources: message.sources),
               onImageTap: (String url) => _previewImage(context, url),
             ),
           ),
-        if (message.status == MessageStatus.error)
+        if (message.searching && message.content.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 2),
+            child: Text(
+              message.searchHint ?? '正在联网搜索…',
+              style: TextStyle(fontSize: 13, color: c.textMuted),
+            ),
+          ),
+        if (message.sources.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8, left: 2),
+            child: _SourcePill(sources: message.sources),
+          ),        if (message.status == MessageStatus.error)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 2),
             child: Text(
@@ -375,11 +387,20 @@ class _BranchButton extends StatelessWidget {
   }
 }
 
-Future<void> _openLink(BuildContext context, String href) async {
+Future<void> _openLink(
+  BuildContext context,
+  String href, {
+  List<SearchSource>? sources,
+}) async {
   final int? cite = citationIndex(href);
   if (cite != null) {
+    final List<SearchSource> list = sources ?? const <SearchSource>[];
+    if (cite >= 1 && cite <= list.length) {
+      await _openLink(context, list[cite - 1].url);
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('引用来源 [$cite]（来源列表待模型侧提供）')),
+      SnackBar(content: Text('引用来源 [] 不在来源列表中')),
     );
     return;
   }
@@ -439,4 +460,52 @@ void _previewImage(BuildContext context, String url) {
       );
     },
   );
+}
+
+/// 来源胶囊：编号与正文引用角标一致；点击直接在外部浏览器打开。
+class _SourcePill extends StatelessWidget {
+  const _SourcePill({required this.sources});
+
+  final List<SearchSource> sources;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = context.colors;
+    final int shown = sources.length > 5 ? 5 : sources.length;
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: <Widget>[
+        for (int i = 0; i < shown; i++)
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _openLink(context, sources[i].url),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: c.fill,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${i + 1} ${sources[i].siteName ?? _hostOf(sources[i].url)}',
+                style: TextStyle(fontSize: 11, color: c.textSecondary),
+              ),
+            ),
+          ),
+        if (sources.length > shown)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '+${sources.length - shown}',
+              style: TextStyle(fontSize: 11, color: c.textMuted),
+            ),
+          ),
+      ],
+    );
+  }
+
+  static String _hostOf(String url) {
+    final Uri? uri = Uri.tryParse(url);
+    return uri?.host ?? url;
+  }
 }

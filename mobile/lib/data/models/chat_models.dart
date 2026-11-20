@@ -4,6 +4,63 @@ enum MessageStatus { sending, streaming, success, error }
 
 enum SceneMode { single, group }
 
+/// 联网搜索来源（持久化，按 url 去重、按出现顺序排列）。
+class SearchSource {
+  const SearchSource({
+    required this.url,
+    required this.title,
+    this.snippet,
+    this.siteName,
+    this.publishedAt,
+  });
+
+  final String url;
+  final String title;
+  final String? snippet;
+  final String? siteName;
+  final String? publishedAt;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'url': url,
+        'title': title,
+        if (snippet != null) 'snippet': snippet,
+        if (siteName != null) 'siteName': siteName,
+        if (publishedAt != null) 'publishedAt': publishedAt,
+      };
+
+  static SearchSource? tryParse(Object? raw) {
+    if (raw is! Map) {
+      return null;
+    }
+    final Object? url = raw['url'];
+    if (url is! String || !(url.startsWith('http://') || url.startsWith('https://'))) {
+      return null;
+    }
+    final Object? title = raw['title'];
+    return SearchSource(
+      url: url,
+      title: title is String && title.isNotEmpty ? title : url,
+      snippet: raw['snippet'] is String ? raw['snippet'] as String : null,
+      siteName: raw['siteName'] is String ? raw['siteName'] as String : null,
+      publishedAt: raw['publishedAt'] is String ? raw['publishedAt'] as String : null,
+    );
+  }
+}
+
+/// 正文引用区间（偏移以 Unicode 码点计，与 DeepSeek annotations 一致）。
+class CitationRange {
+  const CitationRange({
+    required this.url,
+    required this.title,
+    required this.start,
+    required this.end,
+  });
+
+  final String url;
+  final String title;
+  final int start;
+  final int end;
+}
 class ChatMessage {
   ChatMessage({
     required this.id,
@@ -19,8 +76,10 @@ class ChatMessage {
     this.activeChildId = '',
     this.speakerId = '',
     List<String>? mentionedIds,
+    List<SearchSource>? sources,
   })  : childIds = childIds ?? <String>[],
-        mentionedIds = mentionedIds ?? <String>[];
+        mentionedIds = mentionedIds ?? <String>[],
+        sources = sources ?? <SearchSource>[];
 
   final String id;
   final MessageRole role;
@@ -35,6 +94,10 @@ class ChatMessage {
   String activeChildId;
   String speakerId;
   List<String> mentionedIds;
+  /// 联网搜索来源（持久化）；searchHint/searching 为实时字段，不落盘。
+  List<SearchSource> sources;
+  String? searchHint;
+  bool searching = false;
 
   bool get isUser => role == MessageRole.user;
   bool get isAssistant => role == MessageRole.assistant;
@@ -100,6 +163,8 @@ class ChatMessage {
         'activeChildId': activeChildId,
         'speakerId': speakerId,
         'mentionedIds': mentionedIds,
+        if (sources.isNotEmpty)
+          'sources': sources.map((SearchSource s) => s.toJson()).toList(),
       };
 
   /// Boundary parser: persisted data is untrusted, so every field is
@@ -148,6 +213,7 @@ class ChatMessage {
       activeChildId: raw['activeChildId'] is String ? raw['activeChildId'] as String : '',
       speakerId: raw['speakerId'] is String ? raw['speakerId'] as String : '',
       mentionedIds: mentioned,
+      sources: _parseSources(raw['sources']),
     );
   }
 }
@@ -311,4 +377,18 @@ class ModelInfo {
 
   final String id;
   final String name;
+}
+
+List<SearchSource> _parseSources(Object? raw) {
+  if (raw is! List) {
+    return <SearchSource>[];
+  }
+  final List<SearchSource> out = <SearchSource>[];
+  for (final Object? item in raw) {
+    final SearchSource? source = SearchSource.tryParse(item);
+    if (source != null && !out.any((SearchSource s) => s.url == source.url)) {
+      out.add(source);
+    }
+  }
+  return out;
 }
