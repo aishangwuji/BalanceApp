@@ -40,6 +40,30 @@ last_verified: 2026-11-19
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 附件缩略图（2026-11-20，构建通过）
+
+- 现象：上传图片后，输入框和已发送气泡都只显示 `IMG_xxx.jpg` 文件名胶囊，看不到图。
+- 做法：选图时把图片复制到 `filesDir/attachments/<时间戳>_<名>`（picker URI 是临时授权，
+  重启后读不到），路径存进 `MessageAttachment.localUri`（可选字段，随会话持久化）。
+- 展示：输入框待发送胶囊显 26×26 缩略图；已发送用户气泡显 150×150 圆角缩略图，
+  点击复用 `previewImage` 全屏预览；非图片附件仍走文件名胶囊。
+- 已知欠账：删会话不会清理 `filesDir/attachments` 下的副本（会慢慢堆积），后续按会话 id 归档或 GC。
+
+- 现象：生图之后每一轮都在重复生图——问「我手里这是什么」（带图追问）被当成还要生成头像；
+  问「搜一搜日照有哪些景点」也只调了生图工具，正文回「我没有联网搜索工具」。
+- 根因 1（上下文污染）：模型只调 `generate_image` 时，助手回合 `content` 为空、只有 `reasoningContent`。
+  `buildApiMessages` 原先用 `hasReasoning` 放行这种空回合，并且对 DeepSeek 也回传 `reasoning_content`。
+  模型于是认为「上一条用户请求还没被回答」，每轮都重放旧生图指令。
+  修：① 助手空回合不再回传（带图的旧回合用「（已为你生成图片）」占位结算）；
+  ② `reasoning_content` 只对 Kimi / 小米 MiMo（Preserved Thinking）回传，DeepSeek 一律丢弃；
+  ③ 生图成功后若正文为空，补一句「已为你生成图片。」，让该回合在历史里算已作答。
+- 根因 2（工具互斥）：同场声明 `deepseek_web_search` 与 `generate_image` 时，模型经常只认生图工具，
+  并声称自己没有搜索能力。实测同一条 history：只给 web 工具必检索，两个都给则不检索。
+  修：按意图二选一——`ChatView.wantsImage()` 命中关键词（画/头像/海报/插画/配图/壁纸/生图/绘制…）
+  才声明 `generate_image`，否则只声明 `web_search`。
+- 验证（真实 Key 重放历史）：修前「搜日照」→ 返回 `generate_image` 工具调用；修后 → 直接检索并返回 19 条引用；
+  「我手里这是什么」+ 仅 web 工具 → 正常答出贝壳/卵石/螺壳并检索 9 条引用。
+
 ## 首屏空态对齐官方（2026-11-20，构建通过）
 
 - 请求：首屏去掉装饰性文案（原「BALANCE / AI」眉标、「让想法慢慢展开」标语、
@@ -344,14 +368,18 @@ last_verified: 2026-11-19
   （居中轻量卡片，✓ 即切），chips 回显，发送时选择器＋文本扫描（CJK 边界）双通道校对落库。
 - 私有知识拼入对应发言角色的 systemPrompt（标注不得外泄）。
 
-## 用户身份卡（2026-10-05，已落地）
+## 已移除：用户身份卡（2026-11-20 删除）
 
-- 新实体 `UserIdentityCard { id/name/persona/createdAt }`，独立存储 `saved_identities`；
-  与角色卡区分：只要"我是谁"，不要 AI 参数。
-- 角色管理内「我的身份」分组：新建/点行编辑/长按删除（复用 ConfirmDialog 二次确认）。
-- 新会话「我扮演（可选）」单选，写入 `session.userIdentityId` 后锁定（与角色卡同规则）。
-- 上下文：每个发言角色的 system prompt 追加用户剧中身份段；请求历史的用户发言前缀身份名
-  （拷贝后改写，不污染存储）；用户气泡右上显示身份名。
+> 原设计（2026-10-05 落地）已整体下线，以下为删除记录，留档避免重复设计。
+
+- 删除范围：`UserIdentityCard` 实体与 `saved_identities` 存储、`ChatSession.userIdentityId`、
+  ChatView 的身份状态/编辑弹窗/删除确认/「我的身份」分组/「我扮演（可选）」单选、
+  系统提示词里的「用户剧中身份」段、请求历史的「身份名：」前缀、用户气泡右上身份名。
+- 兼容：历史会话 JSON 里残留的 `userIdentityId` 字段在 normalize 时被忽略；
+  本地 `saved_identities` 键不再读写（未被读取，不会再出现在 UI 上）。
+- 角色卡（`CharacterCard`）、保密会话、@ 发言人等相邻能力不受影响。
+- 历史实现要点（已无用，仅供追溯）：独立存储 `saved_identities`；角色管理内「我的身份」分组
+  新建/编辑/长按删除；新会话建联时单选并锁定；system prompt 追加身份段、历史用户发言前缀身份名。
 
 ## 对话与资产体验第二批（2026-10-05，已落地）
 

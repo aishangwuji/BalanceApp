@@ -166,7 +166,7 @@ Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
 
 | 数据 | 位置 | 说明 |
 |---|---|---|
-| 会话、角色卡、身份卡 | Preferences `chat_sessions` 等 | JSON 明文 |
+| 会话、角色卡 | Preferences `chat_sessions` 等 | JSON 明文 |
 | 各厂商 API Key | Preferences `key_<providerId>` | 明文，见 TD-003 |
 | 外观/字号/语音/应用锁 | Preferences 同名键 | 部分同步到 AppStorage |
 | TTS 音频 | `cacheDir/tts_cache` | FNV-1a 键，16 文件/40MB 上限 |
@@ -184,7 +184,7 @@ Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
 | `services/AsrService.ets` | `/v1/tools/asr` 转写，失败清理临时音频 |
 | `services/TtsService.ets` | `/v1/tools/tts` 朗读 + 本地音频缓存 |
 | `services/UpdateService.ets` | 版本比较、Gitee/GitHub 双源 release 检查、静默节流 |
-| `services/ChatStorageService.ets` | 会话/角色/身份卡持久化与边界校验 |
+| `services/ChatStorageService.ets` | 会话/角色卡持久化与边界校验 |
 | `services/ProviderRegistry.ets` | 各厂商端点、字段路径、换算因子（加厂商只改这里 + 图标） |
 
 ## 关键设计决策
