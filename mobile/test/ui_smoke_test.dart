@@ -100,7 +100,9 @@ void main() {
 
     await tester.tapAt(const Offset(34, 28));
     await tester.pumpAndSettle();
-    expect(find.text('历史会话'), findsOneWidget);
+    // 抽屉头部改版后对齐官方：搜索框取代标题行，入口按钮与底部菜单保留。
+    expect(find.text('搜索会话内容'), findsOneWidget);
+    expect(find.text('+ 新会话'), findsOneWidget);
     expect(find.text('设置'), findsOneWidget);
   });
 

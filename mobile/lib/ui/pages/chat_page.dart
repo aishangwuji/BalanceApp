@@ -770,7 +770,7 @@ class _JumpBottomButton extends StatelessWidget {
   }
 }
 
-class _SessionDrawer extends StatelessWidget {
+class _SessionDrawer extends StatefulWidget {
   const _SessionDrawer({
     required this.onNewSession,
     required this.onOpenSettings,
@@ -782,9 +782,35 @@ class _SessionDrawer extends StatelessWidget {
   final VoidCallback onOpenCharacters;
 
   @override
+  State<_SessionDrawer> createState() => _SessionDrawerState();
+}
+
+class _SessionDrawerState extends State<_SessionDrawer> {
+  /// 会话标题过滤关键词（对齐鸿蒙端的「搜索会话内容」）。
+  final TextEditingController _queryController = TextEditingController();
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    super.dispose();
+  }
+
+  /// 按标题过滤（大小写不敏感）；关键词为空时原样返回全量。
+  List<ChatSession> _filteredSessions(List<ChatSession> sessions) {
+    final String keyword = _queryController.text.trim().toLowerCase();
+    if (keyword.isEmpty) {
+      return sessions;
+    }
+    return sessions
+        .where((ChatSession s) => s.title.toLowerCase().contains(keyword))
+        .toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final AppColors c = context.colors;
     final ChatController chat = context.watch<ChatController>();
+    final List<ChatSession> sessions = _filteredSessions(chat.sessions);
     return Drawer(
       width: MediaQuery.sizeOf(context).width * 0.82,
       backgroundColor: c.surface,
@@ -794,19 +820,53 @@ class _SessionDrawer extends StatelessWidget {
       child: SafeArea(
         child: Column(
           children: <Widget>[
+            // 头部：搜索会话 + 新会话（与鸿蒙端同版式，对齐官方侧栏）
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
               child: Row(
                 children: <Widget>[
-                  Text(
-                    '历史会话',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: c.textTitle,
+                  Expanded(
+                    child: Container(
+                      height: 38,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: c.fill,
+                        borderRadius: BorderRadius.circular(19),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.search_rounded,
+                            size: 16,
+                            color: c.iconMuted,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: TextField(
+                              controller: _queryController,
+                              onChanged: (String _) => setState(() {}),
+                              textInputAction: TextInputAction.search,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: c.textPrimary,
+                              ),
+                              decoration: InputDecoration(
+                                isDense: true,
+                                border: InputBorder.none,
+                                hintText: '搜索会话内容',
+                                hintStyle: TextStyle(
+                                  fontSize: 13,
+                                  color: c.textMuted,
+                                ),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   SizedBox(
                     height: 36,
                     child: ElevatedButton(
@@ -816,7 +876,7 @@ class _SessionDrawer extends StatelessWidget {
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                       ),
-                      onPressed: onNewSession,
+                      onPressed: widget.onNewSession,
                       child: const Text(
                         '+ 新会话',
                         style: TextStyle(fontSize: 12),
@@ -828,24 +888,26 @@ class _SessionDrawer extends StatelessWidget {
             ),
             Divider(color: c.borderSoft, height: 1),
             Expanded(
-              child: chat.sessions.isEmpty
+              child: sessions.isEmpty
                   ? Center(
                       child: Text(
-                        '还没有历史会话',
+                        _queryController.text.trim().isEmpty
+                            ? '还没有历史会话'
+                            : '没有匹配的会话',
                         style: TextStyle(fontSize: 13, color: c.textMuted),
                       ),
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-                      itemCount: chat.sessions.length,
+                      padding: const EdgeInsets.fromLTRB(4, 6, 4, 10),
+                      itemCount: sessions.length,
                       itemBuilder: (BuildContext context, int index) {
-                        final ChatSession session = chat.sessions[index];
+                        final ChatSession session = sessions[index];
                         final bool selected =
                             session.id == chat.currentSessionId;
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.only(bottom: 2),
                           child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(14),
                             onTap: () async {
                               Navigator.of(context).pop();
                               await chat.openSessionWithPrivacy(session);
@@ -854,21 +916,17 @@ class _SessionDrawer extends StatelessWidget {
                                 showSessionActions(context, session),
                             child: Container(
                               padding: const EdgeInsets.fromLTRB(
-                                16,
-                                13,
                                 14,
-                                13,
+                                12,
+                                14,
+                                12,
                               ),
+                              // 与鸿蒙端一致：扁平行，只有选中项用色块浮起。
                               decoration: BoxDecoration(
                                 color: selected
                                     ? c.accentSoftSelected
-                                    : c.surface,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: selected
-                                      ? c.accentOutline
-                                      : Colors.transparent,
-                                ),
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(14),
                               ),
                               child: Row(
                                 children: <Widget>[
@@ -941,7 +999,7 @@ class _SessionDrawer extends StatelessWidget {
               label: '角色管理',
               onTap: () {
                 Navigator.of(context).pop();
-                onOpenCharacters();
+                widget.onOpenCharacters();
               },
             ),
             _DrawerRow(
@@ -949,7 +1007,7 @@ class _SessionDrawer extends StatelessWidget {
               label: '设置',
               onTap: () {
                 Navigator.of(context).pop();
-                onOpenSettings();
+                widget.onOpenSettings();
               },
             ),
             const SizedBox(height: 8),
