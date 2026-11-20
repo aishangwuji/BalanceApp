@@ -192,7 +192,11 @@ export class FileUploadService {
         method: http.RequestMethod.POST,
         header: {
           'Authorization': `Bearer ${apiKey.trim()}`,
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          // Reason: http 模块的 multiFormDataList 只在显式声明 multipart/form-data 时生效；
+          //   不写这一行时框架不会组装 multipart 请求体，服务端只会回 "Parsing multipart form failed"。
+          //   boundary 由框架自动生成，不能手填。
+          'Content-Type': 'multipart/form-data'
         },
         multiFormDataList: form,
         connectTimeout: CONNECT_TIMEOUT,

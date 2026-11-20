@@ -54,7 +54,10 @@ export class AsrService {
         method: http.RequestMethod.POST,
         header: {
           'Authorization': `Bearer ${apiKey.trim()}`,
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          // Reason: 同 FileUploadService —— multiFormDataList 只在 header 声明
+          //   multipart/form-data 时才生效，否则服务端认为少了 file 字段（400）。
+          'Content-Type': 'multipart/form-data'
         },
         multiFormDataList: form,
         connectTimeout: CONNECT_TIMEOUT,
@@ -89,8 +92,15 @@ export class AsrService {
   }
 
   private static errorText(code: number, result: ESObject): string {
+    let detail: string = '';
+    if (typeof result === 'string') {
+      const text: string = result as string;
+      detail = text.length > 160 ? text.substring(0, 160) : text;
+    }
+    // Reason: 400 有两种原因（格式不支持 / 少了 file 字段），带上服务端原文才能区分。
+    const suffix: string = detail.length > 0 ? '（' + detail + '）' : '';
     if (code === 400) {
-      return '音频格式不支持（需 16 位 PCM WAV 或 Ogg Opus）';
+      return `音频格式不支持（需 16 位 PCM WAV 或 Ogg Opus）${suffix}`;
     }
     if (code === 408) {
       return '上传超时，请重试';
@@ -106,11 +116,6 @@ export class AsrService {
     }
     if (code === 504) {
       return '识别超时，请重试';
-    }
-    let detail: string = '';
-    if (typeof result === 'string') {
-      const text: string = result as string;
-      detail = text.length > 160 ? text.substring(0, 160) : text;
     }
     return `识别失败：服务返回 ${code}${detail.length > 0 ? '（' + detail + '）' : ''}`;
   }
