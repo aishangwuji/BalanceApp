@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/utils/markdown_utils.dart';
 import '../../data/models/chat_models.dart';
 import '../../data/services/file_upload_service.dart';
+import '../../data/services/tts_service.dart';
 import '../../state/chat_controller.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -228,6 +229,15 @@ class _AssistantBubble extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 2),
             child: _SourcePill(sources: message.sources),
+          ),        if (controller.featureTts &&
+            !streaming &&
+            message.content.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 2),
+            child: _ReadAloudButton(
+              text: message.content,
+              apiKey: controller.currentApiKey,
+            ),
           ),        if (message.status == MessageStatus.error)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 2),
@@ -615,5 +625,94 @@ class _SourcePill extends StatelessWidget {
   static String _hostOf(String url) {
     final Uri? uri = Uri.tryParse(url);
     return uri?.host ?? url;
+  }
+}
+
+/// 朗读按钮：合成 + 播放，播放中再点一次停止。
+class _ReadAloudButton extends StatefulWidget {
+  const _ReadAloudButton({required this.text, required this.apiKey});
+
+  final String text;
+  final String apiKey;
+
+  @override
+  State<_ReadAloudButton> createState() => _ReadAloudButtonState();
+}
+
+class _ReadAloudButtonState extends State<_ReadAloudButton> {
+  bool _busy = false;
+  bool _playing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = context.colors;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: _busy ? null : _toggle,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (_busy)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Icon(
+                _playing
+                    ? Icons.stop_circle_outlined
+                    : Icons.volume_up_outlined,
+                size: 16,
+                color: c.textMuted,
+              ),
+            const SizedBox(width: 4),
+            Text(
+              _playing ? '停止' : '朗读',
+              style: TextStyle(fontSize: 11, color: c.textMuted),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggle() async {
+    if (_playing) {
+      await TtsService.stop();
+      if (mounted) {
+        setState(() => _playing = false);
+      }
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await TtsService.speak(
+        text: widget.text,
+        apiKey: widget.apiKey,
+      );
+      if (mounted) {
+        setState(() => _playing = true);
+      }
+    } on TtsException catch (error) {
+      _snack(error.message);
+    } catch (error) {
+      _snack('朗读失败：');
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  void _snack(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 }

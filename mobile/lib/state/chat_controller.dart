@@ -89,6 +89,9 @@ class ChatController extends ChangeNotifier {
   String get currentCharacterId => _currentCharacterId;
   String get currentProviderId => _currentProviderId;
   String get currentModelId => _currentModelId;
+  String get currentApiKey => _currentApiKey;
+  bool get featureAsr => _settings.featureAsr;
+  bool get featureTts => _settings.featureTts;
   bool get enableThinking => _enableThinking;
   bool get enableWebSearch => _enableWebSearch;
   List<MessageAttachment> get pendingAttachments =>

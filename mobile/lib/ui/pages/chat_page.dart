@@ -6,10 +6,15 @@ import '../../data/models/chat_models.dart';
 import '../../data/models/provider.dart';
 import '../../state/chat_controller.dart';
 import '../widgets/message_bubble.dart';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
+
+import '../../data/services/asr_service.dart';
 
 import '../widgets/thinking_button.dart';
 import '../widgets/web_search_button.dart';
@@ -30,6 +35,9 @@ class _ChatPageState extends State<ChatPage> {
   ChatController? _chat;
   bool _inputExpanded = false;
   bool _showJumpBottom = false;
+  final AudioRecorder _recorder = AudioRecorder();
+  bool _recording = false;
+  bool _recordBusy = false;
   int _lastPathLength = 0;
 
   @override
@@ -356,6 +364,83 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  /// 语音输入：点一下开始录音、再点一下停止并转写。
+  Future<void> _toggleRecord(ChatController chat) async {
+    if (_recordBusy) {
+      return;
+    }
+    if (!_recording) {
+      try {
+        if (!await _recorder.hasPermission()) {
+          _showSnack('没有麦克风权限，请在系统设置中开启');
+          return;
+        }
+        final Directory dir = await getTemporaryDirectory();
+        final String path =
+            '${dir.path}/asr_${DateTime.now().millisecondsSinceEpoch}.wav';
+        await _recorder.start(
+          const RecordConfig(
+            encoder: AudioEncoder.wav,
+            sampleRate: 16000,
+            numChannels: 1,
+          ),
+          path: path,
+        );
+        if (!mounted) {
+          return;
+        }
+        setState(() => _recording = true);
+      } catch (error) {
+        _showSnack('录音启动失败：');
+      }
+      return;
+    }
+    setState(() {
+      _recording = false;
+      _recordBusy = true;
+    });
+    try {
+      final String? path = await _recorder.stop();
+      if (path == null) {
+        return;
+      }
+      final Uint8List bytes = await File(path).readAsBytes();
+      final String text = await AsrService.transcribe(
+        apiKey: chat.currentApiKey,
+        wavBytes: bytes,
+      );
+      if (!mounted) {
+        return;
+      }
+      if (text.isEmpty) {
+        _showSnack('没有识别到语音内容');
+        return;
+      }
+      setState(() {
+        final String current = _input.text.trim();
+        _input.text = current.isEmpty ? text : ' ';
+        _input.selection =
+            TextSelection.collapsed(offset: _input.text.length);
+      });
+    } on AsrException catch (error) {
+      _showSnack(error.message);
+    } catch (error) {
+      _showSnack('语音识别失败：');
+    } finally {
+      if (mounted) {
+        setState(() => _recordBusy = false);
+      }
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
   /// 选择并上传附件：文件 / 相册 / 拍照，统一走 FileUploadService。
   Future<void> _pickAttachment(
     BuildContext context,
@@ -454,7 +539,26 @@ class _ChatPageState extends State<ChatPage> {
                 ? CrossAxisAlignment.end
                 : CrossAxisAlignment.center,
             children: <Widget>[
-              if (chat.attachmentBusy)
+              if (chat.featureAsr)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4, bottom: 6),
+                  child: IconButton(
+                    tooltip: _recording ? '停止录音' : '语音输入',
+                    onPressed: _recordBusy ? null : () => _toggleRecord(chat),
+                    icon: _recordBusy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            _recording
+                                ? Icons.stop_circle_outlined
+                                : Icons.mic_none_rounded,
+                            color: _recording ? c.dangerText : c.accent,
+                          ),
+                  ),
+                ),              if (chat.attachmentBusy)
                 const Padding(
                   padding: EdgeInsets.only(right: 8, bottom: 12),
                   child: SizedBox(
