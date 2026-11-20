@@ -1035,6 +1035,20 @@ export struct ChatView {
     if (offset < this.drawerSwipeThreshold || this.hasOverlayOnTop()) {
       return;
     }
+    this.openDrawer();
+  }
+
+  /**
+   * 打开历史抽屉。
+   * Reason: 抽屉是整屏浮层，输入法键盘留在屏幕上会把窗口压缩成半屏，抽屉跟着变形；
+   *   打开前先收焦点让键盘落下（无输入框聚焦时调用无副作用）。
+   */
+  private openDrawer(): void {
+    try {
+      this.getUIContext().getFocusController().clearFocus();
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'clearFocus before drawer failed: %{public}s', String(err));
+    }
     this.showDrawer = true;
   }
 
@@ -3080,7 +3094,7 @@ export struct ChatView {
           .backgroundColor($r('app.color.chat_fill'))
           .borderRadius(17)
           .onClick(() => {
-            this.showDrawer = true;
+            this.openDrawer();
           })
 
           Column() {
@@ -3541,10 +3555,28 @@ export struct ChatView {
         })
       }
 
-      // ── 1. 侧边历史会话抽屉 ──
+      // ── 1. 侧边历史会话抽屉（铺满整屏：状态栏/导航栏区域不留白条，与官方一致） ──
       if (this.showDrawer) {
-        Column() {
-          Row() {
+        // 蒙层单独一层：只有背景层用 expandSafeArea，内容层才不会压到状态栏下。
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor($r('app.color.overlay_scrim'))
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+          .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
+          .onClick(() => {
+            this.showDrawer = false;
+          })
+
+        Row() {
+          Stack({ alignContent: Alignment.TopStart }) {
+            // 面板底色层：铺满整屏高度（含系统栏），底下的内容层仍留在安全区内。
+            Column()
+              .width('100%')
+              .height('100%')
+              .backgroundColor($r('app.color.chat_surface'))
+              .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+
             Column() {
               // 抽屉头部
               Row() {
@@ -3628,12 +3660,16 @@ export struct ChatView {
               // 底部：角色管理 + 设置入口
               Divider().color($r('app.color.chat_border')).width('100%')
               Row() {
-                Image($r('app.media.ic_character'))
-                  .width(18)
-                  .height(18)
-                  .padding(8)
-                  .backgroundColor($r('app.color.chat_fill'))
-                  .borderRadius(17)
+                Column() {
+                  Image($r('app.media.ic_character'))
+                    .width(18)
+                    .height(18)
+                }
+                .width(34)
+                .height(34)
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor($r('app.color.chat_fill'))
+                .borderRadius(17)
                 Text('角色管理')
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
@@ -3652,12 +3688,16 @@ export struct ChatView {
                 this.showCharacterSheet = true;
               })
               Row() {
-                Image($r('app.media.ic_settings'))
-                  .width(18)
-                  .height(18)
-                  .padding(8)
-                  .backgroundColor($r('app.color.chat_fill'))
-                  .borderRadius(17)
+                Column() {
+                  Image($r('app.media.ic_settings'))
+                    .width(18)
+                    .height(18)
+                }
+                .width(34)
+                .height(34)
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor($r('app.color.chat_fill'))
+                .borderRadius(17)
                 Text('设置')
                   .fontSize(15)
                   .fontWeight(FontWeight.Medium)
@@ -3674,28 +3714,23 @@ export struct ChatView {
                 this.openSettings();
               })
             }
-            .width('80%')
+            .width('100%')
             .height('100%')
-            .backgroundColor($r('app.color.chat_surface'))
-            .borderRadius({ topRight: 28, bottomRight: 28 })
-            .shadow({ radius: 28, color: 'rgba(20,18,14,0.16)', offsetX: 8, offsetY: 0 })
-            .transition(TransitionEffect.translate({ x: -320 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
-
-            // 蒙层空白点击收回
-            Blank()
-              .layoutWeight(1)
-              .height('100%')
-              .onClick(() => {
-                this.showDrawer = false;
-              })
           }
-          .width('100%')
+          .width('80%')
           .height('100%')
+          .transition(TransitionEffect.translate({ x: -320 }).animation({ duration: 320, curve: Curve.ExtremeDeceleration }))
+
+          // 空白处点击收回
+          Blank()
+            .layoutWeight(1)
+            .height('100%')
+            .onClick(() => {
+              this.showDrawer = false;
+            })
         }
         .width('100%')
         .height('100%')
-        .backgroundColor($r('app.color.overlay_scrim'))
-        .transition(TransitionEffect.opacity(0).animation({ duration: 280, curve: Curve.EaseOut }))
       }
 
       // ── 1.5 附件来源面板（拍照 / 相册 / 文件） ──
