@@ -31,14 +31,32 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: 595db48
-last_verified: 2026-11-19
+last_verified_commit: fce456e
+last_verified: 2026-11-20
 ---
 
 > 前瞻设计：多角色群聊（@ + 记忆隔离）详见 `docs/group-chat-design.md`（原设计中的 Jev 路由已随
 > 上下文净化移除，见下方「已移除」小节）。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 历史侧栏对齐官方（2026-11-20，构建通过）
+
+- 现象（用户截图）：抽屉是浮层，却画在安全区内 —— 状态栏与导航条区域露出页面底色，
+  上下各多一条白边，圆角+投影被切在中间；底部「角色管理/设置」图标只剩一个 2vp 小点。
+- 铺满整屏的做法：蒙层与面板底色各用一层**无子组件的背景 Column** 加
+  `expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])`。
+  Reason：expandSafeArea 只影响绘制区域，放在纯背景层上时内容层仍留在安全区内 ——
+  头部不会被状态栏压住，末项也不会压在 home indicator 上；反过来给带内容的容器加，
+  子元素会一起被顶到状态栏底下。
+- 视觉：新增 `sidebar_surface`(#F1F2F4)，面板由白底浮层改整屏浅灰；去圆角与投影；
+  会话行改扁平行（去描边卡片，行距 2vp，左右 18vp 与头部左对齐），选中项用白底浮起。
+- 头部：由「历史会话」标题行改为搜索框 + 「+ 新会话」（官方同版式）。
+  搜索走 `@State sessionQuery` + `filteredSessions()`（只匹配标题，大小写不敏感）；
+  抽屉子树随 `if (this.showDrawer)` 卸载，故 `openDrawer()` 每次清空关键词。
+- 坑位：`Image(...).width(18).height(18).padding(8)` 会把图片内容压成 18-16=2vp，
+  图标必须「34vp 圆底容器 + 居中 18vp 图标」两层写。
+- 打开抽屉前 `getFocusController().clearFocus()` 收输入法：整屏浮层 + 键盘会把窗口压扁。
 
 ## 附件缩略图（2026-11-20，构建通过）
 

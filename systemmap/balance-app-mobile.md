@@ -153,7 +153,7 @@ last_verified: 2026-11-20
 
 - `ChatPage`：自定义顶栏（抽屉/标题/模型胶囊）、消息 `ListView.builder`、
   输入区（多行 TextField + 展开/收起 + 发送/停止 + 深度思考开关）、
-  回到底部浮钮、历史抽屉（新建/长按操作/角色管理/设置）。
+  回到底部浮钮、历史抽屉（搜索会话/新建/长按操作/角色管理/设置）。
 - `MessageBubble`：用户气泡右侧；助手 Markdown + 思考折叠块 + 错误行 + 分支计数；
   长按复制/编辑/重新生成；链接安全路由（http/https/mailto）与引用 toast。
 - `chat_sheets.dart`：模型/厂商选择、会话操作、消息操作、角色与身份管理/绑定。
@@ -220,3 +220,12 @@ last_verified: 2026-11-20
 
 验证：`flutter analyze` 零 issue，`flutter test` 18 项通过；无模拟器/真机，录音、相册、
 文件选择、音频播放与生图仍需真机验证。
+
+## 历史侧栏对齐官方（2026-11-20）
+
+- 抽屉头部由「历史会话」标题行改为搜索框 + 「+ 新会话」，与鸿蒙端同版式；
+  会话行改扁平行（只有选中项用 `accentSoftSelected` 浮起，不再每行描边卡片）。
+- `_SessionDrawer` 由 StatelessWidget 改 StatefulWidget：`TextEditingController`
+  持有关键词，`_filteredSessions()` 按标题过滤（大小写不敏感），空结果显示
+  「没有匹配的会话」。Flutter 端 Drawer 全程挂载，故无需像鸿蒙端那样每次打开清空关键词。
+- 冒烟测试 `ui_smoke_test.dart` 同步：抽屉断言从「历史会话」改为搜索占位与新会话按钮。
