@@ -188,3 +188,29 @@ last_verified: 2026-10-23
 - 联网搜索（DeepSeek `deepseek_web_search` 服务端工具）、正文引用角标/来源胶囊、语音朗读
   （`/v1/tools/tts` + 朗读音色设置）均尚未对齐：鸿蒙端已在 2026-11-19 接入（`4f5fbd6`、`595db48`），
   移动端仍是旧协议，差异与移植要点见 `techdebt/TD-006`。
+
+## 2026-11-20 追平记录（与鸿蒙端对齐）
+
+一次性补齐了 Android/iOS 端此前缺失的能力，关键实现位置：
+
+- **应用身份**：`com.example.openchat`（Android namespace/applicationId + MainActivity 包路径，
+  iOS bundle id 含 RunnerTests），版本 1.0.1+2；
+- **检查更新**：`data/services/update_service.dart`（Gitee 优先、GitHub 兜底，语义化版本比较，
+  资产优先 .hap/.apk），设置页「关于」分组；
+- **工具设置**：设置页「工具」分组 —— 联网搜索服务商（DeepSeek/百智云）、两套百智云 Key
+  （KeyStore：`key_baizhi_web` / `key_baizhi_image`）、6 个功能开关（Preferences 前缀
+  `feature_*` + `web_search_provider` + `tts_voice`）；
+- **联网搜索**：`chat_service` 声明 `deepseek_web_search`，解析 `server_tool_event` 与
+  `delta.annotations`（码点偏移）；`baizhi_web_search_service` 客户端检索后注入系统提示；
+  正文角标 `[N](#cite-N)` + 来源胶囊（编号与角标一致）；
+- **文件/图片**：`file_upload_service`（Files API，purpose 按扩展名选择，图片走 user_data 保证
+  视觉可用），消息 content 数组 file 块在前、文本在后；输入区「＋」三入口；
+- **语音**：`asr_service`（16k 单声道 WAV → `/v1/tools/asr`）、`tts_service`
+  （`/v1/tools/tts` + 临时目录缓存 + audioplayers 播放），朗读音色可选；
+- **生图**：`image_gen_service`（百智云异步任务 + 4s 轮询），`generate_image` 函数工具，
+  流式 `tool_calls` 按 index 合并，消息持久化 imageState/imageUrls/imageMeta/imageAspect；
+- **内容安全**：`enableSafety` → `safety_check: {level: high}`，拒答清空内容并提示；
+- **删除**：TopicGate/Jev 全链路（服务、页面、消息字段、开关、Key 常量、单测）。
+
+验证：`flutter analyze` 零 issue，`flutter test` 18 项通过；无模拟器/真机，录音、相册、
+文件选择、音频播放与生图仍需真机验证。

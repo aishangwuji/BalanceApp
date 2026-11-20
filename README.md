@@ -2,7 +2,7 @@
 
 一个鸿蒙（HarmonyOS / ArkTS）小应用，两个目标合在一个壳里：
 
-1. **余额监控**：统一查看各家大模型 / 云服务的账户余额（Bearer 类厂商约 20 家，另含阿里云 BSS、智额等非 Bearer 引擎）。
+1. **余额监控**：统一查看各家大模型 / 云服务的账户余额（当前支持 DeepSeek、Kimi、小米 MiMo 三家 Bearer 厂商）。
 2. **对话客户端**：贴近 DeepSeek 官方 App 的聊天体验——联网搜索、正文引用角标、来源胶囊、文件解析（PDF/Office/图片）、图片视觉输入、语音输入与朗读。
 
 仓库：GitHub [aishangwuji/openchat](https://github.com/aishangwuji/openchat) ·
@@ -12,9 +12,11 @@ Gitee 为主干（`origin`），GitHub 由 Actions 自动镜像（`.github/workf
 > 源码开源，但**不包含签名材料**。鸿蒙应用必须签名才能安装，签名与开发者账号绑定，
 > 每人用自己的账号生成——步骤在下面和 [docs/signing.md](docs/signing.md)。
 
-> **移动端说明**：`mobile/`（Flutter，Android/iOS）目前**滞后于鸿蒙端**——只同步了应用显示名，
-> 联网搜索、语音、生图、工具设置、检查更新等尚未移植，包名仍是 `com.example.balanceapp`。
-> 差距清单与对齐顺序见 [techdebt/TD-006](techdebt/TD-006-mobile-web-search-parity.md)。
+> **移动端说明**：mobile/（Flutter，Android/iOS）已按 2026-11-20 追平鸿蒙端主要能力：
+> 应用身份（com.example.openchat）、检查更新、设置「工具」分组与开关、联网搜索
+> （DeepSeek 服务端 + 百智云）、引用角标/来源胶囊、文件解析与图片视觉、语音输入/朗读、
+> 生图、内容安全；两端本地存储独立（Key 需各自配置）。仍未对齐：蓝白配色之外的聊天版式微调、
+> 分享/导出等长尾差异，见 [techdebt/TD-006](techdebt/TD-006-mobile-web-search-parity.md)。
 ## 特性
 
 - **资产**：密钥只存本机 Preferences；余额自动刷新，失败保留上次结果。
