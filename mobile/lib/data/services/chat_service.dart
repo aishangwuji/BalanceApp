@@ -54,6 +54,7 @@ class ChatRequestOptions {
     this.enableThinking = false,
     this.reasoningEffort = 'high',
     this.enableWebSearch = false,
+    this.enableFiles = false,
     this.enableSafety = false,
   });
 
@@ -67,6 +68,8 @@ class ChatRequestOptions {
   final String reasoningEffort;
   /// 联网搜索：仅 DeepSeek 声明服务端工具 deepseek_web_search。
   final bool enableWebSearch;
+  /// 文件/图片附件：仅 DeepSeek 回放 file 块。
+  final bool enableFiles;
   /// 内容安全：声明 safety_check.level=high（仅 DeepSeek）。
   final bool enableSafety;
 }
@@ -214,58 +217,77 @@ class ChatService {
   /// Business Rule: assistant history is projected through its stored topic
   /// mask; mismatched masks fail open. `reasoning_content` is replayed for
   /// preserved-thinking providers.
-  static List<Map<String, String>> buildApiMessages(
+  static List<Map<String, dynamic>> buildApiMessages(
     List<ChatMessage> messages,
     String? systemPrompt,
+    bool enableFiles,
   ) {
-    final List<Map<String, String>> out = <Map<String, String>>[];
+    final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
     if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
-      out.add(<String, String>{
+      out.add(<String, dynamic>{
         'role': 'system',
         'content': systemPrompt.trim(),
       });
     }
-    final List<Map<String, String>> candidates = <Map<String, String>>[];
+    final List<Map<String, dynamic>> candidates = <Map<String, dynamic>>[];
     for (final ChatMessage message in messages) {
       if (!message.isUser && !message.isAssistant) {
         continue;
       }
       final String replay = message.content;
       final String reasoning = message.reasoningContent ?? '';
-      if (replay.isEmpty && reasoning.isEmpty) {
+      final bool hasAtts =
+          message.isUser && enableFiles && message.attachments.isNotEmpty;
+      // 纯附件消息（只发文件不打字）也要保留，否则追问会丢文档。
+      if (replay.isEmpty && reasoning.isEmpty && !hasAtts) {
         continue;
       }
-      final Map<String, String> item = <String, String>{
+      final Map<String, dynamic> item = <String, dynamic>{
         'role': ChatMessage.roleToWire(message.role),
-        'content': replay,
       };
+      int chars = replay.length;
+      if (hasAtts) {
+        // Business Rule: 文档块在前、用户文字在后（官方示例顺序）。
+        final List<Map<String, String>> parts = <Map<String, String>>[];
+        for (final MessageAttachment att in message.attachments) {
+          parts.add(<String, String>{'type': 'file', 'file_id': att.fileId});
+          chars += att.fileName.length;
+        }
+        if (replay.isNotEmpty) {
+          parts.add(<String, String>{'type': 'text', 'text': replay});
+        }
+        item['content'] = parts;
+      } else {
+        item['content'] = replay;
+      }
       if (message.isAssistant && reasoning.isNotEmpty) {
         item['reasoning_content'] = reasoning;
+        chars += reasoning.length;
       }
+      item['_chars'] = chars;
       candidates.add(item);
     }
 
     final int start = candidates.length > _maxHistoryMessages
         ? candidates.length - _maxHistoryMessages
         : 0;
-    final List<Map<String, String>> kept = <Map<String, String>>[];
+    final List<Map<String, dynamic>> kept = <Map<String, dynamic>>[];
     int used = 0;
     for (int i = candidates.length - 1; i >= start; i--) {
-      final Map<String, String> c = candidates[i];
-      final int total = c['content']!.length +
-          c['role']!.length +
-          8 +
-          (c['reasoning_content']?.length ?? 0);
+      final Map<String, dynamic> c = candidates[i];
+      final int total = (c['_chars'] as int?) ?? 0;
       if (kept.isNotEmpty && used + total > _maxHistoryChars) {
         break;
       }
       kept.insert(0, c);
       used += total;
     }
+    for (final Map<String, dynamic> c in kept) {
+      c.remove('_chars');
+    }
     out.addAll(kept);
     return out;
   }
-
   static Map<String, dynamic> _buildPayload(
     ChatRequestOptions options,
     ProviderDefinition def,
@@ -273,7 +295,11 @@ class ChatService {
   ) {
     final Map<String, dynamic> payload = <String, dynamic>{
       'model': options.model,
-      'messages': buildApiMessages(options.messages, options.systemPrompt),
+      'messages': buildApiMessages(
+        options.messages,
+        options.systemPrompt,
+        options.enableFiles && options.providerId == 'deepseek',
+      ),
       'stream': isStream,
     };
     // 联网搜索：仅 DeepSeek 声明服务端工具（搜索/抓取由服务端完成）。

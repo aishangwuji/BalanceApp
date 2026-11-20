@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import '../data/models/chat_models.dart';
 import '../data/models/provider.dart';
 import '../data/services/auth_service.dart';
+
 import '../data/services/baizhi_web_search_service.dart';
+import '../data/services/file_upload_service.dart';
 import '../data/services/chat_service.dart';
 import '../data/services/chat_storage_service.dart';
 import '../data/services/key_store.dart';
@@ -59,6 +61,8 @@ class ChatController extends ChangeNotifier {
   String _currentApiKey = '';
   bool _enableThinking = true;
   bool _enableWebSearch = true;
+  final List<MessageAttachment> _pendingAttachments = <MessageAttachment>[];
+  bool _attachmentBusy = false; // ignore: prefer_final_fields
   bool _isGenerating = false;
   bool _fetchingModels = false;
   bool _initialized = false;
@@ -84,6 +88,9 @@ class ChatController extends ChangeNotifier {
   String get currentModelId => _currentModelId;
   bool get enableThinking => _enableThinking;
   bool get enableWebSearch => _enableWebSearch;
+  List<MessageAttachment> get pendingAttachments =>
+      List<MessageAttachment>.unmodifiable(_pendingAttachments);
+  bool get attachmentBusy => _attachmentBusy;
   bool get isGenerating => _isGenerating;
   bool get fetchingModels => _fetchingModels;
   String get noticeText => _noticeText;
@@ -234,7 +241,12 @@ class ChatController extends ChangeNotifier {
     return 'msg_${role}_${DateTime.now().millisecondsSinceEpoch}_$_seq';
   }
 
-  ChatMessage buildMessage(MessageRole role, String content, String parentId) {
+  ChatMessage buildMessage(
+    MessageRole role,
+    String content,
+    String parentId, {
+    List<MessageAttachment> attachments = const <MessageAttachment>[],
+  }) {
     return ChatMessage(
       id: nextId(ChatMessage.roleToWire(role)),
       role: role,
@@ -243,6 +255,7 @@ class ChatController extends ChangeNotifier {
       createdAt: DateTime.now().millisecondsSinceEpoch,
       status: MessageStatus.success,
       parentId: parentId,
+      attachments: List<MessageAttachment>.from(attachments),
     );
   }
 
@@ -684,7 +697,9 @@ class ChatController extends ChangeNotifier {
 
   Future<void> sendMessage(String text) async {
     final String trimmed = text.trim();
-    if (trimmed.isEmpty || _isGenerating) {
+    final List<MessageAttachment> attachments =
+        List<MessageAttachment>.from(_pendingAttachments);
+    if ((trimmed.isEmpty && attachments.isEmpty) || _isGenerating) {
       return;
     }
     final ChatSession? session = currentSession;
@@ -697,8 +712,13 @@ class ChatController extends ChangeNotifier {
     }
     final List<ChatMessage> path = activePath;
     final String parentId = path.isEmpty ? '' : path.last.id;
-    final ChatMessage userMsg =
-        buildMessage(MessageRole.user, trimmed, parentId);
+    final ChatMessage userMsg = buildMessage(
+      MessageRole.user,
+      trimmed,
+      parentId,
+      attachments: attachments,
+    );
+    _pendingAttachments.clear();
     attach(session, userMsg);
     session.updatedAt = DateTime.now().millisecondsSinceEpoch;
     notifyListeners();
@@ -849,6 +869,7 @@ class ChatController extends ChangeNotifier {
         enableThinking: _enableThinking,
         reasoningEffort: 'high',
 
+        enableFiles: _settings.featureFiles,
         enableWebSearch: _enableWebSearch &&
             _settings.webSearchProvider != webSearchProviderBaizhi,
         enableSafety: _settings.featureSafety,      ),
@@ -1109,6 +1130,52 @@ class ChatController extends ChangeNotifier {
     _stopTicker();
     _subscription?.cancel();
     super.dispose();
+  }
+
+  /// 上传附件：仅 DeepSeek 支持 Files API；成功后进入待发送列表。
+  Future<bool> uploadPendingAttachment({
+    required String fileName,
+    required Uint8List bytes,
+  }) async {
+    if (!_settings.featureFiles) {
+      _noticeText = '文件与图片解析已在设置 > 工具中关闭';
+      notifyListeners();
+      return false;
+    }
+    if (_currentProviderId != 'deepseek') {
+      _noticeText = '文件解析仅支持 DeepSeek 服务商';
+      notifyListeners();
+      return false;
+    }
+    if (_attachmentBusy) {
+      return false;
+    }
+    _attachmentBusy = true;
+    notifyListeners();
+    try {
+      final MessageAttachment attachment = await FileUploadService.upload(
+        apiKey: _currentApiKey,
+        fileName: fileName,
+        bytes: bytes,
+      );
+      _pendingAttachments.add(attachment);
+      _noticeText = '';
+      return true;
+    } on FileUploadException catch (error) {
+      _noticeText = error.message;
+      return false;
+    } catch (error) {
+      _noticeText = '上传失败：$error';
+      return false;
+    } finally {
+      _attachmentBusy = false;
+      notifyListeners();
+    }
+  }
+
+  void removePendingAttachment(String fileId) {
+    _pendingAttachments.removeWhere((MessageAttachment a) => a.fileId == fileId);
+    notifyListeners();
   }
 }
 

@@ -61,6 +61,44 @@ class CitationRange {
   final int start;
   final int end;
 }
+/// 已上传到 DeepSeek Files API 的附件（文档/图片）。
+class MessageAttachment {
+  const MessageAttachment({
+    required this.fileId,
+    required this.fileName,
+    required this.purpose,
+    required this.bytes,
+  });
+
+  final String fileId;
+  final String fileName;
+  final String purpose;
+  final int bytes;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'fileId': fileId,
+        'fileName': fileName,
+        'purpose': purpose,
+        'bytes': bytes,
+      };
+
+  static MessageAttachment? tryParse(Object? raw) {
+    if (raw is! Map) {
+      return null;
+    }
+    final Object? fileId = raw['fileId'];
+    final Object? fileName = raw['fileName'];
+    if (fileId is! String || fileId.isEmpty || fileName is! String) {
+      return null;
+    }
+    return MessageAttachment(
+      fileId: fileId,
+      fileName: fileName,
+      purpose: raw['purpose'] is String ? raw['purpose'] as String : 'user_data',
+      bytes: raw['bytes'] is num ? (raw['bytes'] as num).toInt() : 0,
+    );
+  }
+}
 class ChatMessage {
   ChatMessage({
     required this.id,
@@ -77,9 +115,11 @@ class ChatMessage {
     this.speakerId = '',
     List<String>? mentionedIds,
     List<SearchSource>? sources,
+    List<MessageAttachment>? attachments,
   })  : childIds = childIds ?? <String>[],
         mentionedIds = mentionedIds ?? <String>[],
-        sources = sources ?? <SearchSource>[];
+        sources = sources ?? <SearchSource>[],
+        attachments = attachments ?? <MessageAttachment>[];
 
   final String id;
   final MessageRole role;
@@ -96,6 +136,8 @@ class ChatMessage {
   List<String> mentionedIds;
   /// 联网搜索来源（持久化）；searchHint/searching 为实时字段，不落盘。
   List<SearchSource> sources;
+  /// 文档/图片附件（已上传 file_id，仅 DeepSeek 回放）。
+  List<MessageAttachment> attachments;
   String? searchHint;
   bool searching = false;
 
@@ -163,6 +205,8 @@ class ChatMessage {
         'activeChildId': activeChildId,
         'speakerId': speakerId,
         'mentionedIds': mentionedIds,
+        if (attachments.isNotEmpty)
+          'attachments': attachments.map((MessageAttachment a) => a.toJson()).toList(),
         if (sources.isNotEmpty)
           'sources': sources.map((SearchSource s) => s.toJson()).toList(),
       };
@@ -214,6 +258,7 @@ class ChatMessage {
       speakerId: raw['speakerId'] is String ? raw['speakerId'] as String : '',
       mentionedIds: mentioned,
       sources: _parseSources(raw['sources']),
+      attachments: _parseAttachments(raw['attachments']),
     );
   }
 }
@@ -388,6 +433,20 @@ List<SearchSource> _parseSources(Object? raw) {
     final SearchSource? source = SearchSource.tryParse(item);
     if (source != null && !out.any((SearchSource s) => s.url == source.url)) {
       out.add(source);
+    }
+  }
+  return out;
+}
+
+List<MessageAttachment> _parseAttachments(Object? raw) {
+  if (raw is! List) {
+    return <MessageAttachment>[];
+  }
+  final List<MessageAttachment> out = <MessageAttachment>[];
+  for (final Object? item in raw) {
+    final MessageAttachment? a = MessageAttachment.tryParse(item);
+    if (a != null) {
+      out.add(a);
     }
   }
   return out;

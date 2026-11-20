@@ -6,6 +6,11 @@ import '../../data/models/chat_models.dart';
 import '../../data/models/provider.dart';
 import '../../state/chat_controller.dart';
 import '../widgets/message_bubble.dart';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../widgets/thinking_button.dart';
 import '../widgets/web_search_button.dart';
 import 'chat_sheets.dart';
@@ -351,6 +356,71 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  /// 选择并上传附件：文件 / 相册 / 拍照，统一走 FileUploadService。
+  Future<void> _pickAttachment(
+    BuildContext context,
+    ChatController chat,
+  ) async {
+    final String? kind = await showModalBottomSheet<String>(
+      context: context,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.description_outlined),
+              title: const Text('选择文件'),
+              onTap: () => Navigator.of(ctx).pop('file'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('从相册选择'),
+              onTap: () => Navigator.of(ctx).pop('gallery'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('拍照'),
+              onTap: () => Navigator.of(ctx).pop('camera'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (kind == null) {
+      return;
+    }
+    String? fileName;
+    Uint8List? bytes;
+    try {
+      if (kind == 'file') {
+        final PlatformFile? file = await FilePicker.pickFile();
+        if (file == null) {
+          return;
+        }
+        fileName = file.name;
+        bytes = await file.readAsBytes();
+      } else {
+        final XFile? picked = await ImagePicker().pickImage(
+          source: kind == 'camera' ? ImageSource.camera : ImageSource.gallery,
+          imageQuality: 90,
+        );
+        if (picked == null) {
+          return;
+        }
+        fileName = picked.name;
+        bytes = await picked.readAsBytes();
+      }
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('选择附件失败：$error')),
+      );
+      return;
+    }
+    await chat.uploadPendingAttachment(fileName: fileName, bytes: bytes);
+  }
   Widget _buildInputArea(BuildContext context, ChatController chat) {
     final AppColors c = context.colors;
     return Container(
@@ -362,11 +432,46 @@ class _ChatPageState extends State<ChatPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          if (chat.pendingAttachments.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: <Widget>[
+                  for (final MessageAttachment att in chat.pendingAttachments)
+                    InputChip(
+                      label:
+                          Text(att.fileName, style: const TextStyle(fontSize: 12)),
+                      onDeleted: () => chat.removePendingAttachment(att.fileId),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                ],
+              ),
+            ),
           Row(
             crossAxisAlignment: _inputExpanded
                 ? CrossAxisAlignment.end
                 : CrossAxisAlignment.center,
             children: <Widget>[
+              if (chat.attachmentBusy)
+                const Padding(
+                  padding: EdgeInsets.only(right: 8, bottom: 12),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, bottom: 6),
+                  child: IconButton(
+                    tooltip: '添加文件或图片',
+                    onPressed: () => _pickAttachment(context, chat),
+                    icon: Icon(Icons.add_circle_outline_rounded, color: c.accent),
+                  ),
+                ),
               Expanded(
                 child: Stack(
                   alignment: Alignment.bottomRight,

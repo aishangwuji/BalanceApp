@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/utils/markdown_utils.dart';
 import '../../data/models/chat_models.dart';
+import '../../data/services/file_upload_service.dart';
 import '../../state/chat_controller.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -91,7 +92,44 @@ class _UserBubble extends StatelessWidget {
               style: TextStyle(fontSize: 10, color: c.textFaint),
             ),
           ),
-        Container(
+        if (message.attachments.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6, right: 2),
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 6,
+              runSpacing: 6,
+              children: <Widget>[
+                for (final MessageAttachment att in message.attachments)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: c.fill,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(
+                          FileUploadService.isImage(att.fileName)
+                              ? Icons.image_outlined
+                              : Icons.description_outlined,
+                          size: 13,
+                          color: c.textMuted,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          att.fileName,
+                          style:
+                              TextStyle(fontSize: 11, color: c.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),        Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
             color: c.accentSoftSelected,
