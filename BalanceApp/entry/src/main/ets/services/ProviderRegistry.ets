@@ -10,7 +10,6 @@
 
 export enum ProviderCategory {
   CnOfficial = '国内官方',
-  Aggregator = 'API聚合',
 }
 
 export enum BalanceQueryType {
@@ -24,7 +23,7 @@ export interface BalanceQueryConfig {
   responsePath?: string;
   /** Authorization 头是否带 Bearer 前缀（智谱式裸 key 预留，当前均为 true）。 */
   useBearerPrefix?: boolean;
-  /** 金额换算因子，如 Novita 为 0.0001（单位 0.0001 USD）。 */
+  /** 金额换算因子：厂商以最小货币单位返回时乘此系数（0.0001 表示单位是 0.0001 USD）。 */
   amountMultiplier?: number;
   /** 已用字段名；缺省时按 total-available 推导。 */
   usedField?: string;
@@ -92,7 +91,7 @@ export function currencySymbol(currency: string): string {
   return '$';
 }
 
-/** Reason: 以下 6 家配置逐项对照智额 registry（endpoint/responsePath/字段名/换算因子一致）。 */
+/** Reason: 以下 3 家配置逐项对照智额 registry（endpoint/responsePath/字段名/换算因子一致）。 */
 export const PROVIDERS: ProviderDefinition[] = [
   {
     id: 'deepseek',
@@ -111,54 +110,6 @@ export const PROVIDERS: ProviderDefinition[] = [
     icon: 'deepseek',
     websiteUrl: 'https://platform.deepseek.com',
     supportsThinking: true,
-  },
-  {
-    id: 'stepfun',
-    name: '阶跃 StepFun',
-    baseUrl: 'https://api.stepfun.com',
-    category: ProviderCategory.CnOfficial,
-    balanceType: BalanceQueryType.Bearer,
-    balanceConfig: {
-      endpoint: '/v1/accounts',
-      availableField: 'balance',
-      defaultCurrency: 'CNY',
-    },
-    brandColor: '#0EA5E9',
-    icon: 'stepfun',
-    websiteUrl: 'https://platform.stepfun.com',
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    baseUrl: 'https://openrouter.ai',
-    category: ProviderCategory.Aggregator,
-    balanceType: BalanceQueryType.Bearer,
-    balanceConfig: {
-      endpoint: '/api/v1/credits',
-      responsePath: 'data',
-      totalField: 'total_credits',
-      usedField: 'total_usage',
-      defaultCurrency: 'USD',
-    },
-    brandColor: '#E85D3D',
-    icon: 'openrouter',
-    websiteUrl: 'https://openrouter.ai',
-  },
-  {
-    id: 'novita',
-    name: 'Novita AI',
-    baseUrl: 'https://api.novita.ai',
-    category: ProviderCategory.Aggregator,
-    balanceType: BalanceQueryType.Bearer,
-    balanceConfig: {
-      endpoint: '/v3/user/balance',
-      availableField: 'availableBalance',
-      amountMultiplier: 0.0001,
-      defaultCurrency: 'USD',
-    },
-    brandColor: '#10B981',
-    icon: 'novita',
-    websiteUrl: 'https://novita.ai',
   },
   {
     id: 'kimi',
@@ -263,8 +214,9 @@ export function findProvider(id: string): ProviderDefinition | undefined {
 }
 
 export function categoryLabel(cat: ProviderCategory): string {
+  // 注册表当前只有「国内官方」一类；将来引入聚合平台时在此按 cat 分支扩展。
   if (cat === ProviderCategory.CnOfficial) {
     return '国内官方';
   }
-  return 'API聚合';
+  return '其他';
 }

@@ -220,7 +220,7 @@ async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<Bal
   if (config.usedField === undefined && total > 0 && used === 0 && total > available) {
     used = total - available;
   }
-  // 偏离说明（Reason）：智额引擎在 availableField 缺省时（如 OpenRouter）会算出
+  // 偏离说明（Reason）：智额引擎在 availableField 缺省时（仅给 total/used 的厂商）会算出
   // available=0；此处补一条对称推导 available = total - used，保证卡片可用余额正确。
   if (config.availableField === undefined && total > 0 && available === 0 && used > 0) {
     available = total - used;

@@ -425,24 +425,15 @@ struct Assets {
     return (def as ProviderDefinition).name;
   }
 
-  /** Reason: $r 须字面量，注册表 closed-set，此处静态映射；未知 id 兜底 novita 图（不可达）。 */
+  /** Reason: $r 须字面量，注册表 closed-set，此处静态映射；未知 id 兜底 DeepSeek 图（不可达）。 */
   private providerIcon(id: string): Resource {
-    if (id === 'deepseek') {
-      return $r('app.media.deepseek');
-    }
     if (id === 'kimi') {
       return $r('app.media.kimi');
     }
     if (id === 'mimo') {
       return $r('app.media.mimo');
     }
-    if (id === 'stepfun') {
-      return $r('app.media.stepfun');
-    }
-    if (id === 'openrouter') {
-      return $r('app.media.openrouter');
-    }
-    return $r('app.media.novita');
+    return $r('app.media.deepseek');
   }
 
   /** Reason: 数据指纹 key，loading/info/error/时间任一变化即视为新条目。 */
@@ -636,7 +627,6 @@ struct Assets {
             Scroll() {
               Column() {
                 this.ProviderGroup(ProviderCategory.CnOfficial)
-                this.ProviderGroup(ProviderCategory.Aggregator)
               }
               .width('100%')
             }
