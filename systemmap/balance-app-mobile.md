@@ -2,44 +2,50 @@
 covered_paths:
   - mobile/lib/main.dart
   - mobile/lib/app.dart
+  - mobile/lib/core/app_version.dart
+  - mobile/lib/core/i18n/settings_strings.dart
   - mobile/lib/core/theme/app_colors.dart
   - mobile/lib/core/theme/app_theme.dart
-  - mobile/lib/core/i18n/settings_strings.dart
   - mobile/lib/core/utils/markdown_utils.dart
-  - mobile/lib/data/models/provider.dart
   - mobile/lib/data/models/chat_models.dart
+  - mobile/lib/data/models/provider.dart
+  - mobile/lib/data/services/asr_service.dart
+  - mobile/lib/data/services/auth_service.dart
+  - mobile/lib/data/services/baizhi_web_search_service.dart
   - mobile/lib/data/services/balance_service.dart
   - mobile/lib/data/services/chat_service.dart
-  - mobile/lib/data/services/model_service.dart
   - mobile/lib/data/services/chat_storage_service.dart
-  - mobile/lib/data/services/preferences_service.dart
+  - mobile/lib/data/services/file_upload_service.dart
+  - mobile/lib/data/services/image_gen_service.dart
   - mobile/lib/data/services/key_store.dart
-  - mobile/lib/data/services/jev_service.dart
-  - mobile/lib/data/services/topic_gate_service.dart
-  - mobile/lib/data/services/auth_service.dart
-  - mobile/lib/state/settings_controller.dart
+  - mobile/lib/data/services/model_service.dart
+  - mobile/lib/data/services/preferences_service.dart
+  - mobile/lib/data/services/tts_service.dart
+  - mobile/lib/data/services/update_service.dart
   - mobile/lib/state/assets_controller.dart
   - mobile/lib/state/chat_controller.dart
+  - mobile/lib/state/settings_controller.dart
   - mobile/lib/ui/app_lock_gate.dart
+  - mobile/lib/ui/pages/assets_page.dart
   - mobile/lib/ui/pages/chat_page.dart
   - mobile/lib/ui/pages/chat_sheets.dart
-  - mobile/lib/ui/pages/assets_page.dart
   - mobile/lib/ui/pages/settings_page.dart
-  - mobile/lib/ui/pages/topic_gate_page.dart
-  - mobile/lib/ui/widgets/message_bubble.dart
-  - mobile/lib/ui/widgets/thinking_button.dart
   - mobile/lib/ui/widgets/confirm_dialog.dart
+  - mobile/lib/ui/widgets/message_bubble.dart
   - mobile/lib/ui/widgets/provider_logo.dart
+  - mobile/lib/ui/widgets/thinking_button.dart
+  - mobile/lib/ui/widgets/web_search_button.dart
   - mobile/android/app/build.gradle.kts
   - mobile/android/app/src/main/AndroidManifest.xml
-  - mobile/android/app/src/main/kotlin/com/example/balanceapp/MainActivity.kt
+  - mobile/android/app/src/main/kotlin/com/example/openchat/MainActivity.kt
   - mobile/ios/Runner/Info.plist
+  - mobile/ios/Runner.xcodeproj/project.pbxproj
   - mobile/pubspec.yaml
-  - mobile/test/topic_gate_test.dart
   - mobile/test/balance_service_test.dart
+  - mobile/test/citation_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 07bfe4e
-last_verified: 2026-10-23
+last_verified_commit: 9ca04c8
+last_verified: 2026-11-20
 ---
 
 # BalanceApp Mobile（Flutter Android/iOS）systemmap

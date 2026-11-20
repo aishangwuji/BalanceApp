@@ -1,6 +1,6 @@
-# TD-006 移动端（Flutter）联网搜索未对齐
+# TD-006 移动端（Flutter）与鸿蒙端能力对齐
 
-- 状态：待处理
+- 状态：已完成（2026-11-20，差距项全部落地，剩余长尾见文末）
 - 影响范围：`mobile/lib/data/services/chat_service.dart`、`mobile/lib/state/chat_controller.dart`、
   `mobile/lib/ui/pages/chat_page.dart`、`mobile/lib/ui/widgets/message_bubble.dart`
 - 首次登记：2026-11-19

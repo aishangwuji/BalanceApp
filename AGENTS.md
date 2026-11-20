@@ -71,29 +71,38 @@
 
 ---
 
-## 跨平台移动端（Android / iOS，2026-10-23 新增）
+## 跨平台移动端（Android / iOS，2026-10-23 新增，2026-11-20 追平）
 
 - 目录 `mobile/`，Flutter 单代码库；鸿蒙端仍在 `BalanceApp/`，两端功能对齐，
   互不共享本地存储（Key 需各自配置）。
 - 常用命令（必须 `cd mobile`）：
-  - `flutter pub get`
-  - `flutter analyze`（要求零 issue）
-  - `flutter test`
-  - `flutter build apk --debug`
-- 本机网络访问 `storage.googleapis.com` 会 TLS 握手失败；构建前设置
-  `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`，否则 Gradle
-  拉取 `io.flutter:*_debug` 引擎包会失败。
-- Android：`minSdk 24`，`MainActivity : FlutterFragmentActivity`（local_auth 要求），
-  applicationId `com.example.balanceapp`（移动端包名尚未随改名调整）；release 读取 `android/key.properties`，
-  缺失时回退 debug 签名（见 `techdebt/TD-004-mobile-release-readiness.md`）。
-- iOS：bundle id `com.example.balanceapp`（同上，待改），部署目标 13.0，`NSFaceIDUsageDescription`
-  已配置；本机无 Xcode，iOS 构建需 macOS/CI。
+  - `flutter pub get` / `flutter analyze`（要求零 issue）/ `flutter test`
+  - `flutter build apk --debug`（首次会拉 Gradle 依赖，慢）
+- 构建前设置 `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`，否则
+  Gradle 拉 `io.flutter:*_debug` 会因 TLS 失败卡住。
+- Android：`minSdk 24`、`MainActivity : FlutterFragmentActivity`（local_auth），
+  `namespace`/`applicationId` = `com.example.openchat`；release 读 `android/key.properties`，
+  缺失回退 debug 签名。
+- iOS：bundle id `com.example.openchat`（RunnerTests 同前缀），部署目标 13.0，
+  已配置 `NSFaceIDUsageDescription` 与 `NSMicrophoneUsageDescription`；本机无 Xcode。
+- 依赖（2026-11-20 新增）：`record`（录音）、`audioplayers`（朗读播放）、
+  `file_picker`、`image_picker`、`path_provider`。
 - 架构：`lib/data`（模型/服务/注册表）→ `lib/state`（ChangeNotifier）→
   `lib/ui`（页面/组件）。颜色只走 `core/theme/app_colors.dart` 语义 token。
-- 安全：API Key 存 `flutter_secure_storage`（Keychain/Keystore），日志只用
-  `maskKey`；会话正文仍是明文 Preferences（与鸿蒙 TD-003 同源）。
-- 认知文档：`systemmap/balance-app-mobile.md`；发布缺口：`techdebt/TD-004-*.md`。
-
-
-
-
+- 能力与服务位置（追平鸿蒙端）：
+  - 设置「工具」：服务商（DeepSeek/百智云）、两套百智云 Key、6 个功能开关；
+  - `services/update_service.dart`：Gitee→GitHub 双源检查更新；
+  - `services/chat_service.dart`：`deepseek_web_search`、`generate_image` 函数工具、
+    `safety_check`、`delta.annotations` 引用、`delta.tool_calls` 分片；
+  - `services/baizhi_web_search_service.dart`：百智云客户端检索 + 上下文注入；
+  - `services/file_upload_service.dart`：Files API 上传（图片走 user_data 视觉）；
+  - `services/asr_service.dart` / `services/tts_service.dart`：语音输入与朗读（含缓存）；
+  - `services/image_gen_service.dart`：百智云生图任务创建/轮询；
+  - 存储键：Preferences `feature_*` / `web_search_provider` / `tts_voice`，
+    KeyStore `key_baizhi_web` / `key_baizhi_image`。
+- 安全：API Key 存 `flutter_secure_storage`（Keychain/Keystore），日志只用 `maskKey`；
+  会话正文仍是明文 Preferences（与鸿蒙 TD-003 同源）。
+- 验证边界：本机无模拟器/真机，只能 `flutter analyze` + `flutter test`；录音、相册、
+  文件选择、音频播放、生图需按 `techdebt/TD-004-*.md` 的「真机回归清单」实测。
+- 认知文档：`systemmap/balance-app-mobile.md`；发布缺口：`techdebt/TD-004-*.md`；
+  两端差距历史：`techdebt/TD-006-*.md`。
