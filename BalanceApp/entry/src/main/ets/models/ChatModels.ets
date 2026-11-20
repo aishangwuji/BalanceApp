@@ -117,15 +117,8 @@ export interface CharacterCard {
 }
 
 /**
- * 用户身份卡：真人在剧中扮演的身份，区别于 AI 扮演的角色卡。
- * Business Rule: 只要"我是谁"（名字+背景/性格），不要 AI 参数（温度/开场白/知识）。
+ * 用户身份卡已下线（2026-11-20）：会话不再绑定「我扮演谁」，历史数据里的 userIdentityId 字段被忽略。
  */
-export interface UserIdentityCard {
-  id: string;
-  name: string;
-  persona: string; // 背景、性格、身份描述
-  createdAt: number;
-}
 
 export interface ChatSession {
   id: string;
@@ -146,8 +139,6 @@ export interface ChatSession {
   sceneMode: 'single' | 'group';
   /** 角色可见水位：characterId -> 可见首条消息之前的 msgId（缺省全部可见；Phase1 全员可见）。 */
   joinMap: Record<string, string>;
-  /** 本会话用户扮演的身份卡 id；''=普通用户。选定后锁定。 */
-  userIdentityId: string;
   /** 保密会话：打开该会话记录前必须通过人脸/指纹认证。 */
   isPrivate: boolean;
   /**

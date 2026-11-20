@@ -12,7 +12,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { abilityAccessCtrl, common, PermissionRequestResult } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import {
-  ChatMessage, ChatSession, CharacterCard, CitationRange, MessageAttachment, ModelInfo, MessageRole, SearchSource, UserIdentityCard
+  ChatMessage, ChatSession, CharacterCard, CitationRange, MessageAttachment, ModelInfo, MessageRole, SearchSource
 } from '../models/ChatModels';
 import { ChatService, StreamCallbacks, ToolCallRequest } from '../services/ChatService';
 import { ImageGenService, ImageTaskStatus, IMAGE_POLL_INTERVAL_MS, IMAGE_TASK_TIMEOUT_MS } from '../services/ImageGenService';
@@ -167,15 +167,6 @@ export struct ChatView {
   @State pendingParticipants: string[] = [];
   // 角色卡面板模式：select=新会话选择，manage=角色管理
   @State characterSheetMode: 'select' | 'manage' = 'select';
-  // 用户身份卡（我扮演谁）
-  @State identities: UserIdentityCard[] = [];
-  @State pendingIdentityId: string = '';
-  @State showIdentityEdit: boolean = false;
-  @State editingIdentityId: string = '';
-  @State editingIdentityName: string = '';
-  @State editingIdentityPersona: string = '';
-  @State identityActionId: string = '';
-  @State showIdentityDeleteConfirm: boolean = false;
   // @ 指定发言人（群聊）
   @State pendingMentions: string[] = [];
   @State showMentionPicker: boolean = false;
@@ -230,8 +221,6 @@ export struct ChatView {
       if (this.characters.length > 0) {
         this.currentCharacterId = this.characters[0].id;
       }
-      // 加载用户身份卡
-      this.identities = await ChatStorageService.loadIdentities();
 
       // 加载会话，并清理旧版本遗留的空会话（历史曾因「每次启动新建」堆入空「新对话」）。
       const loaded: ChatSession[] = await ChatStorageService.loadSessions();
@@ -1035,7 +1024,7 @@ export struct ChatView {
   private hasOverlayOnTop(): boolean {
     return this.showDrawer || this.showModelPicker || this.showCharacterSheet
       || this.showCharEditDialog || this.showEditDialog || this.showCharDeleteConfirm
-      || this.showIdentityEdit || this.showIdentityDeleteConfirm || this.showMentionPicker
+      || this.showMentionPicker
       || this.showRenameDialog || this.showDeleteConfirm || this.previewImage.length > 0;
   }
 
@@ -1075,7 +1064,6 @@ export struct ChatView {
       participantIds: [],
       sceneMode: 'single',
       joinMap: {},
-      userIdentityId: '',
       isPrivate: false,
       autoTitled: false,
     };
@@ -1200,8 +1188,8 @@ export struct ChatView {
       this.showCharacterSheet = false;
       return;
     }
-    // Business Rule: 角色与身份只能绑定一次；会话已有绑定则锁定，不可更改。
-    if (cur.characterId.length > 0 || cur.participantIds.length > 0 || cur.userIdentityId.length > 0) {
+    // Business Rule: 角色只能绑定一次；会话已有绑定则锁定，不可更改。
+    if (cur.characterId.length > 0 || cur.participantIds.length > 0) {
       this.showCharacterSheet = false;
       this.pendingParticipants = [];
       this.toast('该会话已绑定角色，无法更改');
@@ -1219,12 +1207,6 @@ export struct ChatView {
       return;
     }
     cur.participantIds = ids;
-    // 用户身份随建联一次选定，之后锁定（与角色卡同规则）。
-    let identityId: string = '';
-    if (this.pendingIdentityId.length > 0 && this.identityById(this.pendingIdentityId) !== undefined) {
-      identityId = this.pendingIdentityId;
-    }
-    cur.userIdentityId = identityId;
     // [群聊下线已注释] 始终进入单聊模式
     /*
     if (ids.length >= 2) {
@@ -1243,7 +1225,6 @@ export struct ChatView {
     }
     // }
     this.pendingParticipants = [];
-    this.pendingIdentityId = '';
     this.showCharacterSheet = false;
     this.rebuildSessionReference();
     await this.saveState();
@@ -1521,119 +1502,6 @@ export struct ChatView {
     await this.saveState();
   }
 
-  // ── 用户身份卡 ──
-
-  private identityById(id: string): UserIdentityCard | undefined {
-    let i: number = 0;
-    while (i < this.identities.length) {
-      if (this.identities[i].id === id) {
-        return this.identities[i];
-      }
-      i += 1;
-    }
-    return undefined;
-  }
-
-  /** 当前会话的用户身份名；无身份返回 ''。 */
-  private currentIdentityName(): string {
-    const sess: ChatSession | undefined = this.getCurrentSession();
-    if (!sess || sess.userIdentityId.length === 0) {
-      return '';
-    }
-    const idn: UserIdentityCard | undefined = this.identityById(sess.userIdentityId);
-    return idn !== undefined ? idn.name : '';
-  }
-
-  private openIdentityEdit(idn?: UserIdentityCard): void {
-    if (idn) {
-      this.editingIdentityId = idn.id;
-      this.editingIdentityName = idn.name;
-      this.editingIdentityPersona = idn.persona;
-    } else {
-      this.editingIdentityId = '';
-      this.editingIdentityName = '';
-      this.editingIdentityPersona = '';
-    }
-    this.showIdentityEdit = true;
-  }
-
-  private cancelIdentityEdit(): void {
-    this.showIdentityEdit = false;
-    this.editingIdentityId = '';
-    this.editingIdentityName = '';
-    this.editingIdentityPersona = '';
-  }
-
-  private async saveIdentityEdit(): Promise<void> {
-    if (this.editingIdentityName.trim().length === 0) {
-      return;
-    }
-    const next: UserIdentityCard[] = [];
-    let isNew: boolean = this.editingIdentityId.length === 0;
-    let i: number = 0;
-    while (i < this.identities.length) {
-      const c: UserIdentityCard = this.identities[i];
-      if (c.id === this.editingIdentityId) {
-        next.push({
-          id: c.id,
-          name: this.editingIdentityName.trim(),
-          persona: this.editingIdentityPersona.trim(),
-          createdAt: c.createdAt,
-        });
-      } else {
-        next.push(c);
-      }
-      i += 1;
-    }
-    if (isNew) {
-      next.unshift({
-        id: `identity_${Date.now()}`,
-        name: this.editingIdentityName.trim(),
-        persona: this.editingIdentityPersona.trim(),
-        createdAt: Date.now(),
-      });
-    }
-    this.identities = next;
-    this.showIdentityEdit = false;
-    await ChatStorageService.saveIdentities(this.identities);
-  }
-
-  private askDeleteIdentity(id: string): void {
-    this.identityActionId = id;
-    this.showIdentityDeleteConfirm = true;
-  }
-
-  private cancelDeleteIdentity(): void {
-    this.showIdentityDeleteConfirm = false;
-    this.identityActionId = '';
-  }
-
-  private identityActionName(): string {
-    const c: UserIdentityCard | undefined = this.identityById(this.identityActionId);
-    return c !== undefined ? c.name : '';
-  }
-
-  private async confirmDeleteIdentity(): Promise<void> {
-    const id: string = this.identityActionId;
-    this.showIdentityDeleteConfirm = false;
-    this.identityActionId = '';
-    if (id.length === 0) {
-      return;
-    }
-    const kept: UserIdentityCard[] = [];
-    let i: number = 0;
-    while (i < this.identities.length) {
-      if (this.identities[i].id !== id) {
-        kept.push(this.identities[i]);
-      }
-      i += 1;
-    }
-    this.identities = kept;
-    // 被删身份若正被会话引用，引用悬空按无身份处理（lookup 兜底）。
-    await ChatStorageService.saveIdentities(this.identities);
-    this.rebuildSessionReference();
-  }
-
   // ── 发送与流式输出 ──
 
   private rebuildSessionReference(): void {
@@ -1839,7 +1707,6 @@ export struct ChatView {
   private startNewChat(): void {
     this.createNewSession();
     this.pendingParticipants = [];
-    this.pendingIdentityId = '';
     this.characterSheetMode = 'select';
     this.showCharacterSheet = true;
   }
@@ -2592,16 +2459,12 @@ export struct ChatView {
 
       // Reason: 历史仅取该分支路径（historyTo 沿 parent 链），编辑/切分支后互不污染。
       const rawHistory: ChatMessage[] = this.historyTo(sess, parentMsg.id);
-      const personaName: string = this.currentIdentityName();
       const history: ChatMessage[] = [];
 
       let hi: number = 0;
       while (hi < rawHistory.length) {
         const h: ChatMessage = rawHistory[hi];
-        let content: string = h.content;
-        if (h.role === 'user' && personaName.length > 0 && content.length > 0) {
-          content = `${personaName}：${content}`;
-        }
+        const content: string = h.content;
         const tagged: ChatMessage = {
           id: h.id,
           role: h.role,
@@ -2777,7 +2640,7 @@ export struct ChatView {
         model: this.currentModelId,
         temperature: speaker.temperature,
         messages: history,
-        systemPrompt: this.systemPromptFor(sess, speaker) + (webContext.length > 0 ? '\n\n' + webContext : ''),
+        systemPrompt: this.systemPromptFor(speaker) + (webContext.length > 0 ? '\n\n' + webContext : ''),
         enableThinking: this.enableThinking,
         reasoningEffort: 'high',
         // 联网搜索：服务端工具只在 DeepSeek 生效；关闭时不声明 tools，行为与旧版完全一致。
@@ -2800,26 +2663,11 @@ export struct ChatView {
   }
 
   /**
-   * 构建单聊系统提示词：以角色自身人设设定为主体，融入用户剧中身份。
+   * 构建单聊系统提示词：只取角色自身的人设设定。
+   * 用户身份卡功能已下线（2026-11-20），不再拼接「用户扮演谁」。
    */
-  private systemPromptFor(sess: ChatSession, speaker: CharacterCard): string {
-    const base: string = speaker.systemPrompt.trim();
-
-    let userPersonaBlock: string = '';
-    if (sess.userIdentityId.length > 0) {
-      const idn: UserIdentityCard | undefined = this.identityById(sess.userIdentityId);
-      if (idn !== undefined) {
-        userPersonaBlock = idn.persona.trim().length > 0 ?
-          `【与你对话的用户在剧中身份】：「${idn.name}」—— ${idn.persona.trim()}` :
-          `【与你对话的用户在剧中身份】：「${idn.name}」`;
-      }
-    }
-
-    let prompt: string = base;
-    if (userPersonaBlock.length > 0) {
-      prompt = prompt.length > 0 ? `${prompt}\n\n${userPersonaBlock}` : userPersonaBlock;
-    }
-    return prompt;
+  private systemPromptFor(speaker: CharacterCard): string {
+    return speaker.systemPrompt.trim();
   }
 
   // ── 消息编辑 / 重新生成 / 分支切换 ──
@@ -3699,7 +3547,6 @@ export struct ChatView {
                     await this.createNewSession();
                     this.showDrawer = false;
                     this.pendingParticipants = [];
-                    this.pendingIdentityId = '';
                     this.characterSheetMode = 'select';
                     this.showCharacterSheet = true;
                   })
@@ -4028,7 +3875,7 @@ export struct ChatView {
                   .fontSize(18)
                   .fontWeight(FontWeight.Bold)
                   .fontColor($r('app.color.text_title'))
-                Text(this.characterSheetMode === 'manage' ? '管理你的角色卡与身份' : '选择一个角色开始对话')
+                Text(this.characterSheetMode === 'manage' ? '管理你的角色卡' : '选择一个角色开始对话')
                   .fontSize(12)
                   .fontColor($r('app.color.text_muted'))
                   .margin({ top: 3 })
@@ -4064,46 +3911,6 @@ export struct ChatView {
             .width('92%')
             .alignItems(VerticalAlign.Center)
             .margin({ bottom: 14 })
-
-            // 我扮演（可选，仅建联时选择；锁定后不可更改）
-            if (this.characterSheetMode === 'select') {
-              Text('我扮演（可选）')
-                .fontSize(12)
-                .fontColor($r('app.color.text_muted'))
-                .width('92%')
-                .margin({ bottom: 6 })
-              Scroll() {
-                Row() {
-                  Text('无')
-                    .fontSize(12)
-                    .fontColor(this.pendingIdentityId.length === 0 ? $r('app.color.chat_accent_contrast') : $r('app.color.text_primary'))
-                    .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-                    .backgroundColor(this.pendingIdentityId.length === 0 ? $r('app.color.chat_accent_solid') : $r('app.color.chat_fill'))
-                    .borderRadius(12)
-                    .margin({ right: 6 })
-                    .onClick(() => {
-                      this.pendingIdentityId = '';
-                    })
-                  ForEach(this.identities, (idn: UserIdentityCard) => {
-                    Text(idn.name)
-                      .fontSize(12)
-                      .fontColor(this.pendingIdentityId === idn.id ? $r('app.color.chat_accent_contrast') : $r('app.color.text_primary'))
-                      .padding({ left: 12, right: 12, top: 5, bottom: 5 })
-                      .backgroundColor(this.pendingIdentityId === idn.id ? $r('app.color.chat_accent_solid') : $r('app.color.chat_fill'))
-                      .borderRadius(12)
-                      .margin({ right: 6 })
-                      .onClick(() => {
-                        this.pendingIdentityId = idn.id;
-                      })
-                  }, (idn: UserIdentityCard) => idn.id)
-                }
-                .padding({ left: 16, right: 16 })
-              }
-              .scrollable(ScrollDirection.Horizontal)
-              .scrollBar(BarState.Off)
-              .width('100%')
-              .margin({ bottom: 10 })
-            }
 
             if (this.characters.length === 0) {
               Column() {
@@ -4200,80 +4007,6 @@ export struct ChatView {
             .width('92%')
             .layoutWeight(1)
             .scrollBar(BarState.Off)
-            }
-
-            // 我的身份（仅管理模式；与角色卡区分）
-            if (this.characterSheetMode === 'manage') {
-              Divider().color($r('app.color.divider')).width('92%').margin({ top: 6, bottom: 8 })
-              Row() {
-                Text('我的身份')
-                  .fontSize(14)
-                  .fontWeight(FontWeight.Bold)
-                Blank()
-                Button('+ 新建身份')
-                  .fontSize(12)
-                  .height(34)
-                  .borderRadius(17)
-                  .backgroundColor($r('app.color.chat_accent_soft'))
-                  .fontColor($r('app.color.chat_accent'))
-                  .border({ width: 1, color: $r('app.color.chat_accent_outline') })
-                  .onClick(() => {
-                    this.openIdentityEdit();
-                  })
-              }
-              .width('92%')
-              .margin({ bottom: 8 })
-              if (this.identities.length === 0) {
-                Text('暂无身份卡，点右上角新建')
-                  .fontSize(12)
-                  .fontColor($r('app.color.text_faint'))
-                  .width('92%')
-                  .margin({ bottom: 8 })
-              } else {
-                Scroll() {
-                  Column() {
-                    ForEach(this.identities, (idn: UserIdentityCard) => {
-                      Row() {
-                        Column() {
-                          Text(idn.name)
-                            .fontSize(14)
-                            .fontWeight(FontWeight.Medium)
-                          if (idn.persona.trim().length > 0) {
-                            Text(idn.persona)
-                              .fontSize(12)
-                              .fontColor($r('app.color.text_secondary'))
-                              .margin({ top: 2 })
-                              .maxLines(1)
-                              .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          }
-                        }
-                        .alignItems(HorizontalAlign.Start)
-                        .layoutWeight(1)
-                        Text('›')
-                          .fontSize(20)
-                          .fontColor($r('app.color.icon_muted'))
-                          .margin({ left: 8 })
-                      }
-                      .width('100%')
-                      .padding(12)
-                      .borderRadius(10)
-                      .backgroundColor($r('app.color.chat_surface_alt'))
-                      .margin({ bottom: 6 })
-                      .onClick(() => {
-                        this.openIdentityEdit(idn);
-                      })
-                      .gesture(LongPressGesture({ repeat: false }).onAction(() => {
-                        this.askDeleteIdentity(idn.id);
-                      }))
-                    }, (idn: UserIdentityCard) => idn.id)
-                  }
-                  .width('100%')
-                }
-                .width('92%')
-                .constraintSize({ maxHeight: 190 })
-                .scrollBar(BarState.Off)
-                .margin({ bottom: 8 })
-              }
             }
 
             if (this.characterSheetMode === 'select') {
@@ -4737,98 +4470,6 @@ export struct ChatView {
         }
       })
 
-      // ── 12. 身份卡新建/编辑弹窗 ──
-      if (this.showIdentityEdit) {
-        Column() {
-          Blank()
-            .layoutWeight(1)
-            .onClick(() => {
-              this.cancelIdentityEdit();
-            })
-          Column() {
-            Text(this.editingIdentityId.length > 0 ? '编辑身份卡' : '新建身份卡')
-              .fontSize(17)
-              .fontWeight(FontWeight.Bold)
-              .margin({ top: 18, bottom: 4 })
-            Text('描述你在剧中扮演的身份；区别于 AI 扮演的角色卡')
-              .fontSize(12)
-              .fontColor($r('app.color.text_muted'))
-              .margin({ bottom: 12 })
-            Text('身份名称')
-              .fontSize(12)
-              .fontColor($r('app.color.text_secondary'))
-              .width('92%')
-              .margin({ bottom: 4 })
-            TextInput({ placeholder: '', text: this.editingIdentityName })
-              .width('92%')
-              .height(46)
-              .backgroundColor($r('app.color.chat_surface'))
-              .borderRadius(14)
-              .border({ width: 1, color: $r('app.color.chat_border') })
-              .margin({ bottom: 12 })
-              .onChange((v: string) => {
-                this.editingIdentityName = v;
-              })
-            Text('身份描述')
-              .fontSize(12)
-              .fontColor($r('app.color.text_secondary'))
-              .width('92%')
-              .margin({ bottom: 4 })
-            TextArea({ placeholder: '背景、性格、职业……', text: this.editingIdentityPersona })
-              .width('92%')
-              .height(90)
-              .backgroundColor($r('app.color.chat_surface'))
-              .borderRadius(16)
-              .border({ width: 1, color: $r('app.color.chat_border') })
-              .margin({ bottom: 16 })
-              .onChange((v: string) => {
-                this.editingIdentityPersona = v;
-              })
-            Row() {
-              Button('取消')
-                .layoutWeight(1)
-                .backgroundColor($r('app.color.chat_fill'))
-                .fontColor($r('app.color.text_primary'))
-                .margin({ right: 8 })
-                .onClick(() => {
-                  this.cancelIdentityEdit();
-                })
-              Button('保存')
-                .layoutWeight(1)
-                .backgroundColor($r('app.color.chat_accent_solid'))
-                .fontColor($r('app.color.chat_accent_contrast'))
-                .enabled(this.editingIdentityName.trim().length > 0)
-                .onClick(() => {
-                  this.saveIdentityEdit();
-                })
-            }
-            .width('92%')
-            .margin({ bottom: 20 })
-          }
-          .width('100%')
-          .backgroundColor($r('app.color.chat_surface'))
-          .borderRadius({ topLeft: 28, topRight: 28 })
-          .border({ width: 1, color: $r('app.color.chat_border') })
-        }
-        .width('100%')
-        .height('100%')
-        .backgroundColor($r('app.color.overlay_scrim'))
-      }
-
-      // ── 13. 身份卡删除二次确认（复用组件） ──
-      ConfirmDialog({
-        show: this.showIdentityDeleteConfirm,
-        title: '确认删除该身份卡？',
-        message: this.identityActionName(),
-        confirmText: '删除',
-        danger: true,
-        onConfirm: () => {
-          this.confirmDeleteIdentity();
-        },
-        onCancel: () => {
-          this.cancelDeleteIdentity();
-        }
-      })
     }
     .width('100%')
     .height('100%')
@@ -4961,13 +4602,6 @@ export struct ChatView {
       Row() {
         Blank()
         Column() {
-          // 用户剧中身份名
-          if (this.currentIdentityName().length > 0) {
-            Text(this.currentIdentityName())
-              .fontSize(11)
-              .fontColor($r('app.color.reasoning_muted'))
-              .margin({ bottom: 4 })
-          }
           // 文档附件（DeepSeek Files API）：图片直接显示缩略图（点了全屏预览），其余只展示文件名。
           if (msg.attachments !== undefined && msg.attachments.length > 0) {
             Column() {
