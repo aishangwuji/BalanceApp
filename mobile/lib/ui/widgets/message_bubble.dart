@@ -237,6 +237,7 @@ class _AssistantBubble extends StatelessWidget {
             child: _ReadAloudButton(
               text: message.content,
               apiKey: controller.currentApiKey,
+              voice: controller.ttsVoice,
             ),
           ),        if (message.status == MessageStatus.error)
           Padding(
@@ -630,10 +631,15 @@ class _SourcePill extends StatelessWidget {
 
 /// 朗读按钮：合成 + 播放，播放中再点一次停止。
 class _ReadAloudButton extends StatefulWidget {
-  const _ReadAloudButton({required this.text, required this.apiKey});
+  const _ReadAloudButton({
+    required this.text,
+    required this.apiKey,
+    required this.voice,
+  });
 
   final String text;
   final String apiKey;
+  final String voice;
 
   @override
   State<_ReadAloudButton> createState() => _ReadAloudButtonState();
@@ -692,6 +698,7 @@ class _ReadAloudButtonState extends State<_ReadAloudButton> {
       await TtsService.speak(
         text: widget.text,
         apiKey: widget.apiKey,
+        voiceId: widget.voice,
       );
       if (mounted) {
         setState(() => _playing = true);

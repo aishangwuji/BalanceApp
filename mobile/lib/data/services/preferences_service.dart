@@ -25,6 +25,7 @@ class PreferencesService {
   static const String keyFeatureImage = 'feature_image';
   static const String keyFeatureSafety = 'feature_safety';
   static const String keyWebSearchProvider = 'web_search_provider';
+  static const String keyTtsVoice = 'tts_voice';
 
   static const String storeCharacters = 'saved_characters';
   static const String storeIdentities = 'saved_identities';

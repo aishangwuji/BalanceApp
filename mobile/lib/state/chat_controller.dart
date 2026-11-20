@@ -92,6 +92,7 @@ class ChatController extends ChangeNotifier {
   String get currentApiKey => _currentApiKey;
   bool get featureAsr => _settings.featureAsr;
   bool get featureTts => _settings.featureTts;
+  String get ttsVoice => _settings.ttsVoice;
   bool get enableThinking => _enableThinking;
   bool get enableWebSearch => _enableWebSearch;
   List<MessageAttachment> get pendingAttachments =>

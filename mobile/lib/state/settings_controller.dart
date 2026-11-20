@@ -42,6 +42,7 @@ class SettingsController extends ChangeNotifier {
   bool _featureImage = true;
   bool _featureSafety = false;
   String _webSearchProvider = webSearchProviderDeepseek;
+  String _ttsVoice = 'stella';
 
   String get appearance => _appearance;
   int get fontLevel => _fontLevel;
@@ -58,6 +59,7 @@ class SettingsController extends ChangeNotifier {
   bool get featureImage => _featureImage;
   bool get featureSafety => _featureSafety;
   String get webSearchProvider => _webSearchProvider;
+  String get ttsVoice => _ttsVoice;
 
   ThemeMode get themeMode {
     switch (_appearance) {
@@ -91,6 +93,10 @@ class SettingsController extends ChangeNotifier {
     c._appLockEnabled =
         prefs.getBool(PreferencesService.keyAppLockEnabled, fallback: false);
     c._appLocked = c._appLockEnabled;
+    c._ttsVoice =
+        prefs.getString(PreferencesService.keyTtsVoice, fallback: 'stella') == 'tide'
+            ? 'tide'
+            : 'stella';
     c._featureTitle = prefs.getBool(PreferencesService.keyFeatureTitle, fallback: true);
     c._featureFiles = prefs.getBool(PreferencesService.keyFeatureFiles, fallback: true);
     c._featureAsr = prefs.getBool(PreferencesService.keyFeatureAsr, fallback: true);
@@ -221,4 +227,10 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> writeBaizhiImageKey(String key) =>
       _keyStore.write(KeyStore.baizhiImage, key);
+
+  Future<void> setTtsVoice(String voice) async {
+    _ttsVoice = voice == 'tide' ? 'tide' : 'stella';
+    notifyListeners();
+    await _prefs.setString(PreferencesService.keyTtsVoice, _ttsVoice);
+  }
 }

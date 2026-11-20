@@ -109,6 +109,41 @@ class SettingsPage extends StatelessWidget {
     );
   }
   /// 手动检查更新：Gitee 优先、GitHub 兜底；只提示不强制。
+  Future<void> _pickTtsVoice(
+    BuildContext context,
+    SettingsController settings,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              title: const Text('Stella（默认）'),
+              trailing: settings.ttsVoice == 'stella'
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                settings.setTtsVoice('stella');
+              },
+            ),
+            ListTile(
+              title: const Text('Tide'),
+              trailing: settings.ttsVoice == 'tide'
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                settings.setTtsVoice('tide');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   Future<void> _checkUpdate(BuildContext context) async {
     final UpdateInfo? info = await UpdateService.check();
     if (!context.mounted) {
@@ -267,6 +302,17 @@ class SettingsPage extends StatelessWidget {
                         value: settings.featureSafety,
                         onChanged: (bool v) =>
                             settings.setFeatureBool(PreferencesService.keyFeatureSafety, v),
+                      ),
+                    ],
+                  ),                  _SettingsCard(
+                    children: <Widget>[
+                      _SettingsRow(
+                        title: '朗读音色',
+                        trailing: Text(
+                          settings.ttsVoice == 'tide' ? 'Tide' : 'Stella',
+                          style: TextStyle(fontSize: 12, color: c.textMuted),
+                        ),
+                        onTap: () => _pickTtsVoice(context, settings),
                       ),
                     ],
                   ),                  _SectionLabel(text: s.t('settings_section_security')),
