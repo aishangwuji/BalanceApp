@@ -1,4 +1,4 @@
-package com.example.balanceapp
+package com.example.openchat
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 
