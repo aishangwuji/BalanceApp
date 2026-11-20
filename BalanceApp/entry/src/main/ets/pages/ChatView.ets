@@ -5164,8 +5164,7 @@ export struct ChatView {
               .margin({ top: 6 })
           }
 
-          // 生图结果模块：进度 / 元数据条 / 比例锁定画廊 / 操作行 / 失败重试。
-          // Business Rule: 容器宽高比来自请求参数（imageAspect），加载前后尺寸一致，避免布局抖动。
+          // 生图结果模块：进度 / 元数据条 / 成图 / 操作行 / 失败重试。
           if (msg.imageState === 'generating') {
             Row() {
               LoadingProgress().width(15).height(15).color($r('app.color.chat_accent'))
@@ -5210,21 +5209,14 @@ export struct ChatView {
             }
             Column({ space: 8 }) {
               ForEach(msg.imageUrls, (url: string) => {
-                Column() {
-                  Image(url)
-                    .width('100%')
-                    .height('100%')
-                    .objectFit(ImageFit.Contain)
-                    .borderRadius(16)
-                    .onClick(() => {
-                      this.previewImage = url;
-                    })
-                }
-                .width(msg.imageUrls !== undefined && msg.imageUrls.length > 1 ? '78%' : '82%')
-                .aspectRatio(msg.imageAspect !== undefined ? msg.imageAspect : 1)
-                .backgroundColor($r('app.color.chat_fill'))
-                .borderRadius(16)
-                .border({ width: 1, color: $r('app.color.chat_border') })
+                // 直接展示成图：不套卡片、不加边框/底色，宽度撑满后由图片自身比例决定高度。
+                Image(url)
+                  .width('100%')
+                  .objectFit(ImageFit.Contain)
+                  .borderRadius(12)
+                  .onClick(() => {
+                    this.previewImage = url;
+                  })
               }, (url: string) => url)
             }
             .width('100%')
