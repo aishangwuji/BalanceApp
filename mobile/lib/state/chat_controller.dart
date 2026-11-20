@@ -7,7 +7,10 @@ import '../data/models/provider.dart';
 import '../data/services/auth_service.dart';
 
 import '../data/services/baizhi_web_search_service.dart';
+import 'dart:convert';
+
 import '../data/services/file_upload_service.dart';
+import '../data/services/image_gen_service.dart';
 import '../data/services/chat_service.dart';
 import '../data/services/chat_storage_service.dart';
 import '../data/services/key_store.dart';
@@ -795,6 +798,8 @@ class ChatController extends ChangeNotifier {
       notifyListeners();
     }
     final List<CitationRange> citations = <CitationRange>[];
+    final Map<int, String> toolNames = <int, String>{};
+    final Map<int, StringBuffer> toolArgs = <int, StringBuffer>{};
     final int thinkingStart = DateTime.now().millisecondsSinceEpoch;
     int thinkingEnd = 0;
     bool finished = false;
@@ -870,6 +875,8 @@ class ChatController extends ChangeNotifier {
         reasoningEffort: 'high',
 
         enableFiles: _settings.featureFiles,
+        enableImageTool: _settings.featureImage &&
+            _currentProviderId == 'deepseek',
         enableWebSearch: _enableWebSearch &&
             _settings.webSearchProvider != webSearchProviderBaizhi,
         enableSafety: _settings.featureSafety,      ),
@@ -882,9 +889,27 @@ class ChatController extends ChangeNotifier {
         }
         if (event.done) {
           complete(stopped: false);
+          if (toolNames.containsValue('generate_image')) {
+            final int key = toolNames.entries
+                .firstWhere((MapEntry<int, String> e) => e.value == 'generate_image')
+                .key;
+            final StringBuffer? args = toolArgs[key];
+            if (args != null) {
+              unawaited(_runImageTool(assistant, args.toString()));
+            }
+          }
           return;
         }
-        if (event.searchHint.isNotEmpty) {
+        if (event.toolCallIndex >= 0) {
+          if (event.toolCallName.isNotEmpty) {
+            toolNames[event.toolCallIndex] = event.toolCallName;
+          }
+          if (event.toolCallArgs.isNotEmpty) {
+            toolArgs
+                .putIfAbsent(event.toolCallIndex, () => StringBuffer())
+                .write(event.toolCallArgs);
+          }
+        }        if (event.searchHint.isNotEmpty) {
           assistant.searchHint = event.searchHint;
           assistant.searching = event.searchHint.contains('正在');
         }
@@ -1176,6 +1201,108 @@ class ChatController extends ChangeNotifier {
   void removePendingAttachment(String fileId) {
     _pendingAttachments.removeWhere((MessageAttachment a) => a.fileId == fileId);
     notifyListeners();
+  }
+
+  /// 执行生图工具：建任务 → 轮询 → 结果挂到消息（URL 有时效）。
+  Future<void> _runImageTool(ChatMessage assistant, String argsJson) async {
+    String prompt = '';
+    String ratio = 'auto';
+    int count = 1;
+    try {
+      final Object? decoded = jsonDecode(argsJson);
+      if (decoded is Map) {
+        final Object? p = decoded['prompt'];
+        if (p is String) {
+          prompt = p;
+        }
+        final Object? r = decoded['ratio'];
+        if (r is String) {
+          ratio = r;
+        }
+        final Object? c = decoded['count'];
+        if (c is num) {
+          count = c.toInt().clamp(1, 4);
+        }
+      }
+    } catch (_) {
+      // 参数不是合法 JSON 时按空提示词处理，下面会直接失败提示。
+    }
+    if (prompt.trim().isEmpty) {
+      assistant
+        ..imageState = 'failed'
+        ..imageHint = '生图参数缺少提示词';
+      notifyListeners();
+      return;
+    }
+    assistant
+      ..imagePrompt = prompt
+      ..imageAspect = _aspectOfRatio(ratio)
+      ..imageState = 'generating'
+      ..imageHint = '正在生成图片…';
+    notifyListeners();
+    try {
+      final String key = await _settings.readBaizhiImageKey();
+      final String taskId = await ImageGenService.createTask(
+        prompt: prompt,
+        ratio: ratio,
+        resolution: '2K',
+        count: count,
+        apiKey: key,
+      );
+      final DateTime deadline = DateTime.now().add(
+        const Duration(milliseconds: ImageGenService.taskTimeoutMs),
+      );
+      List<String> urls = const <String>[];
+      while (DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(
+          const Duration(milliseconds: ImageGenService.pollIntervalMs),
+        );
+        final ImageTaskStatus status =
+            await ImageGenService.queryTask(taskId, key);
+        if (status.imageUrls.isNotEmpty) {
+          urls = status.imageUrls;
+          break;
+        }
+        if (status.isFailed) {
+          throw ImageGenException(
+            status.message.isEmpty ? '生图任务失败' : status.message,
+          );
+        }
+      }
+      if (urls.isEmpty) {
+        throw const ImageGenException('生图超时（约 6 分钟），请稍后重试');
+      }
+      assistant
+        ..imageUrls = urls.take(4).toList(growable: false)
+        ..imageState = 'done'
+        ..imageHint = null
+        ..imageMeta = '百智云 | $ratio | 2K';
+    } on ImageGenException catch (error) {
+      assistant
+        ..imageState = 'failed'
+        ..imageHint = error.message;
+    } catch (error) {
+      assistant
+        ..imageState = 'failed'
+        ..imageHint = '生图失败：$error';
+    }
+    unawaited(_saveState());
+    notifyListeners();
+  }
+
+  static double _aspectOfRatio(String ratio) {
+    switch (ratio) {
+      case '4:3':
+        return 4 / 3;
+      case '3:4':
+        return 3 / 4;
+      case '16:9':
+        return 16 / 9;
+      case '9:16':
+        return 9 / 16;
+      default:
+        return 1;
+    }
   }
 }
 

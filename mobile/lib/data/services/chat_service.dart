@@ -24,6 +24,10 @@ class ChatStreamEvent {
     this.citations = const <CitationRange>[],
     this.title = '',
     this.refusal = '',
+    this.toolCallIndex = -1,
+    this.toolCallId = '',
+    this.toolCallName = '',
+    this.toolCallArgs = '',
   });
 
   final String content;
@@ -39,6 +43,11 @@ class ChatStreamEvent {
   final String title;
   /// 内容安全拒答原因（finish_reason=content_filter / delta.refusal）。
   final String refusal;
+  /// 客户端工具调用分片：index 相同的分片需要累加。
+  final int toolCallIndex;
+  final String toolCallId;
+  final String toolCallName;
+  final String toolCallArgs;
 
   bool get hasPayload => content.isNotEmpty || reasoning.isNotEmpty;
 }
@@ -55,6 +64,7 @@ class ChatRequestOptions {
     this.reasoningEffort = 'high',
     this.enableWebSearch = false,
     this.enableFiles = false,
+    this.enableImageTool = false,
     this.enableSafety = false,
   });
 
@@ -70,6 +80,8 @@ class ChatRequestOptions {
   final bool enableWebSearch;
   /// 文件/图片附件：仅 DeepSeek 回放 file 块。
   final bool enableFiles;
+  /// 生图工具：声明客户端函数 generate_image（百智云异步任务）。
+  final bool enableImageTool;
   /// 内容安全：声明 safety_check.level=high（仅 DeepSeek）。
   final bool enableSafety;
 }
@@ -197,7 +209,35 @@ class ChatService {
       if (deltaRefusal is String && deltaRefusal.isNotEmpty) {
         refusal = deltaRefusal;
       }
-      return ChatStreamEvent(
+      int callIndex = -1;
+      String callId = '';
+      String callName = '';
+      String callArgs = '';
+      final Object? toolCalls = delta['tool_calls'];
+      if (toolCalls is List && toolCalls.isNotEmpty) {
+        final Object? first = toolCalls.first;
+        if (first is Map) {
+          final Object? indexRaw = first['index'];
+          if (indexRaw is num) {
+            callIndex = indexRaw.toInt();
+          }
+          final Object? idRaw = first['id'];
+          if (idRaw is String) {
+            callId = idRaw;
+          }
+          final Object? fn = first['function'];
+          if (fn is Map) {
+            final Object? nameRaw = fn['name'];
+            if (nameRaw is String) {
+              callName = nameRaw;
+            }
+            final Object? argsRaw = fn['arguments'];
+            if (argsRaw is String) {
+              callArgs = argsRaw;
+            }
+          }
+        }
+      }      return ChatStreamEvent(
         content: content is String ? content : '',
         reasoning: reasoning is String ? reasoning : '',
         searchHint: hint,
@@ -205,6 +245,10 @@ class ChatService {
         citations: citations,
         title: title,
         refusal: refusal,
+        toolCallIndex: callIndex,
+        toolCallId: callId,
+        toolCallName: callName,
+        toolCallArgs: callArgs,
       );
     } catch (_) {
       // Ignore keep-alive or malformed single lines.
@@ -302,11 +346,17 @@ class ChatService {
       ),
       'stream': isStream,
     };
-    // 联网搜索：仅 DeepSeek 声明服务端工具（搜索/抓取由服务端完成）。
+    // 联网搜索：仅 DeepSeek 声明服务端工具（搜索/抓取由服务端完成）；
+    // 生图工具与它能同时声明，二者互不影响。
+    final List<Map<String, dynamic>> tools = <Map<String, dynamic>>[];
     if (options.enableWebSearch && options.providerId == 'deepseek') {
-      payload['tools'] = <Map<String, String>>[
-        <String, String>{'type': 'deepseek_web_search'},
-      ];
+      tools.add(<String, dynamic>{'type': 'deepseek_web_search'});
+    }
+    if (options.enableImageTool && options.providerId == 'deepseek') {
+      tools.add(_imageToolDeclaration());
+    }
+    if (tools.isNotEmpty) {
+      payload['tools'] = tools;
     }
     // 内容安全：官方基础风控，输入输出都审核；拒答走 finish_reason/refusal。
     if (options.enableSafety && options.providerId == 'deepseek') {
@@ -406,5 +456,37 @@ class ChatService {
       );
     }
     return out;
+  }
+
+  /// 生图函数工具声明：模型自行判断何时画图，参数只暴露 prompt/ratio/count。
+  static Map<String, dynamic> _imageToolDeclaration() {
+    return <String, dynamic>{
+      'type': 'function',
+      'function': <String, dynamic>{
+        'name': 'generate_image',
+        'description': '根据用户的描述生成图片。当用户明确要求画图、生成图片、插画、海报时调用。',
+        'parameters': <String, dynamic>{
+          'type': 'object',
+          'properties': <String, dynamic>{
+            'prompt': <String, dynamic>{
+              'type': 'string',
+              'description': '用于生图的详细中文提示词，包含主体、风格、构图与光线。',
+            },
+            'ratio': <String, dynamic>{
+              'type': 'string',
+              'enum': <String>['1:1', '4:3', '3:4', '16:9', '9:16', 'auto'],
+              'description': '图片比例，不确定时用 auto。',
+            },
+            'count': <String, dynamic>{
+              'type': 'integer',
+              'minimum': 1,
+              'maximum': 4,
+              'description': '生成张数，默认 1。',
+            },
+          },
+          'required': <String>['prompt'],
+        },
+      },
+    };
   }
 }
