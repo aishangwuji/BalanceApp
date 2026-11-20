@@ -35,7 +35,7 @@ export struct ThinkingButton {
             .fontColor(this.isEnabled ? $r('app.color.pill_search_text') : $r('app.color.text_secondary'))
             .fontWeight(this.isEnabled ? FontWeight.Medium : FontWeight.Normal)
         }
-        .height(32)
+        .height(30)
         .padding({ left: 12, right: 12 })
         .backgroundColor(this.isEnabled ? $r('app.color.pill_search_bg') : $r('app.color.chat_fill'))
         .borderRadius(16)

@@ -32,6 +32,7 @@ import {
 import { FileUploadService, UploadedFile } from '../services/FileUploadService';
 import { VoiceRecorder } from '../services/VoiceRecorder';
 import { AsrService } from '../services/AsrService';
+import { I18nService } from '../services/I18nService';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ThinkingButton } from '../components/ThinkingButton';
 import { WebSearchButton } from '../components/WebSearchButton';
@@ -43,8 +44,8 @@ const DOMAIN = 0x0000;
 const TAG = 'ChatView';
 const PREFS_NAME = 'balance_prefs';
 // 输入框固定高度（折叠态默认两行内滚动）与展开态高度，超出部分由 TextArea 内部滚动查看。
-const INPUT_BASE_HEIGHT = 68;
-const INPUT_EXPANDED_HEIGHT = 200;
+const INPUT_BASE_HEIGHT = 48;
+const INPUT_EXPANDED_HEIGHT = 176;
 
 /** 无角色卡时的中性兜底：不附带任何系统设定与开场白。 */
 const EMPTY_CHARACTER: CharacterCard = {
@@ -90,6 +91,8 @@ export struct ChatView {
   @StorageProp('app_appearance') appearance: string = 'system';
   // 解析后的实际深色态（system 跟随系统，由 SettingsService/EntryAbility 落存）。
   @StorageProp('app_dark') appDark: boolean = false;
+  // 语言：仅用于让空态问候语随「设置 > 语言」立即重绘。
+  @StorageProp('app_language') currentLang: string = 'zh-CN';
   // Markdown 流式驱动：仅存活中的流式消息持有（生成开始建、结束/停止/删会话时删）。
   private mdControllers: Map<string, MarkdownController> = new Map();
   private mdTypingBegun: string[] = [];
@@ -3068,6 +3071,23 @@ export struct ChatView {
     return session !== undefined ? session.title : '新对话';
   }
 
+  /**
+   * 空态问候语：按本机时段切换（对齐官方版的「早上好 / 下午好 / 晚上好」）。
+   * Business Rule: 首屏只留一句问候，不再附加标语、说明或英文小标题。
+   */
+  private greetingText(): string {
+    const hour: number = new Date().getHours();
+    let key: string = 'chat_greeting_morning';
+    if (hour >= 23 || hour < 5) {
+      key = 'chat_greeting_night';
+    } else if (hour >= 18) {
+      key = 'chat_greeting_evening';
+    } else if (hour >= 12) {
+      key = 'chat_greeting_afternoon';
+    }
+    return I18nService.t(key);
+  }
+
   // ── UI 渲染 ──
 
   build() {
@@ -3093,16 +3113,19 @@ export struct ChatView {
           })
 
           Column() {
-            Text(this.currentSessionTitle())
-              .fontSize(16)
-              .fontWeight(FontWeight.Medium)
-              .fontColor($r('app.color.text_title'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(this.getProviderName(this.currentProviderId))
-              .fontSize(10)
-              .fontColor($r('app.color.text_muted'))
-              .margin({ top: 2 })
+            // 空态不显示会话标题与服务商副标题，首屏只留图标与问候语。
+            if (this.activePath().length > 0) {
+              Text(this.currentSessionTitle())
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor($r('app.color.text_title'))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.getProviderName(this.currentProviderId))
+                .fontSize(10)
+                .fontColor($r('app.color.text_muted'))
+                .margin({ top: 2 })
+            }
           }
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Center)
@@ -3147,10 +3170,6 @@ export struct ChatView {
               .fontWeight(FontWeight.Medium)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(' 选模型')
-              .fontSize(10)
-              .fontColor($r('app.color.text_muted'))
-              .margin({ left: 4 })
           }
           .padding({ left: 10, right: 10, top: 7, bottom: 7 })
           .backgroundColor($r('app.color.chat_accent_soft'))
@@ -3184,69 +3203,36 @@ export struct ChatView {
 
         Divider().color($r('app.color.chat_border')).width('100%')
 
-        // 对话气泡消息流（仅渲染当前激活分支；LazyForEach 只为视口内消息建 Markdown 实例）
-        List({ scroller: this.scroller }) {
-          if (this.activePath().length === 0) {
-            ListItem() {
-              Column() {
-                Row() {
-                  Row()
-                    .width(24)
-                    .height(1)
-                    .backgroundColor($r('app.color.chat_accent'))
-                  Text('  BALANCE  /  AI')
-                    .fontSize(10)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor($r('app.color.chat_accent'))
-                    .letterSpacing(1.2)
-                  Row()
-                    .width(24)
-                    .height(1)
-                    .backgroundColor($r('app.color.chat_accent'))
-                }
-                .alignItems(VerticalAlign.Center)
-
-                Text('让想法慢慢展开')
-                  .fontSize(27)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor($r('app.color.text_title'))
-                  .margin({ top: 20 })
-
-                Text('从一个问题开始，开启一段清晰的对话。')
-                  .fontSize(14)
-                  .fontColor($r('app.color.text_muted'))
-                  .lineHeight(23)
-                  .margin({ top: 9 })
+        // 空态：只有品牌标识 + 随时段变化的问候语（对齐官方首屏）。
+        if (this.activePath().length === 0) {
+          this.EmptyChatState()
+        } else {
+          // 对话气泡消息流（仅渲染当前激活分支；LazyForEach 只为视口内消息建 Markdown 实例）
+          List({ scroller: this.scroller }) {
+            LazyForEach(this.msgSource, (msg: ChatMessage) => {
+              ListItem() {
+                this.MessageBubble(msg)
               }
-              .width('100%')
-              .height(340)
-              .justifyContent(FlexAlign.Center)
-              .alignItems(HorizontalAlign.Center)
-            }
+              .margin({ top: 10, bottom: 10 })
+            }, (msg: ChatMessage) => this.msgRenderKey(msg))
           }
-          LazyForEach(this.msgSource, (msg: ChatMessage) => {
-            ListItem() {
-              this.MessageBubble(msg)
-            }
-            .margin({ top: 10, bottom: 10 })
-          }, (msg: ChatMessage) => this.msgRenderKey(msg))
+          .width('100%')
+          .layoutWeight(1)
+          .padding({ left: 20, right: 20 })
+          .cachedCount(2)
+          .scrollBar(BarState.Off)
+          .onScrollIndex((start: number, end: number) => {
+            this.handleScrollIndex(start, end);
+          })
+          .onScrollStop(() => {
+            this.onChatScrollStop();
+          })
+          .onReachEnd(() => {
+            // 用户回到底部附近：恢复底部跟随。
+            this.userTookOver = false;
+            this.showJumpBottom = false;
+          })
         }
-        .width('100%')
-        .layoutWeight(1)
-        .padding({ left: 20, right: 20 })
-        .cachedCount(2)
-        .scrollBar(BarState.Off)
-        .onScrollIndex((start: number, end: number) => {
-          this.handleScrollIndex(start, end);
-        })
-        .onScrollStop(() => {
-          this.onChatScrollStop();
-        })
-        .onReachEnd(() => {
-          // 用户回到底部附近：恢复底部跟随。
-          this.userTookOver = false;
-          this.showJumpBottom = false;
-        })
 
         // 底部输入区域
         Column() {
@@ -3494,11 +3480,11 @@ export struct ChatView {
             .margin({ top: 2 })
           }
           .width('96%')
-          .padding({ left: 16, right: 12, top: 16, bottom: 12 })
+          .padding({ left: 14, right: 10, top: 12, bottom: 10 })
           .backgroundColor($r('app.color.chat_surface'))
-          .borderRadius(28)
+          .borderRadius(24)
           .border({ width: 1, color: $r('app.color.chat_border') })
-          .shadow({ radius: 18, color: 'rgba(0,0,0,0.06)', offsetX: 0, offsetY: 4 })
+          .shadow({ radius: 12, color: 'rgba(0,0,0,0.05)', offsetX: 0, offsetY: 3 })
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)
@@ -4726,6 +4712,29 @@ export struct ChatView {
     }
     .width('100%')
     .height('100%')
+  }
+
+  /** 首屏空态：品牌标识 + 一句随时段变化的问候（不放任何说明性文案）。 */
+  @Builder
+  EmptyChatState() {
+    Column() {
+      Image($r('app.media.deepseek'))
+        .width(30)
+        .height(30)
+        .objectFit(ImageFit.Contain)
+
+      Text(this.greetingText())
+        .fontSize(19)
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.text_title'))
+        .textAlign(TextAlign.Center)
+        .margin({ top: 12 })
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .padding({ left: 32, right: 32, bottom: 24 })
   }
 
   @Builder
