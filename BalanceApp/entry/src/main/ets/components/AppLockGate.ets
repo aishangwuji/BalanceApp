@@ -8,12 +8,15 @@
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AuthService } from '../services/AuthService';
 import { KEY_APP_LOCKED } from '../services/SettingsService';
+import { skinColor } from '../services/SkinService';
 
 const DOMAIN = 0x0000;
 const TAG = 'AppLockGate';
 
 @Component
 export struct AppLockGate {
+  /** 皮肤版本号：皮肤或明暗切换时自增（SkinService），驱动本组件按新调色板重绘。 */
+  @StorageProp('skin_version') skinVersion: number = 0;
   @StorageProp(KEY_APP_LOCKED) @Watch('onLockedChanged') locked: boolean = false;
   @State authenticating: boolean = false;
   private autoStarted: boolean = false;
@@ -96,19 +99,19 @@ export struct AppLockGate {
           .height(72)
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
-          .backgroundColor($r('app.color.icon_tile'))
+          .backgroundColor(skinColor('icon_tile'))
           .borderRadius(36)
-          .border({ width: 1, color: $r('app.color.accent_outline') })
+          .border({ width: 1, color: skinColor('accent_outline') })
 
           Text('应用已锁定')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
             .margin({ top: 20 })
 
           Text('验证锁屏密码、指纹或人脸识别后继续')
             .fontSize(13)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .lineHeight(20)
             .margin({ top: 8 })
 
@@ -117,8 +120,8 @@ export struct AppLockGate {
             .height(44)
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
-            .backgroundColor($r('app.color.accent_solid'))
-            .fontColor($r('app.color.accent_contrast'))
+            .backgroundColor(skinColor('accent_solid'))
+            .fontColor(skinColor('accent_contrast'))
             .borderRadius(16)
             .enabled(!this.authenticating)
             .margin({ top: 28 })
@@ -133,7 +136,7 @@ export struct AppLockGate {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor($r('app.color.page_bg'))
+      .backgroundColor(skinColor('page_bg'))
     }
   }
 }

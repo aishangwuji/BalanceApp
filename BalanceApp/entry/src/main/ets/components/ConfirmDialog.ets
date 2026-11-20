@@ -6,8 +6,12 @@
  *   ConfirmDialog({ show, title, message, confirmText, danger, onConfirm, onCancel })
  */
 
+import { skinColor } from '../services/SkinService';
+
 @Component
 export struct ConfirmDialog {
+  /** 皮肤版本号：皮肤或明暗切换时自增（SkinService），驱动本组件按新调色板重绘。 */
+  @StorageProp('skin_version') skinVersion: number = 0;
   @Prop show: boolean = false;
   @Prop title: string = '';
   @Prop message: string = '';
@@ -25,12 +29,12 @@ export struct ConfirmDialog {
           Text(this.title)
             .fontSize(18)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
             .margin({ top: 24, bottom: 4 })
           if (this.message.length > 0) {
             Text(this.message)
               .fontSize(14)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
               .lineHeight(21)
               .maxLines(2)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -41,8 +45,8 @@ export struct ConfirmDialog {
           Row() {
             Button('取消')
               .layoutWeight(1)
-              .backgroundColor($r('app.color.fill'))
-              .fontColor($r('app.color.text_primary'))
+              .backgroundColor(skinColor('fill'))
+              .fontColor(skinColor('text_primary'))
               .borderRadius(14)
               .margin({ right: 8 })
               .onClick(() => {
@@ -50,8 +54,8 @@ export struct ConfirmDialog {
               })
             Button(this.confirmText)
               .layoutWeight(1)
-              .backgroundColor(this.danger ? '#A34F44' : $r('app.color.accent_solid'))
-              .fontColor($r('app.color.accent_contrast'))
+              .backgroundColor(this.danger ? '#A34F44' : skinColor('accent_solid'))
+              .fontColor(skinColor('accent_contrast'))
               .borderRadius(14)
               .onClick(() => {
                 this.onConfirm();
@@ -61,15 +65,15 @@ export struct ConfirmDialog {
           .margin({ bottom: 24 })
         }
         .width('88%')
-        .backgroundColor($r('app.color.surface'))
+        .backgroundColor(skinColor('surface'))
         .borderRadius(24)
-        .border({ width: 1, color: $r('app.color.border_soft') })
+        .border({ width: 1, color: skinColor('border_soft') })
         .shadow({ radius: 28, color: 'rgba(20,18,14,0.18)', offsetX: 0, offsetY: 10 })
         Blank()
       }
       .width('100%')
       .height('100%')
-      .backgroundColor($r('app.color.overlay_scrim'))
+      .backgroundColor(skinColor('overlay_scrim'))
     }
   }
 }

@@ -16,12 +16,15 @@ import { common } from '@kit.AbilityKit';
 import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../services/I18nService';
 import { UpdateService, UpdateInfo } from '../services/UpdateService';
 import {
-  SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
+  SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_APP_DARK, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
   KEY_APP_LOCK_ENABLED, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
   KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY,
   KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI,
   KEY_BAIZHI_IMAGE_READY, KEY_BAIZHI_WEB_READY
 } from '../services/SettingsService';
+import {
+  skinColor, skinList, currentSkinId, findSkin, applySkin, persistSkin, syncDarkMode, SkinDefinition
+} from '../services/SkinService';
 
 const DOMAIN = 0x0000;
 const TAG = 'Settings';
@@ -52,6 +55,8 @@ const VOICE_OPTIONS: VoiceOption[] = [
 @Entry
 @Component
 struct Settings {
+  /** 皮肤版本号：皮肤或明暗切换时自增（SkinService），驱动本组件按新调色板重绘。 */
+  @StorageProp('skin_version') skinVersion: number = 0;
   @StorageProp('app_language') currentLang: string = 'zh-CN';
   @StorageProp(KEY_APP_APPEARANCE) currentAppearance: string = 'system';
   @StorageProp(KEY_FONT_SIZE_LEVEL) currentFontLevel: number = 3;
@@ -65,6 +70,8 @@ struct Settings {
   // 底部弹框控制
   @State showLanguageSheet: boolean = false;
   @State showAppearanceSheet: boolean = false;
+  // 主题风格面板（皮肤切换）
+  @State showSkinSheet: boolean = false;
   @State showFontSizeSheet: boolean = false;
   @State showPersonalizeSheet: boolean = false;
   @State showVoiceSheet: boolean = false;
@@ -165,10 +172,33 @@ struct Settings {
       const uiCtx = this.getUIContext();
       const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
       await SettingsService.setAppearance(hostCtx, mode);
+      // 外观模式决定实际明暗，皮肤侧要跟着切深浅调色板（见 SkinService.syncDarkMode）。
+      syncDarkMode(AppStorage.get<boolean>(KEY_APP_DARK) ?? false);
       this.showAppearanceSheet = false;
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'selectAppearance failed: %{public}s', String(err));
     }
+  }
+
+  /**
+   * 主题风格选择：先就地生效（skinColor 立即换色 + 版本号触发重绘），再异步落盘。
+   * Reason: 落盘失败不该让用户白点一次或看到回滚，所以持久化在生效之后。
+   */
+  private async selectSkin(id: string): Promise<void> {
+    applySkin(id);
+    this.showSkinSheet = false;
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await persistSkin(hostCtx, id);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'selectSkin persist failed: %{public}s', String(err));
+    }
+  }
+
+  /** 当前主题名（中文/英文界面各自取一套名字）。 */
+  private currentSkinDisplay(): string {
+    const skin: SkinDefinition = findSkin(currentSkinId());
+    return this.currentLang === 'en-US' ? skin.nameEn : skin.name;
   }
 
   private async applyFontLevel(level: number): Promise<void> {
@@ -314,11 +344,11 @@ struct Settings {
         Row() {
           Text('‹')
             .fontSize(28)
-            .fontColor($r('app.color.text_primary'))
+            .fontColor(skinColor('text_primary'))
             .width(42)
             .height(42)
             .textAlign(TextAlign.Center)
-            .backgroundColor($r('app.color.surface_alt'))
+            .backgroundColor(skinColor('surface_alt'))
             .borderRadius(21)
             .onClick(() => {
               this.goBack();
@@ -326,7 +356,7 @@ struct Settings {
           Text(this.t('settings_title'))
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
             .margin({ left: 8 })
           Blank()
         }
@@ -339,7 +369,7 @@ struct Settings {
             Text(this.t('settings_section_app'))
               .fontSize(11)
               .letterSpacing(0.4)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
               .width('92%')
               .margin({ top: 22, bottom: 10 })
 
@@ -350,6 +380,9 @@ struct Settings {
               this.SettingRow($r('app.media.ic_appearance'), this.t('settings_appearance'), this.currentAppearanceDisplay(), false, () => {
                 this.showAppearanceSheet = true;
               })
+              this.SettingRow($r('app.media.ic_skin'), this.t('settings_skin'), this.currentSkinDisplay(), false, () => {
+                this.showSkinSheet = true;
+              })
               this.SettingRow($r('app.media.ic_font'), this.t('settings_font_size'), this.currentFontSizeDisplay(), false, () => {
                 this.tempFontLevel = this.currentFontLevel;
                 this.showFontSizeSheet = true;
@@ -359,15 +392,15 @@ struct Settings {
               })
             }
             .width('92%')
-            .backgroundColor($r('app.color.surface'))
+            .backgroundColor(skinColor('surface'))
             .borderRadius(20)
-            .border({ width: 1, color: $r('app.color.border_soft') })
+            .border({ width: 1, color: skinColor('border_soft') })
 
             // ── 语音 ──
             Text(this.t('settings_section_voice'))
               .fontSize(11)
               .letterSpacing(0.4)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
               .width('92%')
               .margin({ top: 24, bottom: 10 })
 
@@ -377,15 +410,15 @@ struct Settings {
               })
             }
             .width('92%')
-            .backgroundColor($r('app.color.surface'))
+            .backgroundColor(skinColor('surface'))
             .borderRadius(20)
-            .border({ width: 1, color: $r('app.color.border_soft') })
+            .border({ width: 1, color: skinColor('border_soft') })
 
             // ── 工具 ──
             Text(this.t('settings_section_tools'))
               .fontSize(11)
               .letterSpacing(0.4)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
               .width('92%')
               .margin({ top: 24, bottom: 10 })
 
@@ -406,9 +439,9 @@ struct Settings {
                 })
             }
             .width('92%')
-            .backgroundColor($r('app.color.surface'))
+            .backgroundColor(skinColor('surface'))
             .borderRadius(20)
-            .border({ width: 1, color: $r('app.color.border_soft') })
+            .border({ width: 1, color: skinColor('border_soft') })
 
             // 功能开关：默认全开，内容安全默认关闭（开启后有额外审核 token 费用）。
             Column() {
@@ -433,15 +466,15 @@ struct Settings {
             }
             .width('92%')
             .margin({ top: 12 })
-            .backgroundColor($r('app.color.surface'))
+            .backgroundColor(skinColor('surface'))
             .borderRadius(20)
-            .border({ width: 1, color: $r('app.color.border_soft') })
+            .border({ width: 1, color: skinColor('border_soft') })
 
             // ── 安全 ──
             Text(this.t('settings_section_security'))
               .fontSize(11)
               .letterSpacing(0.4)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
               .width('92%')
               .margin({ top: 24, bottom: 10 })
 
@@ -451,15 +484,15 @@ struct Settings {
               })
             }
             .width('92%')
-            .backgroundColor($r('app.color.surface'))
+            .backgroundColor(skinColor('surface'))
             .borderRadius(20)
-            .border({ width: 1, color: $r('app.color.border_soft') })
+            .border({ width: 1, color: skinColor('border_soft') })
 
             // ── 数据 ──
             Text(this.t('settings_section_data'))
               .fontSize(11)
               .letterSpacing(0.4)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
               .width('92%')
               .margin({ top: 24, bottom: 10 })
 
@@ -469,15 +502,15 @@ struct Settings {
               })
             }
             .width('92%')
-            .backgroundColor($r('app.color.surface'))
+            .backgroundColor(skinColor('surface'))
             .borderRadius(20)
-            .border({ width: 1, color: $r('app.color.border_soft') })
+            .border({ width: 1, color: skinColor('border_soft') })
 
             // ── 关于 ──
             Text(this.t('settings_section_about'))
               .fontSize(11)
               .letterSpacing(0.4)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
               .width('92%')
               .margin({ top: 24, bottom: 10 })
 
@@ -491,13 +524,13 @@ struct Settings {
               })
             }
             .width('92%')
-            .backgroundColor($r('app.color.surface'))
+            .backgroundColor(skinColor('surface'))
             .borderRadius(20)
-            .border({ width: 1, color: $r('app.color.border_soft') })
+            .border({ width: 1, color: skinColor('border_soft') })
 
             Text(this.t('settings_version'))
               .fontSize(12)
-              .fontColor($r('app.color.text_faint'))
+              .fontColor(skinColor('text_faint'))
               .margin({ top: 30, bottom: 18 })
           }
           .width('100%')
@@ -509,7 +542,7 @@ struct Settings {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor($r('app.color.page_bg'))
+      .backgroundColor(skinColor('page_bg'))
 
       // 底部弹框：多语言切换面板
       if (this.showLanguageSheet) {
@@ -519,6 +552,11 @@ struct Settings {
       // 底部弹框：外观切换面板
       if (this.showAppearanceSheet) {
         this.AppearanceSheet()
+      }
+
+      // 底部弹框：主题风格（皮肤）面板
+      if (this.showSkinSheet) {
+        this.SkinSheet()
       }
 
       // 底部弹框：字体大小调节面板
@@ -567,7 +605,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showLanguageSheet = false;
         })
@@ -577,11 +615,11 @@ struct Settings {
           Text(this.t('settings_select_language'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showLanguageSheet = false;
@@ -596,11 +634,11 @@ struct Settings {
               Text(item.nativeName)
                 .fontSize(15)
                 .fontWeight(this.currentLang === item.code ? FontWeight.Medium : FontWeight.Regular)
-                .fontColor(this.currentLang === item.code ? $r('app.color.accent') : $r('app.color.text_primary'))
+                .fontColor(this.currentLang === item.code ? skinColor('accent') : skinColor('text_primary'))
               if (item.code !== 'en-US') {
                 Text(item.name)
                   .fontSize(12)
-                  .fontColor($r('app.color.text_muted'))
+                  .fontColor(skinColor('text_muted'))
                   .margin({ top: 2 })
               }
             }
@@ -611,12 +649,12 @@ struct Settings {
               Text('✓')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.accent'))
+                .fontColor(skinColor('accent'))
             }
           }
           .width('100%')
           .padding({ left: 20, right: 20, top: 14, bottom: 14 })
-          .border({ width: { bottom: 1 }, color: $r('app.color.fill') })
+          .border({ width: { bottom: 1 }, color: skinColor('fill') })
           .onClick(() => {
             this.selectLanguage(item.code);
           })
@@ -625,9 +663,9 @@ struct Settings {
         Blank().height(24)
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 28, topRight: 28 })
-      .border({ width: 1, color: $r('app.color.border_soft') })
+      .border({ width: 1, color: skinColor('border_soft') })
       .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -645,7 +683,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showAppearanceSheet = false;
         })
@@ -655,11 +693,11 @@ struct Settings {
           Text(this.t('settings_appearance_select'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showAppearanceSheet = false;
@@ -673,19 +711,19 @@ struct Settings {
             Text(this.t(opt.nameKey))
               .fontSize(15)
               .fontWeight(this.currentAppearance === opt.key ? FontWeight.Medium : FontWeight.Regular)
-              .fontColor(this.currentAppearance === opt.key ? $r('app.color.accent') : $r('app.color.text_primary'))
+              .fontColor(this.currentAppearance === opt.key ? skinColor('accent') : skinColor('text_primary'))
               .layoutWeight(1)
 
             if (this.currentAppearance === opt.key) {
               Text('✓')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.accent'))
+                .fontColor(skinColor('accent'))
             }
           }
           .width('100%')
           .padding({ left: 20, right: 20, top: 16, bottom: 16 })
-          .border({ width: { bottom: 1 }, color: $r('app.color.fill') })
+          .border({ width: { bottom: 1 }, color: skinColor('fill') })
           .onClick(() => {
             this.selectAppearance(opt.key);
           })
@@ -694,9 +732,114 @@ struct Settings {
         Blank().height(24)
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 28, topRight: 28 })
-      .border({ width: 1, color: $r('app.color.border_soft') })
+      .border({ width: 1, color: skinColor('border_soft') })
+      .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 2.5 主题风格（皮肤）Sheet ──
+  @Builder
+  SkinSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill(skinColor('overlay_scrim'))
+        .onClick(() => {
+          this.showSkinSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_skin_select'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(skinColor('text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor(skinColor('text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showSkinSheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 12 })
+
+        ForEach(skinList(), (skin: SkinDefinition) => {
+          Row() {
+            // 预览块：底板 / 卡片 / 主色三根色条，直接取该皮肤的浅色调色板，切换前就能看出气质
+            Row() {
+              Row()
+                .width(9)
+                .height(28)
+                .backgroundColor(skin.light.get('page_bg'))
+                .borderRadius(3)
+              Row()
+                .width(9)
+                .height(28)
+                .margin({ left: 3 })
+                .backgroundColor(skin.light.get('surface'))
+                .borderRadius(3)
+              Row()
+                .width(9)
+                .height(28)
+                .margin({ left: 3 })
+                .backgroundColor(skin.light.get('accent'))
+                .borderRadius(3)
+            }
+            .height(34)
+            .padding({ left: 8, right: 8 })
+            .backgroundColor(skinColor('fill'))
+            .borderRadius(10)
+
+            Column() {
+              Text(this.currentLang === 'en-US' ? skin.nameEn : skin.name)
+                .fontSize(15)
+                .fontWeight(currentSkinId() === skin.id ? FontWeight.Medium : FontWeight.Regular)
+                .fontColor(currentSkinId() === skin.id ? skinColor('accent') : skinColor('text_primary'))
+                .width('100%')
+              Text(this.currentLang === 'en-US' ? skin.noteEn : skin.note)
+                .fontSize(11)
+                .fontColor(skinColor('text_muted'))
+                .maxLines(2)
+                .margin({ top: 3 })
+                .width('100%')
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            .margin({ left: 12 })
+
+            if (currentSkinId() === skin.id) {
+              Text('✓')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(skinColor('accent'))
+            }
+          }
+          .width('100%')
+          .padding({ left: 20, right: 20, top: 12, bottom: 12 })
+          .border({ width: { bottom: 1 }, color: skinColor('fill') })
+          .onClick(() => {
+            this.selectSkin(skin.id);
+          })
+        }, (skin: SkinDefinition) => skin.id)
+
+        Blank().height(24)
+      }
+      .width('100%')
+      .backgroundColor(skinColor('surface'))
+      .borderRadius({ topLeft: 28, topRight: 28 })
+      .border({ width: 1, color: skinColor('border_soft') })
       .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -714,7 +857,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showVoiceSheet = false;
         })
@@ -724,11 +867,11 @@ struct Settings {
           Text(this.t('settings_voice_title'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showVoiceSheet = false;
@@ -739,7 +882,7 @@ struct Settings {
 
         Text(this.t('settings_voice_hint'))
           .fontSize(12)
-          .fontColor($r('app.color.text_muted'))
+          .fontColor(skinColor('text_muted'))
           .width('100%')
           .padding({ left: 20, right: 20, bottom: 8 })
 
@@ -749,10 +892,10 @@ struct Settings {
               Text(this.t(opt.nameKey))
                 .fontSize(15)
                 .fontWeight(this.ttsVoice === opt.key ? FontWeight.Medium : FontWeight.Regular)
-                .fontColor(this.ttsVoice === opt.key ? $r('app.color.accent') : $r('app.color.text_primary'))
+                .fontColor(this.ttsVoice === opt.key ? skinColor('accent') : skinColor('text_primary'))
               Text(this.t(opt.descKey))
                 .fontSize(12)
-                .fontColor($r('app.color.text_muted'))
+                .fontColor(skinColor('text_muted'))
                 .margin({ top: 3 })
             }
             .alignItems(HorizontalAlign.Start)
@@ -762,12 +905,12 @@ struct Settings {
               Text('✓')
                 .fontSize(16)
                 .fontWeight(FontWeight.Bold)
-                .fontColor($r('app.color.accent'))
+                .fontColor(skinColor('accent'))
             }
           }
           .width('100%')
           .padding({ left: 20, right: 20, top: 14, bottom: 14 })
-          .border({ width: { bottom: 1 }, color: $r('app.color.fill') })
+          .border({ width: { bottom: 1 }, color: skinColor('fill') })
           .onClick(() => {
             this.selectVoice(opt.key);
           })
@@ -776,9 +919,9 @@ struct Settings {
         Blank().height(24)
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 28, topRight: 28 })
-      .border({ width: 1, color: $r('app.color.border_soft') })
+      .border({ width: 1, color: skinColor('border_soft') })
       .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -796,7 +939,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showFontSizeSheet = false;
         })
@@ -807,11 +950,11 @@ struct Settings {
           Text(this.t('settings_font_size_title'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showFontSizeSheet = false;
@@ -824,20 +967,20 @@ struct Settings {
         Column() {
           Text(this.t('settings_font_size_preview_title'))
             .fontSize(12)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .margin({ bottom: 8 })
 
           Text(this.t('settings_font_size_preview_sample'))
             .fontSize(15 * SettingsService.getScaleByLevel(this.tempFontLevel))
-            .fontColor($r('app.color.text_primary'))
+            .fontColor(skinColor('text_primary'))
             .lineHeight(22 * SettingsService.getScaleByLevel(this.tempFontLevel))
         }
         .width('90%')
         .padding(16)
-        .backgroundColor($r('app.color.surface_alt'))
+        .backgroundColor(skinColor('surface_alt'))
         .borderRadius(12)
         .borderWidth(1)
-        .borderColor($r('app.color.border_card'))
+        .borderColor(skinColor('border_card'))
         .alignItems(HorizontalAlign.Start)
         .margin({ top: 10, bottom: 20 })
 
@@ -845,17 +988,17 @@ struct Settings {
         Row() {
           Text('A')
             .fontSize(12)
-            .fontColor($r('app.color.text_secondary'))
+            .fontColor(skinColor('text_secondary'))
           Blank()
           Text(this.tempFontLevel === 3 ? this.t('settings_font_size_standard') : `${this.tempFontLevel} / 7`)
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
-            .fontColor($r('app.color.accent'))
+            .fontColor(skinColor('accent'))
           Blank()
           Text('A')
             .fontSize(20)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_secondary'))
+            .fontColor(skinColor('text_secondary'))
         }
         .width('88%')
         .margin({ bottom: 8 })
@@ -868,9 +1011,9 @@ struct Settings {
           step: 1,
           style: SliderStyle.InSet
         })
-          .blockColor($r('app.color.accent_solid'))
-          .trackColor($r('app.color.border_card'))
-          .selectedColor($r('app.color.accent_solid'))
+          .blockColor(skinColor('accent_solid'))
+          .trackColor(skinColor('border_card'))
+          .selectedColor(skinColor('accent_solid'))
           .showSteps(true)
           .width('90%')
           .onChange((value: number, mode: SliderChangeMode) => {
@@ -884,9 +1027,9 @@ struct Settings {
         Blank().height(30)
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 28, topRight: 28 })
-      .border({ width: 1, color: $r('app.color.border_soft') })
+      .border({ width: 1, color: skinColor('border_soft') })
       .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -904,7 +1047,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showPersonalizeSheet = false;
         })
@@ -914,11 +1057,11 @@ struct Settings {
           Text(this.t('settings_personalize'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showPersonalizeSheet = false;
@@ -933,18 +1076,18 @@ struct Settings {
             Column() {
               Text(this.t('settings_auto_collapse_thinking'))
                 .fontSize(15)
-                .fontColor($r('app.color.text_primary'))
+                .fontColor(skinColor('text_primary'))
                 .fontWeight(FontWeight.Medium)
               Text(this.t('settings_auto_collapse_thinking_desc'))
                 .fontSize(12)
-                .fontColor($r('app.color.text_muted'))
+                .fontColor(skinColor('text_muted'))
                 .margin({ top: 4 })
             }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
 
             Toggle({ type: ToggleType.Switch, isOn: this.autoCollapseThinking })
-              .selectedColor($r('app.color.accent_solid'))
+              .selectedColor(skinColor('accent_solid'))
               .switchPointColor('#FFFFFF')
               .onChange((isOn: boolean) => {
                 this.toggleAutoCollapse(isOn);
@@ -954,18 +1097,18 @@ struct Settings {
           .padding({ left: 16, right: 16, top: 16, bottom: 16 })
         }
         .width('92%')
-        .backgroundColor($r('app.color.surface_alt'))
+        .backgroundColor(skinColor('surface_alt'))
         .borderRadius(12)
         .borderWidth(1)
-        .borderColor($r('app.color.border_card'))
+        .borderColor(skinColor('border_card'))
         .margin({ top: 10, bottom: 24 })
 
         Blank().height(20)
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 28, topRight: 28 })
-      .border({ width: 1, color: $r('app.color.border_soft') })
+      .border({ width: 1, color: skinColor('border_soft') })
       .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -983,7 +1126,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showAppLockSheet = false;
         })
@@ -993,11 +1136,11 @@ struct Settings {
           Text(this.t('settings_app_lock_title'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showAppLockSheet = false;
@@ -1012,18 +1155,18 @@ struct Settings {
             Column() {
               Text(this.t('settings_app_lock'))
                 .fontSize(15)
-                .fontColor($r('app.color.text_primary'))
+                .fontColor(skinColor('text_primary'))
                 .fontWeight(FontWeight.Medium)
               Text(this.t('settings_app_lock_desc'))
                 .fontSize(12)
-                .fontColor($r('app.color.text_muted'))
+                .fontColor(skinColor('text_muted'))
                 .margin({ top: 4 })
             }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
 
             Toggle({ type: ToggleType.Switch, isOn: this.appLockEnabled })
-              .selectedColor($r('app.color.accent_solid'))
+              .selectedColor(skinColor('accent_solid'))
               .switchPointColor('#FFFFFF')
               .onChange((isOn: boolean) => {
                 this.toggleAppLock(isOn);
@@ -1033,18 +1176,18 @@ struct Settings {
           .padding({ left: 16, right: 16, top: 16, bottom: 16 })
         }
         .width('92%')
-        .backgroundColor($r('app.color.surface_alt'))
+        .backgroundColor(skinColor('surface_alt'))
         .borderRadius(12)
         .borderWidth(1)
-        .borderColor($r('app.color.border_card'))
+        .borderColor(skinColor('border_card'))
         .margin({ top: 10, bottom: 24 })
 
         Blank().height(20)
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 28, topRight: 28 })
-      .border({ width: 1, color: $r('app.color.border_soft') })
+      .border({ width: 1, color: skinColor('border_soft') })
       .shadow({ radius: 24, color: 'rgba(20,18,14,0.14)', offsetX: 0, offsetY: 8 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -1062,7 +1205,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showImageSheet = false;
         })
@@ -1072,11 +1215,11 @@ struct Settings {
           Text(this.t('settings_image_key'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showImageSheet = false;
@@ -1087,7 +1230,7 @@ struct Settings {
 
         Text(this.t('settings_image_key_desc'))
           .fontSize(12)
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor(skinColor('text_secondary'))
           .width('90%')
           .margin({ bottom: 12 })
 
@@ -1095,7 +1238,7 @@ struct Settings {
           .width('90%')
           .type(InputType.Password)
           .height(46)
-          .backgroundColor($r('app.color.fill'))
+          .backgroundColor(skinColor('fill'))
           .borderRadius(12)
           .onChange((v: string) => {
             this.imageKeyInput = v;
@@ -1106,8 +1249,8 @@ struct Settings {
             Button(this.t('settings_image_clear'))
               .layoutWeight(1)
               .height(44)
-              .backgroundColor($r('app.color.fill'))
-              .fontColor($r('app.color.text_primary'))
+              .backgroundColor(skinColor('fill'))
+              .fontColor(skinColor('text_primary'))
               .borderRadius(22)
               .onClick(() => {
                 this.clearImageKey();
@@ -1116,8 +1259,8 @@ struct Settings {
           Button(this.t('settings_image_save'))
             .layoutWeight(1)
             .height(44)
-            .backgroundColor($r('app.color.accent_solid'))
-            .fontColor($r('app.color.accent_contrast'))
+            .backgroundColor(skinColor('accent_solid'))
+            .fontColor(skinColor('accent_contrast'))
             .borderRadius(22)
             .onClick(() => {
               this.saveImageKey();
@@ -1127,7 +1270,7 @@ struct Settings {
         .margin({ top: 16, bottom: 28 })
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 24, topRight: 24 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -1144,17 +1287,17 @@ struct Settings {
     Row() {
       Text(title)
         .fontSize(15)
-        .fontColor($r('app.color.text_primary'))
+        .fontColor(skinColor('text_primary'))
         .layoutWeight(1)
       Toggle({ type: ToggleType.Switch, isOn: isOn })
-        .selectedColor($r('app.color.accent_solid'))
+        .selectedColor(skinColor('accent_solid'))
         .onChange((v: boolean) => {
           onChange(v);
         })
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-    .border({ width: { bottom: isLast ? 0 : 1 }, color: $r('app.color.border_soft') })
+    .border({ width: { bottom: isLast ? 0 : 1 }, color: skinColor('border_soft') })
   }
 
   // ── 8. 联网搜索服务商 Sheet ──
@@ -1164,7 +1307,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showToolProviderSheet = false;
         })
@@ -1174,11 +1317,11 @@ struct Settings {
           Text(this.t('settings_web_provider'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showToolProviderSheet = false;
@@ -1189,7 +1332,7 @@ struct Settings {
 
         Text(this.t('settings_web_provider_desc'))
           .fontSize(12)
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor(skinColor('text_secondary'))
           .width('90%')
           .margin({ bottom: 12 })
 
@@ -1209,7 +1352,7 @@ struct Settings {
         .margin({ bottom: 26 })
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 24, topRight: 24 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -1227,26 +1370,26 @@ struct Settings {
         Text(title)
           .fontSize(15)
           .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor(skinColor('text_primary'))
         Blank()
         if (selected) {
           Text('✓')
             .fontSize(15)
-            .fontColor($r('app.color.accent_solid'))
+            .fontColor(skinColor('accent_solid'))
         }
       }
       .width('100%')
 
       Text(desc)
         .fontSize(12)
-        .fontColor($r('app.color.text_muted'))
+        .fontColor(skinColor('text_muted'))
         .width('100%')
         .margin({ top: 4 })
     }
     .width('100%')
     .padding(14)
     .margin({ bottom: 8 })
-    .backgroundColor($r('app.color.fill'))
+    .backgroundColor(skinColor('fill'))
     .borderRadius(14)
     .onClick(onTap)
   }
@@ -1258,7 +1401,7 @@ struct Settings {
       Rect()
         .width('100%')
         .height('100%')
-        .fill($r('app.color.overlay_scrim'))
+        .fill(skinColor('overlay_scrim'))
         .onClick(() => {
           this.showWebKeySheet = false;
         })
@@ -1268,11 +1411,11 @@ struct Settings {
           Text(this.t('settings_web_key'))
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text('✕')
             .fontSize(16)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding(6)
             .onClick(() => {
               this.showWebKeySheet = false;
@@ -1283,7 +1426,7 @@ struct Settings {
 
         Text(this.t('settings_web_key_desc'))
           .fontSize(12)
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor(skinColor('text_secondary'))
           .width('90%')
           .margin({ bottom: 12 })
 
@@ -1291,7 +1434,7 @@ struct Settings {
           .width('90%')
           .type(InputType.Password)
           .height(46)
-          .backgroundColor($r('app.color.fill'))
+          .backgroundColor(skinColor('fill'))
           .borderRadius(12)
           .onChange((v: string) => {
             this.webKeyInput = v;
@@ -1302,8 +1445,8 @@ struct Settings {
             Button(this.t('settings_image_clear'))
               .layoutWeight(1)
               .height(44)
-              .backgroundColor($r('app.color.fill'))
-              .fontColor($r('app.color.text_primary'))
+              .backgroundColor(skinColor('fill'))
+              .fontColor(skinColor('text_primary'))
               .borderRadius(22)
               .onClick(() => {
                 this.clearWebKey();
@@ -1312,8 +1455,8 @@ struct Settings {
           Button(this.t('settings_image_save'))
             .layoutWeight(1)
             .height(44)
-            .backgroundColor($r('app.color.accent_solid'))
-            .fontColor($r('app.color.accent_contrast'))
+            .backgroundColor(skinColor('accent_solid'))
+            .fontColor(skinColor('accent_contrast'))
             .borderRadius(22)
             .onClick(() => {
               this.saveWebKey();
@@ -1323,7 +1466,7 @@ struct Settings {
         .margin({ top: 16, bottom: 28 })
       }
       .width('100%')
-      .backgroundColor($r('app.color.surface'))
+      .backgroundColor(skinColor('surface'))
       .borderRadius({ topLeft: 24, topRight: 24 })
       .transition(TransitionEffect.asymmetric(
         TransitionEffect.move(TransitionEdge.BOTTOM),
@@ -1345,28 +1488,28 @@ struct Settings {
       .height(36)
       .justifyContent(FlexAlign.Center)
       .alignItems(VerticalAlign.Center)
-      .backgroundColor($r('app.color.icon_tile'))
-      .border({ width: 1, color: $r('app.color.accent_outline') })
+      .backgroundColor(skinColor('icon_tile'))
+      .border({ width: 1, color: skinColor('accent_outline') })
       .borderRadius(12)
       Text(title)
         .fontSize(15)
         .fontWeight(FontWeight.Medium)
-        .fontColor($r('app.color.text_primary'))
+        .fontColor(skinColor('text_primary'))
         .margin({ left: 14 })
         .layoutWeight(1)
       if (value.length > 0) {
         Text(value)
           .fontSize(12)
-          .fontColor($r('app.color.text_muted'))
+          .fontColor(skinColor('text_muted'))
           .margin({ right: 8 })
       }
       Text('›')
         .fontSize(20)
-        .fontColor($r('app.color.icon_muted'))
+        .fontColor(skinColor('icon_muted'))
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 14, bottom: 14 })
-    .border({ width: { bottom: isLast ? 0 : 1 }, color: $r('app.color.border_soft') })
+    .border({ width: { bottom: isLast ? 0 : 1 }, color: skinColor('border_soft') })
     .onClick(onTap)
   }
   /** 功能开关：写 SettingsService（AppStorage + Preferences），页面通过 @StorageProp 即时生效。 */

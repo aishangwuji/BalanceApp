@@ -17,6 +17,7 @@ import {
   findProvider, currencySymbol, categoryLabel,
 } from '../services/ProviderRegistry';
 import { fetchProviderBalance, ProviderBalanceResult } from '../services/BalanceService';
+import { skinColor } from '../services/SkinService';
 
 const DOMAIN = 0x0000;
 const TAG = 'BalanceAssets';
@@ -56,6 +57,8 @@ function formatToday(): string {
 @Entry
 @Component
 struct Assets {
+  /** 皮肤版本号：皮肤或明暗切换时自增（SkinService），驱动本组件按新调色板重绘。 */
+  @StorageProp('skin_version') skinVersion: number = 0;
   @State records: ProviderRecord[] = [];
   @State showAddSheet: boolean = false;
   @State addQuery: string = '';
@@ -458,11 +461,11 @@ struct Assets {
         Row() {
           Text('‹')
             .fontSize(28)
-            .fontColor($r('app.color.text_primary'))
+            .fontColor(skinColor('text_primary'))
             .width(42)
             .height(42)
             .textAlign(TextAlign.Center)
-            .backgroundColor($r('app.color.surface_alt'))
+            .backgroundColor(skinColor('surface_alt'))
             .borderRadius(21)
             .onClick(() => {
               this.goBack();
@@ -470,13 +473,13 @@ struct Assets {
           Text('资产监控')
             .fontSize(19)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Blank()
           Text(formatToday())
             .fontSize(13)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
             .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor($r('app.color.surface_alt'))
+            .backgroundColor(skinColor('surface_alt'))
             .borderRadius(14)
         }
         .width('92%')
@@ -490,9 +493,9 @@ struct Assets {
               Button('刷新全部')
                 .fontSize(14)
                 .height(40)
-                .backgroundColor($r('app.color.surface'))
-                .fontColor($r('app.color.text_secondary'))
-                .border({ width: 1, color: $r('app.color.border_card') })
+                .backgroundColor(skinColor('surface'))
+                .fontColor(skinColor('text_secondary'))
+                .border({ width: 1, color: skinColor('border_card') })
                 .borderRadius(14)
                 .enabled(!this.refreshingAll)
                 .margin({ right: 8 })
@@ -503,8 +506,8 @@ struct Assets {
             Button('＋ 添加')
               .fontSize(14)
               .height(40)
-              .backgroundColor($r('app.color.accent_solid'))
-              .fontColor($r('app.color.accent_contrast'))
+              .backgroundColor(skinColor('accent_solid'))
+              .fontColor(skinColor('accent_contrast'))
               .borderRadius(14)
               .onClick(() => {
                 this.openAddSheet();
@@ -519,27 +522,27 @@ struct Assets {
               Text('B')
                 .fontSize(24)
                 .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.accent'))
+                .fontColor(skinColor('accent'))
                 .width(60)
                 .height(60)
                 .textAlign(TextAlign.Center)
-                .backgroundColor($r('app.color.icon_tile'))
-                .border({ width: 1, color: $r('app.color.accent_outline') })
+                .backgroundColor(skinColor('icon_tile'))
+                .border({ width: 1, color: skinColor('accent_outline') })
                 .borderRadius(30)
               Text('暂无服务商')
                 .fontSize(21)
                 .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.text_title'))
+                .fontColor(skinColor('text_title'))
                 .margin({ top: 24, bottom: 8 })
               Text('添加 API 供应商并填写 Key，即可透视多家余额')
                 .fontSize(14)
-                .fontColor($r('app.color.text_muted'))
+                .fontColor(skinColor('text_muted'))
                 .margin({ bottom: 24 })
               Button('添加服务商')
                 .width('64%')
                 .height(48)
-                .backgroundColor($r('app.color.accent_solid'))
-                .fontColor($r('app.color.accent_contrast'))
+                .backgroundColor(skinColor('accent_solid'))
+                .fontColor(skinColor('accent_contrast'))
                 .borderRadius(16)
                 .onClick(() => {
                   this.openAddSheet();
@@ -571,7 +574,7 @@ struct Assets {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor($r('app.color.page_bg'))
+      .backgroundColor(skinColor('page_bg'))
 
       // 添加服务商弹窗（底部上滑 + 点空白处收回）
       if (this.showAddSheet) {
@@ -593,9 +596,9 @@ struct Assets {
             TextInput({ placeholder: '搜索服务商...', text: this.addQuery })
               .width('92%')
               .height(46)
-              .backgroundColor($r('app.color.input_bg'))
+              .backgroundColor(skinColor('input_bg'))
               .borderRadius(14)
-              .border({ width: 1, color: $r('app.color.border_card') })
+              .border({ width: 1, color: skinColor('border_card') })
               .margin({ bottom: 8 })
               .onChange((v: string) => {
                 this.addQuery = v;
@@ -604,9 +607,9 @@ struct Assets {
             Row() {
               Text('未添加')
                 .fontSize(13)
-                .fontColor(this.addTab === 0 ? $r('app.color.accent_contrast') : $r('app.color.text_primary'))
+                .fontColor(this.addTab === 0 ? skinColor('accent_contrast') : skinColor('text_primary'))
                 .padding({ left: 16, right: 16, top: 6, bottom: 6 })
-                .backgroundColor(this.addTab === 0 ? $r('app.color.accent_solid') : $r('app.color.fill'))
+                .backgroundColor(this.addTab === 0 ? skinColor('accent_solid') : skinColor('fill'))
                 .borderRadius(16)
                 .margin({ right: 8 })
                 .onClick(() => {
@@ -614,9 +617,9 @@ struct Assets {
                 })
               Text('已添加')
                 .fontSize(13)
-                .fontColor(this.addTab === 1 ? $r('app.color.accent_contrast') : $r('app.color.text_primary'))
+                .fontColor(this.addTab === 1 ? skinColor('accent_contrast') : skinColor('text_primary'))
                 .padding({ left: 16, right: 16, top: 6, bottom: 6 })
-                .backgroundColor(this.addTab === 1 ? $r('app.color.accent_solid') : $r('app.color.fill'))
+                .backgroundColor(this.addTab === 1 ? skinColor('accent_solid') : skinColor('fill'))
                 .borderRadius(16)
                 .onClick(() => {
                   this.addTab = 1;
@@ -634,8 +637,8 @@ struct Assets {
             Button('取消')
               .width('92%')
               .height(44)
-              .backgroundColor($r('app.color.fill'))
-              .fontColor($r('app.color.text_primary'))
+              .backgroundColor(skinColor('fill'))
+              .fontColor(skinColor('text_primary'))
               .borderRadius(14)
               .margin({ top: 8, bottom: 16 })
               .onClick(() => {
@@ -644,15 +647,15 @@ struct Assets {
           }
           .width('100%')
           .height('70%')
-          .backgroundColor($r('app.color.surface'))
+          .backgroundColor(skinColor('surface'))
           .borderRadius({ topLeft: 28, topRight: 28 })
-          .border({ width: 1, color: $r('app.color.border_soft') })
+          .border({ width: 1, color: skinColor('border_soft') })
           .shadow({ radius: 28, color: 'rgba(20,18,14,0.18)', offsetX: 0, offsetY: 10 })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
         }
         .width('100%')
         .height('100%')
-        .backgroundColor($r('app.color.overlay_scrim'))
+        .backgroundColor(skinColor('overlay_scrim'))
         .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
       }
 
@@ -690,8 +693,8 @@ struct Assets {
             Button('取消')
               .width('92%')
               .height(44)
-              .backgroundColor($r('app.color.fill'))
-              .fontColor($r('app.color.text_primary'))
+              .backgroundColor(skinColor('fill'))
+              .fontColor(skinColor('text_primary'))
               .borderRadius(14)
               .margin({ top: 8, bottom: 16 })
               .onClick(() => {
@@ -699,15 +702,15 @@ struct Assets {
               })
           }
           .width('100%')
-          .backgroundColor($r('app.color.surface'))
+          .backgroundColor(skinColor('surface'))
           .borderRadius({ topLeft: 28, topRight: 28 })
-          .border({ width: 1, color: $r('app.color.border_soft') })
+          .border({ width: 1, color: skinColor('border_soft') })
           .shadow({ radius: 28, color: 'rgba(20,18,14,0.18)', offsetX: 0, offsetY: 10 })
           .transition(TransitionEffect.translate({ y: 360 }).animation({ duration: 260, curve: Curve.EaseOut }))
         }
         .width('100%')
         .height('100%')
-        .backgroundColor($r('app.color.overlay_scrim'))
+        .backgroundColor(skinColor('overlay_scrim'))
         .transition(TransitionEffect.opacity(0).animation({ duration: 200 }))
       }
 
@@ -722,23 +725,23 @@ struct Assets {
               .margin({ top: 20, bottom: 4 })
             Text('Key 仅存储在本地设备')
               .fontSize(13)
-              .fontColor($r('app.color.accent'))
+              .fontColor(skinColor('accent'))
               .margin({ bottom: 12 })
             Row() {
               TextInput({ placeholder: '粘贴 API Key', text: this.editKeyText })
                 .type(this.showKeyInDialog ? InputType.Normal : InputType.Password)
                 .height(48)
-                .backgroundColor($r('app.color.input_bg'))
+                .backgroundColor(skinColor('input_bg'))
                 .borderRadius(14)
-                .border({ width: 1, color: $r('app.color.border_card') })
+                .border({ width: 1, color: skinColor('border_card') })
                 .layoutWeight(1)
                 .onChange((v: string) => {
                   this.editKeyText = v;
                 })
               Button(this.showKeyInDialog ? '隐藏' : '显示')
                 .fontSize(13)
-                .backgroundColor($r('app.color.accent_soft'))
-                .fontColor($r('app.color.accent'))
+                .backgroundColor(skinColor('accent_soft'))
+                .fontColor(skinColor('accent'))
                 .borderRadius(12)
                 .margin({ left: 8 })
                 .onClick(() => {
@@ -750,16 +753,16 @@ struct Assets {
             Row() {
               Button('取消')
                 .layoutWeight(1)
-                .backgroundColor($r('app.color.fill'))
-                .fontColor($r('app.color.text_primary'))
+                .backgroundColor(skinColor('fill'))
+                .fontColor(skinColor('text_primary'))
                 .borderRadius(14)
                 .onClick(() => {
                   this.cancelEditKey();
                 })
               Button('保存')
                 .layoutWeight(1)
-                .backgroundColor($r('app.color.accent_solid'))
-                .fontColor($r('app.color.accent_contrast'))
+                .backgroundColor(skinColor('accent_solid'))
+                .fontColor(skinColor('accent_contrast'))
                 .borderRadius(14)
                 .margin({ left: 8 })
                 .enabled(this.editKeyText.trim().length >= 4)
@@ -771,15 +774,15 @@ struct Assets {
             .margin({ bottom: 20 })
           }
           .width('88%')
-          .backgroundColor($r('app.color.surface'))
+          .backgroundColor(skinColor('surface'))
           .borderRadius(24)
-          .border({ width: 1, color: $r('app.color.border_soft') })
+          .border({ width: 1, color: skinColor('border_soft') })
           .shadow({ radius: 24, color: 'rgba(20,18,14,0.16)', offsetX: 0, offsetY: 8 })
           Blank()
         }
         .width('100%')
         .height('100%')
-        .backgroundColor($r('app.color.overlay_scrim'))
+        .backgroundColor(skinColor('overlay_scrim'))
       }
     }
     .width('100%')
@@ -791,27 +794,27 @@ struct Assets {
     Column() {
       Text('总资产')
         .fontSize(13)
-        .fontColor($r('app.color.hero_muted'))
+        .fontColor(skinColor('hero_muted'))
         .width('100%')
         .margin({ bottom: 12 })
       if (this.heroGroups.length === 0) {
         Text('查询后此处汇总可用余额')
           .fontSize(15)
-          .fontColor($r('app.color.hero_muted'))
+          .fontColor(skinColor('hero_muted'))
           .width('100%')
       } else if (this.heroGroups.length > 1) {
         // Reason: 多币种不做跨币种相加（智额仅提示 mixedCurrency），分币种列示避免误导。
         Text('多币种组合')
           .fontSize(27)
           .fontWeight(FontWeight.Bolder)
-          .fontColor($r('app.color.hero_accent'))
+          .fontColor(skinColor('hero_accent'))
           .width('100%')
           .margin({ bottom: 8 })
         ForEach(this.heroGroups, (g: CurrencyGroup) => {
           Text(`可用 ${currencySymbol(g.currency)}${g.available.toFixed(2)} ${g.currency}`)
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
-            .fontColor($r('app.color.hero_text'))
+            .fontColor(skinColor('hero_text'))
             .width('100%')
             .margin({ bottom: 4 })
         }, (g: CurrencyGroup) => g.currency)
@@ -820,10 +823,10 @@ struct Assets {
           Text(`${currencySymbol(this.heroGroups[0].currency)}${this.heroGroups[0].available.toFixed(2)}`)
             .fontSize(36)
             .fontWeight(FontWeight.Bolder)
-            .fontColor($r('app.color.hero_accent'))
+            .fontColor(skinColor('hero_accent'))
           Text(` ${this.heroGroups[0].currency}`)
             .fontSize(14)
-            .fontColor($r('app.color.hero_muted'))
+            .fontColor(skinColor('hero_muted'))
         }
         .width('100%')
       }
@@ -835,7 +838,7 @@ struct Assets {
     .width('92%')
     .padding({ left: 20, right: 20, top: 22, bottom: 20 })
     .margin({ top: 8, bottom: 14 })
-    .backgroundColor($r('app.color.hero_bg'))
+    .backgroundColor(skinColor('hero_bg'))
     .borderRadius(26)
     .border({ width: 1, color: 'rgba(217,188,131,0.22)' })
     .shadow({ radius: 20, color: 'rgba(35,30,20,0.16)', offsetX: 0, offsetY: 8 })
@@ -846,21 +849,21 @@ struct Assets {
     Row() {
       Text(this.cardName(rec))
         .fontSize(13)
-        .fontColor($r('app.color.hero_muted'))
+        .fontColor(skinColor('hero_muted'))
       Blank()
       if (rec.info !== undefined) {
         Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).available.toFixed(2)}`)
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor($r('app.color.hero_text'))
+          .fontColor(skinColor('hero_text'))
       } else if (rec.loading) {
         Text('查询中…')
           .fontSize(13)
-          .fontColor($r('app.color.hero_muted'))
+          .fontColor(skinColor('hero_muted'))
       } else {
         Text(rec.error !== undefined ? '失败' : '未查询')
           .fontSize(13)
-          .fontColor($r('app.color.danger_text'))
+          .fontColor(skinColor('danger_text'))
       }
     }
     .width('100%')
@@ -876,16 +879,16 @@ struct Assets {
         .width(48)
         .height(48)
         .borderRadius(16)
-        .backgroundColor($r('app.color.icon_tile'))
+        .backgroundColor(skinColor('icon_tile'))
         Column() {
           Text(this.cardName(rec))
             .fontSize(17)
             .fontWeight(FontWeight.Medium)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           if (rec.updatedAt.length > 0) {
             Text(rec.updatedAt)
               .fontSize(12)
-              .fontColor($r('app.color.text_muted'))
+              .fontColor(skinColor('text_muted'))
           }
         }
         .margin({ left: 12 })
@@ -905,23 +908,23 @@ struct Assets {
           Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).available.toFixed(2)}`)
             .fontSize(22)
             .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_title'))
+            .fontColor(skinColor('text_title'))
           Text(` ${(rec.info as BalanceInfo).currency}`)
             .fontSize(13)
-            .fontColor($r('app.color.text_muted'))
+            .fontColor(skinColor('text_muted'))
         }
         .width('100%')
         .margin({ bottom: 10 })
       } else if (rec.error !== undefined) {
         Text(rec.error as string)
           .fontSize(14)
-          .fontColor($r('app.color.danger_text'))
+          .fontColor(skinColor('danger_text'))
           .width('100%')
           .margin({ bottom: 10 })
       } else if (!rec.loading) {
         Text('尚未查询，点击卡片刷新获取余额')
           .fontSize(14)
-          .fontColor($r('app.color.text_faint'))
+          .fontColor(skinColor('text_faint'))
           .width('100%')
           .margin({ bottom: 10 })
       }
@@ -929,8 +932,8 @@ struct Assets {
     .width('92%')
     .padding(18)
     .margin({ bottom: 12 })
-    .backgroundColor($r('app.color.surface'))
-    .border({ width: 1, color: $r('app.color.border_soft') })
+    .backgroundColor(skinColor('surface'))
+    .border({ width: 1, color: skinColor('border_soft') })
     .borderRadius(22)
     .shadow({ radius: 14, color: 'rgba(35,30,20,0.07)', offsetX: 0, offsetY: 4 })
     // Business Rule: 单击=刷新（只读无副作用），长按=操作菜单（刷新/换Key/移除三选一）。
@@ -982,19 +985,19 @@ struct Assets {
           .fontWeight(FontWeight.Medium)
         Text(desc)
           .fontSize(12)
-          .fontColor($r('app.color.text_muted'))
+          .fontColor(skinColor('text_muted'))
       }
       .margin({ left: 12 })
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       Text('›')
         .fontSize(20)
-        .fontColor($r('app.color.icon_muted'))
+        .fontColor(skinColor('icon_muted'))
     }
     .width('100%')
     .padding(10)
     .margin({ bottom: isLast ? 0 : 6 })
-    .backgroundColor($r('app.color.surface_row'))
+    .backgroundColor(skinColor('surface_row'))
     .borderRadius(12)
     .onClick(onTap)
   }
@@ -1005,7 +1008,7 @@ struct Assets {
       if (this.filteredProviders(cat).length > 0) {
         Text(categoryLabel(cat))
           .fontSize(12)
-          .fontColor($r('app.color.text_muted'))
+          .fontColor(skinColor('text_muted'))
           .width('92%')
           .margin({ top: 8, bottom: 4 })
         ForEach(this.filteredProviders(cat), (p: ProviderDefinition) => {
@@ -1014,7 +1017,7 @@ struct Assets {
               .width(40)
               .height(40)
               .borderRadius(10)
-              .backgroundColor($r('app.color.fill'))
+              .backgroundColor(skinColor('fill'))
             Column() {
               Text(p.name)
                 .fontSize(15)
@@ -1026,21 +1029,21 @@ struct Assets {
             if (this.recordIndex(p.id) >= 0) {
               Text('已添加')
                 .fontSize(11)
-                .fontColor($r('app.color.status_good'))
-                .backgroundColor($r('app.color.accent_soft'))
-                .border({ width: 1, color: $r('app.color.accent_outline') })
+                .fontColor(skinColor('status_good'))
+                .backgroundColor(skinColor('accent_soft'))
+                .border({ width: 1, color: skinColor('accent_outline') })
                 .padding({ left: 10, right: 10, top: 4, bottom: 4 })
                 .borderRadius(12)
             } else {
               Text('›')
                 .fontSize(20)
-                .fontColor($r('app.color.icon_muted'))
+                .fontColor(skinColor('icon_muted'))
             }
           }
           .width('92%')
           .padding(10)
           .margin({ bottom: 6 })
-          .backgroundColor($r('app.color.surface_row'))
+          .backgroundColor(skinColor('surface_row'))
           .borderRadius(12)
           .onClick(() => {
             this.onPickProvider(p.id);

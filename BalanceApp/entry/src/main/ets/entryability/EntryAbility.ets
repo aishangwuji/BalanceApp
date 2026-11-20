@@ -17,6 +17,7 @@ import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want 
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { I18nService } from '../services/I18nService';
+import { initSkin } from '../services/SkinService';
 import {
   SettingsService, KEY_APP_APPEARANCE, KEY_APP_DARK, KEY_APP_LOCK_ENABLED, KEY_APP_LOCKED
 } from '../services/SettingsService';
@@ -49,6 +50,8 @@ export default class EntryAbility extends UIAbility {
 
     // Business Rule: 必须等设置加载完成（决定冷启动是否处于锁定态）再渲染首页，避免短暂露出内容。
     await SettingsService.init(this.context);
+    // 主题（皮肤）：在首帧之前把用户选的调色板装载好，避免先闪一帧默认色。
+    await initSkin(this.context);
 
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {

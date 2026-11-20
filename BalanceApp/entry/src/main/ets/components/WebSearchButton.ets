@@ -10,9 +10,12 @@
  */
 
 import { WebSearchService } from '../services/WebSearchService';
+import { skinColor } from '../services/SkinService';
 
 @Component
 export struct WebSearchButton {
+  /** 皮肤版本号：皮肤或明暗切换时自增（SkinService），驱动本组件按新调色板重绘。 */
+  @StorageProp('skin_version') skinVersion: number = 0;
   @Prop isEnabled: boolean = false;
   @Prop providerId: string = 'deepseek';
   onToggle: (enabled: boolean) => void = () => {};
@@ -26,15 +29,15 @@ export struct WebSearchButton {
           .margin({ right: 5 })
         Text('智能搜索')
           .fontSize(13)
-          .fontColor(this.isEnabled ? $r('app.color.pill_search_text') : $r('app.color.text_secondary'))
+          .fontColor(this.isEnabled ? skinColor('pill_search_text') : skinColor('text_secondary'))
           .fontWeight(this.isEnabled ? FontWeight.Medium : FontWeight.Normal)
       }
       .height(30)
         .padding({ left: 12, right: 12 })
-      .backgroundColor(this.isEnabled ? $r('app.color.pill_search_bg') : $r('app.color.chat_fill'))
+      .backgroundColor(this.isEnabled ? skinColor('pill_search_bg') : skinColor('chat_fill'))
       .borderRadius(16)
       .borderWidth(1)
-      .borderColor(this.isEnabled ? $r('app.color.pill_search_border') : '#00000000')
+      .borderColor(this.isEnabled ? skinColor('pill_search_border') : '#00000000')
       .animation({ duration: 200, curve: Curve.FastOutSlowIn })
       .onClick(() => {
         const nextState: boolean = !this.isEnabled;
