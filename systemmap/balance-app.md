@@ -40,6 +40,18 @@ last_verified: 2026-11-19
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 首屏空态对齐官方（2026-11-20，构建通过）
+
+- 请求：首屏去掉装饰性文案（原「BALANCE / AI」眉标、「让想法慢慢展开」标语、
+  「从一个问题开始…」副标题），只留品牌标识 + 一句随时段变化的问候。
+- 实现：`ChatView.EmptyChatState()`（`@Builder`）= `deepseek.png` 56×56 + 问候语
+  22 号 Medium；文案走 `I18nService` 新增键 `chat_greeting_morning/afternoon/evening/night`
+  （zh/en 各一套），时段 5–11 早上 / 12–17 下午 / 18–22 晚上 / 23–4 夜深。
+- 连带：`ChatView` 新增 `@StorageProp('app_language')`，切换语言时问候语立即重绘；
+  空态下顶栏隐藏会话标题与服务商副标题，模型胶囊去掉「选模型」提示。
+- 结构变化：消息区从「List 内 if 空态」改为 build 层 `if/else`，空态用
+  `layoutWeight(1)` 在剩余区域垂直居中（原实现固定 340 高、贴顶）。
+
 ## 语音输入（ASR，2026-11-19，构建通过）
 
 - 交互（`9d0c826`）：两种输入形态，对齐官方——
@@ -363,11 +375,11 @@ last_verified: 2026-11-19
 ## 核心数据模型
 
 - `BalanceInfo { providerId/total/used/available/currency/updatedAt }`（ProviderRegistry.ets，对齐智额 balance_info.dart）
-- `ProviderDefinition { id/name/baseUrl/category/balanceType/balanceConfig/brandColor }` + `PROVIDERS[7]`（ProviderRegistry.ets，对齐智额 registry，酒馆除外；2026-10-04 新增 Kimi（月之暗面）api.moonshot.cn/v1/users/me/balance，成功语义 code==0）
+- `ProviderDefinition { id/name/baseUrl/category/balanceType/balanceConfig/brandColor }` + `PROVIDERS[3]`（ProviderRegistry.ets，对齐智额 registry，酒馆除外；2026-10-04 新增 Kimi（月之暗面）api.moonshot.cn/v1/users/me/balance，成功语义 code==0；2026-11-20 精简为 DeepSeek / Kimi / 小米 MiMo 三家，阶跃 StepFun、OpenRouter、Novita AI 连同图标一并移除，`ProviderCategory` 仅保留「国内官方」）
 - 通用 bearer 引擎：responsePath 导航 + 数组求和 + 换算因子 + used 推导（BalanceService.ets，对齐智额 BearerBalanceAdapter；OpenRouter available 对称推导为本侧修正）
 - 本地持久化：Preferences `balance_prefs` 存 `addedIds` + `key_<id>`（Index.ets）
 - UI 状态：`records: ProviderRecord[]` + `refreshView()` 重建数组推刷新 + ForEach 数据指纹 key 防复用旧快照（Index.ets，ArkTS @State 深层观察不到的补偿）
-- 品牌图标：`resources/base/media/` 下 deepseek/kimi/siliconflow/stepfun/openrouter/novita/mimo
+- 品牌图标：`resources/base/media/` 下 deepseek/kimi/mimo（2026-11-20 删除 stepfun/openrouter/novita 三张已下线厂商图）
   已于 2026-10-23 统一替换为官方品牌资源（256×256 透明 PNG，来源为各官网 SVG/应用图标，
   见 `mobile/README.md` 的 Provider icons）；`ProviderDefinition.icon` + `Index.providerIcon`
   静态 $r 映射（$r 不支持动态拼接）
