@@ -45,8 +45,8 @@ const DOMAIN = 0x0000;
 const TAG = 'ChatView';
 const PREFS_NAME = 'balance_prefs';
 // 输入框固定高度（折叠态默认两行内滚动）与展开态高度，超出部分由 TextArea 内部滚动查看。
-const INPUT_BASE_HEIGHT = 48;
-const INPUT_EXPANDED_HEIGHT = 176;
+const INPUT_BASE_HEIGHT = 40;
+const INPUT_EXPANDED_HEIGHT = 160;
 
 /** 无角色卡时的中性兜底：不附带任何系统设定与开场白。 */
 const EMPTY_CHARACTER: CharacterCard = {
@@ -2167,6 +2167,18 @@ export struct ChatView {
     this.pendingFiles = remain;
   }
 
+  /**
+   * 是否显示「展开/收起」角标：只有内容超过一行（约 18 个字或带换行）或已展开时才出现。
+   * Reason: 官方输入框平时没有这个按钮，空间留给文字；内容长了再给一个放大入口。
+   */
+  private showExpandToggle(): boolean {
+    if (this.inputExpanded) {
+      return true;
+    }
+    const text: string = this.inputText;
+    return text.length > 18 || text.includes('\n');
+  }
+
   /** 输入框是否已有可发送内容（文字或已就绪附件）：决定右侧显示发送还是麦克风。 */
   private hasSendableInput(): boolean {
     return this.inputText.trim().length > 0 || this.readyAttachments().length > 0;
@@ -3313,7 +3325,7 @@ export struct ChatView {
                   .border({ width: 0 })
                   .fontSize(16)
                   .placeholderColor($r('app.color.text_faint'))
-                  .padding({ left: 4, right: 32, top: 2, bottom: 2 })
+                  .padding({ left: 4, right: this.showExpandToggle() ? 32 : 4, top: 2, bottom: 2 })
                   .onChange((val: string) => {
                     this.inputText = val;
                   })
@@ -3321,13 +3333,16 @@ export struct ChatView {
                     this.onInputFocus();
                   })
 
-                Image(this.inputExpanded ? $r('app.media.ic_collapse') : $r('app.media.ic_expand'))
-                  .width(14)
-                  .height(14)
-                  .margin({ right: 6, top: 8 })
-                  .onClick(() => {
-                    this.inputExpanded = !this.inputExpanded;
-                  })
+                // 展开/收起只在「内容超过一行」或已展开时出现；平时让输入框自己内部滚动。
+                if (this.showExpandToggle()) {
+                  Image(this.inputExpanded ? $r('app.media.ic_collapse') : $r('app.media.ic_expand'))
+                    .width(14)
+                    .height(14)
+                    .margin({ right: 6, top: 6 })
+                    .onClick(() => {
+                      this.inputExpanded = !this.inputExpanded;
+                    })
+                }
               }
               .width('100%')
             }
@@ -3448,11 +3463,11 @@ export struct ChatView {
             .margin({ top: 2 })
           }
           .width('96%')
-          .padding({ left: 14, right: 10, top: 12, bottom: 10 })
+          .padding({ left: 12, right: 8, top: 10, bottom: 8 })
           .backgroundColor($r('app.color.chat_surface'))
-          .borderRadius(24)
+          .borderRadius(22)
           .border({ width: 1, color: $r('app.color.chat_border') })
-          .shadow({ radius: 12, color: 'rgba(0,0,0,0.05)', offsetX: 0, offsetY: 3 })
+          .shadow({ radius: 10, color: 'rgba(0,0,0,0.05)', offsetX: 0, offsetY: 3 })
         }
         .width('100%')
         .alignItems(HorizontalAlign.Center)
