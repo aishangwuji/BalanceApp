@@ -40,6 +40,23 @@ last_verified: 2026-11-20
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 主题体系：多皮肤运行时切换（2026-11-20，构建通过）
+
+- 问题：配色全是 `resources/base/element/color.json` 的编译期常量，`$r('app.color.x')` 无法运行时整体替换，
+  用户没得选，两端观感还不一致。
+- 切割：颜色从「资源层」搬到「运行时调色板层」。`services/SkinService.ets` 持有 4 套风格
+  （official 官方蓝白 / paper 暖纸墨金 / jade 青黛 / ink 石墨），每套含 light + dark 两份调色板；
+  组件统一调 `skinColor('token')`，未知 token 回退官方浅色，绝不返回空色（空色 = 组件透明）。
+- 刷新链路：皮肤或明暗一变 → `AppStorage['skin_version']++` → 所有声明 `@StorageProp('skin_version')`
+  的组件重绘。**新增组件若用到 skinColor，必须补这一行，否则切换主题时它不会刷新。**
+- 明暗与风格是两个正交维度：`SettingsService` 仍负责 system/light/dark 并落 `KEY_APP_DARK`，
+  皮肤侧只调 `syncDarkMode(bool)`；冷启动在 `EntryAbility.onWindowStageCreate` 里、首帧之前 `initSkin`。
+- 数据形态：`SkinPalette` 用 `token=#hex,token=#hex` 紧凑串在构造时展开成 Map
+  （ArkTS 严格模式禁无类型对象字面量，50 字段写类又太重）；新增 token 只改数据。
+- 迁移面：453 处 `$r('app.color.*')` → `skinColor('*')`，7 个 struct 各补一行 `@StorageProp`。
+- 遗留：`resources/dark/element/color.json` 与 color.json 里未迁移的历史 token 已不参与渲染，
+  仅 `start_window_background` 仍由资源提供；下次清理时一并删除。
+
 ## 历史侧栏对齐官方（2026-11-20，构建通过）
 
 - 现象（用户截图）：抽屉是浮层，却画在安全区内 —— 状态栏与导航条区域露出页面底色，

@@ -229,3 +229,13 @@ last_verified: 2026-11-20
   持有关键词，`_filteredSessions()` 按标题过滤（大小写不敏感），空结果显示
   「没有匹配的会话」。Flutter 端 Drawer 全程挂载，故无需像鸿蒙端那样每次打开清空关键词。
 - 冒烟测试 `ui_smoke_test.dart` 同步：抽屉断言从「历史会话」改为搜索占位与新会话按钮。
+
+## 主题体系与鸿蒙端对齐（2026-11-20）
+
+- `lib/core/theme/app_skins.dart` 是**生成文件**：`scripts/gen_flutter_skins.py` 从鸿蒙端
+  `services/SkinService.ets` 解析 4 套皮肤 × light/dark 的 50 个 token，映射到 `AppColors` 的 34 个字段。
+  改配色只改鸿蒙端再跑脚本，禁止手改生成结果（两端同值才不会慢慢漂移）。
+- `AppTheme.of(colors, brightness)` 接受任意调色板；`MaterialApp` 的 theme/darkTheme 取
+  `settings.skin.light` / `.dark`，因此「明暗」跟着系统走时也是当前皮肤自己的深色。
+- 默认皮肤 `official`（官方蓝白），与鸿蒙端一致；`paper`（暖纸）保留为可选风格。
+- 偏好键 `skin_id`（`PreferencesService.keySkin`），`SettingsController.setSkin` 先 notifyListeners 再落盘。
