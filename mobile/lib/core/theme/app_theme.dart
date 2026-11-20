@@ -13,6 +13,10 @@ class AppTheme {
 
   static ThemeData dark() => _build(AppColors.dark, Brightness.dark);
 
+  /// Builds the theme from a preset skin palette (see `app_skins.dart`).
+  static ThemeData of(AppColors colors, Brightness brightness) =>
+      _build(colors, brightness);
+
   static ThemeData _build(AppColors c, Brightness brightness) {
     final ColorScheme scheme = ColorScheme(
       brightness: brightness,

@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_version.dart';
 import '../../core/i18n/settings_strings.dart';
+import '../../core/theme/app_skins.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/services/preferences_service.dart';
 import '../../data/services/update_service.dart';
@@ -221,6 +222,11 @@ class SettingsPage extends StatelessWidget {
                             _pickAppearance(context, settings, s),
                       ),
                       _SettingsRow(
+                        title: s.t('settings_skin'),
+                        subtitle: _skinLabel(settings),
+                        onTap: () => _pickSkin(context, settings, s),
+                      ),
+                      _SettingsRow(
                         title: s.t('settings_font_size'),
                         subtitle: _fontLabel(settings, s),
                         onTap: () => _pickFontSize(context, settings, s),
@@ -387,6 +393,99 @@ class SettingsPage extends StatelessWidget {
       default:
         return s.t('settings_appearance_system');
     }
+  }
+
+  String _skinLabel(SettingsController settings) {
+    final AppSkin skin = settings.skin;
+    return settings.language == 'en-US' ? skin.nameEn : skin.name;
+  }
+
+  Future<void> _pickSkin(
+    BuildContext context,
+    SettingsController settings,
+    SettingsStrings s,
+  ) async {
+    final AppColors c = context.colors;
+    final bool en = settings.language == 'en-US';
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: c.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (BuildContext ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                child: Row(
+                  children: <Widget>[
+                    Text(
+                      s.t('settings_skin_select'),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: c.textTitle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              for (final AppSkin skin in appSkins)
+                ListTile(
+                  leading: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      _swatch(skin.light.pageBg),
+                      _swatch(skin.light.surface),
+                      _swatch(skin.light.accent),
+                    ],
+                  ),
+                  title: Text(
+                    en ? skin.nameEn : skin.name,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: settings.skinId == skin.id
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                      color: settings.skinId == skin.id
+                          ? c.accent
+                          : c.textPrimary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    en ? skin.noteEn : skin.note,
+                    style: TextStyle(fontSize: 11, color: c.textMuted),
+                  ),
+                  trailing: settings.skinId == skin.id
+                      ? Icon(Icons.check_rounded, size: 20, color: c.accent)
+                      : null,
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    await settings.setSkin(skin.id);
+                  },
+                ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _swatch(Color color) {
+    return Container(
+      width: 10,
+      height: 28,
+      margin: const EdgeInsets.only(right: 3),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(3),
+        border: Border.all(color: const Color(0x22000000)),
+      ),
+    );
   }
 
   String _fontLabel(SettingsController settings, SettingsStrings s) {

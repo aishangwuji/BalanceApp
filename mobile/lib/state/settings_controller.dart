@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/services/key_store.dart';
+import '../core/theme/app_skins.dart';
 import '../data/services/preferences_service.dart';
 
 /// 联网搜索来源：'deepseek'（服务端内置工具）| 'baizhi'（百智云 OpenAPI）。
@@ -28,6 +29,7 @@ class SettingsController extends ChangeNotifier {
   final KeyStore _keyStore;
 
   String _appearance = 'system';
+  String _skinId = defaultSkinId;
   int _fontLevel = 3;
   bool _autoCollapseThinking = true;
   String _language = 'zh-CN';
@@ -45,6 +47,8 @@ class SettingsController extends ChangeNotifier {
   String _ttsVoice = 'stella';
 
   String get appearance => _appearance;
+  String get skinId => _skinId;
+  AppSkin get skin => skinById(_skinId);
   int get fontLevel => _fontLevel;
   double get fontScale =>
       fontScaleLevels[(_fontLevel - 1).clamp(0, 6).toInt()];
@@ -89,6 +93,9 @@ class SettingsController extends ChangeNotifier {
         prefs.getBool(PreferencesService.keyAutoCollapseThinking, fallback: true);
     final String lang =
         prefs.getString(PreferencesService.keyAppLanguage, fallback: 'zh-CN');
+    c._skinId = skinById(
+      prefs.getString(PreferencesService.keySkin, fallback: defaultSkinId),
+    ).id;
     c._language = lang == 'en-US' ? 'en-US' : 'zh-CN';
     c._appLockEnabled =
         prefs.getBool(PreferencesService.keyAppLockEnabled, fallback: false);
@@ -117,6 +124,12 @@ class SettingsController extends ChangeNotifier {
       return value;
     }
     return 'system';
+  }
+
+  Future<void> setSkin(String id) async {
+    _skinId = skinById(id).id;
+    notifyListeners();
+    await _prefs.setString(PreferencesService.keySkin, _skinId);
   }
 
   Future<void> setAppearance(String value) async {

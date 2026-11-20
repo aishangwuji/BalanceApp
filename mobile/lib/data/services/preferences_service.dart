@@ -10,6 +10,7 @@ class PreferencesService {
   final SharedPreferences _prefs;
 
   static const String keyAppearance = 'app_appearance';
+  static const String keySkin = 'skin_id';
   static const String keyFontSizeLevel = 'app_font_size_level';
   static const String keyAutoCollapseThinking = 'auto_collapse_thinking';
   static const String keyAppLanguage = 'app_language';

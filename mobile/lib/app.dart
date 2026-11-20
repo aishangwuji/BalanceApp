@@ -45,8 +45,8 @@ class _AppView extends StatelessWidget {
     return MaterialApp(
       title: 'openchat',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
+      theme: AppTheme.of(settings.skin.light, Brightness.light),
+      darkTheme: AppTheme.of(settings.skin.dark, Brightness.dark),
       themeMode: settings.themeMode,
       locale: locale,
       supportedLocales: const <Locale>[Locale('zh'), Locale('en')],
