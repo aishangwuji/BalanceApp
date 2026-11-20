@@ -61,6 +61,8 @@ interface PendingFile {
   status: 'uploading' | 'ready';
   fileId: string;
   bytes: number;
+  /** 图片的沙箱预览副本（非图片为 ''）。 */
+  localUri: string;
 }
 
 @Component
@@ -2094,6 +2096,25 @@ export struct ChatView {
   }
 
   /** 输入框里已就绪（拿到 file_id）的附件。 */
+  /** 附件缩略图路径（无预览副本时返回 ''，调用方按 if 判断，不要直接传可选类型）。 */
+  private attachThumb(att: MessageAttachment): string {
+    return att.localUri !== undefined ? att.localUri : '';
+  }
+
+  /**
+   * 图片源归一化：应用沙箱里的绝对路径必须补 `file://` 前缀，否则 Image 静默加载失败（只剩占位空白）。
+   * 已在 assets/网络 URL 上的原样返回。
+   */
+  private imageSrc(path: string): string {
+    if (path.length === 0) {
+      return '';
+    }
+    if (path.startsWith('file://') || path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+    return `file://${path}`;
+  }
+
   private readyAttachments(): MessageAttachment[] {
     const out: MessageAttachment[] = [];
     let i: number = 0;
@@ -2105,7 +2126,8 @@ export struct ChatView {
           fileId: pf.fileId,
           fileName: pf.fileName,
           purpose: pf.purpose,
-          bytes: pf.bytes
+          bytes: pf.bytes,
+          localUri: pf.localUri
         };
         out.push(att);
       }
@@ -2220,7 +2242,9 @@ export struct ChatView {
         purpose: purpose,
         status: 'uploading',
         fileId: '',
-        bytes: 0
+        bytes: 0,
+        // 选图当下就落一份沙箱副本：气泡缩略图要用，picker URI 不能长期引用。
+        localUri: FileUploadService.persistForPreview(hostCtx, uri, fileName)
       };
       this.pendingFiles = this.pendingFiles.concat([pending]);
 
@@ -2237,7 +2261,8 @@ export struct ChatView {
               purpose: up.purpose,
               status: 'ready',
               fileId: up.fileId,
-              bytes: up.bytes
+              bytes: up.bytes,
+              localUri: pending.localUri
             };
             next.push(ready);
           } else {
@@ -3360,10 +3385,19 @@ export struct ChatView {
                 Row() {
                   ForEach(this.pendingFiles, (pf: PendingFile) => {
                     Row() {
-                      Image($r('app.media.ic_attach'))
-                        .width(13)
-                        .height(13)
-                        .margin({ right: 4 })
+                      if (pf.localUri.length > 0) {
+                        Image(this.imageSrc(pf.localUri))
+                          .width(26)
+                          .height(26)
+                          .objectFit(ImageFit.Cover)
+                          .borderRadius(6)
+                          .margin({ right: 6 })
+                      } else {
+                        Image($r('app.media.ic_attach'))
+                          .width(13)
+                          .height(13)
+                          .margin({ right: 4 })
+                      }
                       Text(pf.status === 'uploading' ? `${pf.fileName} 解析中…` : pf.fileName)
                         .fontSize(12)
                         .fontColor($r('app.color.text_primary'))
@@ -3601,7 +3635,7 @@ export struct ChatView {
             .onClick(() => {
               this.previewImage = '';
             })
-          Image(this.previewImage)
+          Image(this.imageSrc(this.previewImage))
             .width('92%')
             .objectFit(ImageFit.Contain)
             .constraintSize({ maxHeight: '70%' })
@@ -4934,26 +4968,41 @@ export struct ChatView {
               .fontColor($r('app.color.reasoning_muted'))
               .margin({ bottom: 4 })
           }
-          // 文档附件（DeepSeek Files API）：只展示文件名，内容由服务端按 file_id 还原。
+          // 文档附件（DeepSeek Files API）：图片直接显示缩略图（点了全屏预览），其余只展示文件名。
           if (msg.attachments !== undefined && msg.attachments.length > 0) {
             Column() {
               ForEach(msg.attachments, (att: MessageAttachment) => {
-                Row() {
-                  Image($r('app.media.ic_attach'))
-                    .width(13)
-                    .height(13)
-                    .margin({ right: 4 })
-                  Text(att.fileName)
-                    .fontSize(12)
-                    .fontColor($r('app.color.chat_user_text'))
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .constraintSize({ maxWidth: 200 })
+                if (att.localUri !== undefined && att.localUri.length > 0) {
+                  Image(this.imageSrc(this.attachThumb(att)))
+                    .width(150)
+                    .height(150)
+                    .objectFit(ImageFit.Cover)
+                    .borderRadius(14)
+                    .margin({ bottom: 6 })
+                    .onError(() => {
+                      hilog.warn(DOMAIN, TAG, 'thumb load failed: %{public}s', this.attachThumb(att));
+                    })
+                    .onClick(() => {
+                      this.previewImage = this.attachThumb(att);
+                    })
+                } else {
+                  Row() {
+                    Image($r('app.media.ic_attach'))
+                      .width(13)
+                      .height(13)
+                      .margin({ right: 4 })
+                    Text(att.fileName)
+                      .fontSize(12)
+                      .fontColor($r('app.color.chat_user_text'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .constraintSize({ maxWidth: 200 })
+                  }
+                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                  .backgroundColor($r('app.color.chat_user_bubble'))
+                  .borderRadius(10)
+                  .margin({ bottom: 4 })
                 }
-                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-                .backgroundColor($r('app.color.chat_user_bubble'))
-                .borderRadius(10)
-                .margin({ bottom: 4 })
               }, (att: MessageAttachment) => att.fileId)
             }
             .alignItems(HorizontalAlign.End)

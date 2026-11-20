@@ -46,6 +46,11 @@ export interface MessageAttachment {
   /** 上传时的解析方式：text_recognition / rich_layout_recognition / user_data。 */
   purpose: string;
   bytes: number;
+  /**
+   * 本机预览副本路径（仅图片有）：picker 的 URI 是临时的，重启后失效，
+   * 所以选图时复制到 filesDir，用于气泡里直接显示缩略图。
+   */
+  localUri?: string;
 }
 
 export interface ChatMessage {

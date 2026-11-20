@@ -140,6 +140,47 @@ export class FileUploadService {
     return FileUploadService.purposeFor(fileName).length > 0;
   }
 
+  /** 是否可当图片预览（视觉格式 + BMP）。 */
+  public static isImage(fileName: string): boolean {
+    const ext: string = FileUploadService.extensionOf(fileName);
+    if (VISION_EXTS.includes(ext)) {
+      return true;
+    }
+    return ext === 'bmp';
+  }
+
+  /**
+   * 把选中的图片复制到应用 filesDir，作为气泡缩略图的持久副本。
+   * Reason: photo picker 返回的 URI 是临时授权，重启/下次冷启动后读不到，必须落到沙箱。
+   * 返回沙箱路径；非图片或失败返回 ''（调用方据此回退成文件名胶囊）。
+   */
+  public static persistForPreview(context: common.UIAbilityContext, uri: string, fileName: string): string {
+    if (!FileUploadService.isImage(fileName)) {
+      return '';
+    }
+    let src: fs.File | undefined = undefined;
+    try {
+      const dir: string = `${context.filesDir}/attachments`;
+      if (!fs.accessSync(dir)) {
+        fs.mkdirSync(dir);
+      }
+      const target: string = `${dir}/${Date.now()}_${FileUploadService.safeName(fileName)}`;
+      src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+      fs.copyFileSync(src.fd, target);
+      return target;
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'persist preview failed: %{public}s', String(err));
+      return '';
+    } finally {
+      if (src !== undefined) {
+        try {
+          fs.closeSync(src);
+        } catch (_e) {
+        }
+      }
+    }
+  }
+
   /**
    * 上传并解析；返回服务端 file_id。
    * Business Rule: purpose 必须排在 file 之前（官方明确要求），否则 400。
