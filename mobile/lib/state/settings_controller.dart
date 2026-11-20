@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../data/services/key_store.dart';
 import '../data/services/preferences_service.dart';
 
+/// 联网搜索来源：'deepseek'（服务端内置工具）| 'baizhi'（百智云 OpenAPI）。
+const String webSearchProviderDeepseek = 'deepseek';
+const String webSearchProviderBaizhi = 'baizhi';
+
 const List<double> fontScaleLevels = <double>[
   0.85,
   0.92,
@@ -30,6 +34,15 @@ class SettingsController extends ChangeNotifier {
   bool _appLockEnabled = false;
   bool _appLocked = false;
 
+  // 工具开关（设置 > 工具）：默认与鸿蒙端一致。
+  bool _featureTitle = true;
+  bool _featureFiles = true;
+  bool _featureAsr = true;
+  bool _featureTts = true;
+  bool _featureImage = true;
+  bool _featureSafety = false;
+  String _webSearchProvider = webSearchProviderDeepseek;
+
   String get appearance => _appearance;
   int get fontLevel => _fontLevel;
   double get fontScale =>
@@ -38,6 +51,13 @@ class SettingsController extends ChangeNotifier {
   String get language => _language;
   bool get appLockEnabled => _appLockEnabled;
   bool get appLocked => _appLocked;
+  bool get featureTitle => _featureTitle;
+  bool get featureFiles => _featureFiles;
+  bool get featureAsr => _featureAsr;
+  bool get featureTts => _featureTts;
+  bool get featureImage => _featureImage;
+  bool get featureSafety => _featureSafety;
+  String get webSearchProvider => _webSearchProvider;
 
   ThemeMode get themeMode {
     switch (_appearance) {
@@ -71,6 +91,18 @@ class SettingsController extends ChangeNotifier {
     c._appLockEnabled =
         prefs.getBool(PreferencesService.keyAppLockEnabled, fallback: false);
     c._appLocked = c._appLockEnabled;
+    c._featureTitle = prefs.getBool(PreferencesService.keyFeatureTitle, fallback: true);
+    c._featureFiles = prefs.getBool(PreferencesService.keyFeatureFiles, fallback: true);
+    c._featureAsr = prefs.getBool(PreferencesService.keyFeatureAsr, fallback: true);
+    c._featureTts = prefs.getBool(PreferencesService.keyFeatureTts, fallback: true);
+    c._featureImage = prefs.getBool(PreferencesService.keyFeatureImage, fallback: true);
+    c._featureSafety = prefs.getBool(PreferencesService.keyFeatureSafety, fallback: false);
+    c._webSearchProvider =
+        prefs.getString(PreferencesService.keyWebSearchProvider,
+            fallback: webSearchProviderDeepseek) ==
+                webSearchProviderBaizhi
+            ? webSearchProviderBaizhi
+            : webSearchProviderDeepseek;
     return c;
   }
 
@@ -140,4 +172,53 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> deleteProviderKey(String providerId) =>
       _keyStore.delete(KeyStore.providerKey(providerId));
+
+  /// 功能开关：先 notify 再落盘（与鸿蒙端「即时生效」一致）。
+  Future<void> setFeatureBool(String prefKey, bool value) async {
+    switch (prefKey) {
+      case PreferencesService.keyFeatureTitle:
+        _featureTitle = value;
+        break;
+      case PreferencesService.keyFeatureFiles:
+        _featureFiles = value;
+        break;
+      case PreferencesService.keyFeatureAsr:
+        _featureAsr = value;
+        break;
+      case PreferencesService.keyFeatureTts:
+        _featureTts = value;
+        break;
+      case PreferencesService.keyFeatureImage:
+        _featureImage = value;
+        break;
+      case PreferencesService.keyFeatureSafety:
+        _featureSafety = value;
+        break;
+      default:
+        return;
+    }
+    notifyListeners();
+    await _prefs.setBool(prefKey, value);
+  }
+
+  Future<void> setWebSearchProvider(String provider) async {
+    _webSearchProvider = provider == webSearchProviderBaizhi
+        ? webSearchProviderBaizhi
+        : webSearchProviderDeepseek;
+    notifyListeners();
+    await _prefs.setString(
+      PreferencesService.keyWebSearchProvider,
+      _webSearchProvider,
+    );
+  }
+
+  Future<String> readBaizhiWebKey() => _keyStore.read(KeyStore.baizhiWeb);
+
+  Future<void> writeBaizhiWebKey(String key) =>
+      _keyStore.write(KeyStore.baizhiWeb, key);
+
+  Future<String> readBaizhiImageKey() => _keyStore.read(KeyStore.baizhiImage);
+
+  Future<void> writeBaizhiImageKey(String key) =>
+      _keyStore.write(KeyStore.baizhiImage, key);
 }

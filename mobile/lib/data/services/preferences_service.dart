@@ -17,6 +17,15 @@ class PreferencesService {
   static const String keyAddedProviderIds = 'added_provider_ids';
   static const String keyActiveSessionId = 'active_session_id';
 
+  // 工具开关（设置 > 工具）；默认值与鸿蒙端一致：全开，内容安全关闭。
+  static const String keyFeatureTitle = 'feature_auto_title';
+  static const String keyFeatureFiles = 'feature_files';
+  static const String keyFeatureAsr = 'feature_asr';
+  static const String keyFeatureTts = 'feature_tts';
+  static const String keyFeatureImage = 'feature_image';
+  static const String keyFeatureSafety = 'feature_safety';
+  static const String keyWebSearchProvider = 'web_search_provider';
+
   static const String storeCharacters = 'saved_characters';
   static const String storeIdentities = 'saved_identities';
   static const String storeSessions = 'saved_sessions';

@@ -1,6 +1,22 @@
 const Map<String, Map<String, String>> _settingsDictionary =
     <String, Map<String, String>>{
   'zh-CN': <String, String>{
+    'settings_section_tools': '工具',
+    'settings_web_provider': '联网搜索',
+    'settings_web_provider_deepseek': 'DeepSeek 内置',
+    'settings_web_provider_baizhi': '百智云',
+    'settings_web_key': '百智云搜索 Key',
+    'settings_image_key': '百智云生图 Key',
+    'settings_key_configured': '已配置',
+    'settings_key_not_configured': '未配置',
+    'settings_key_save': '保存',
+    'settings_key_clear': '清除',
+    'settings_feature_title': '自动生成会话标题',
+    'settings_feature_files': '文件与图片解析',
+    'settings_feature_asr': '语音输入',
+    'settings_feature_tts': '朗读回答',
+    'settings_feature_image': '图片生成',
+    'settings_feature_safety': '模型内容安全',
     'settings_title': '设置',
     'settings_section_app': '应用',
     'settings_language': '语言',
@@ -27,38 +43,53 @@ const Map<String, Map<String, String>> _settingsDictionary =
     'settings_section_data': '数据',
     'settings_assets': '资产监控',
     'settings_assets_desc': '查看各服务商余额',
-    'settings_section_chat': '对话',
-    'settings_topic_gate': '上下文净化',
-    'settings_topic_gate_desc': '按句判定回复是否切题，离题内容留在界面但不参与后续上下文。',
-    'settings_topic_gate_on': '已开启',
-    'settings_topic_gate_off': '未开启',
-    'settings_topic_gate_title': '上下文净化（Jev）',
-    'settings_topic_gate_key': 'Jev Key',
-    'settings_topic_gate_key_placeholder': '粘贴 Jev Key',
-    'settings_topic_gate_key_saved': '已配置，留空则保持不变',
-    'settings_topic_gate_threshold': '切题阈值',
-    'settings_topic_gate_threshold_hint': '低于该概率的句子不参与后续上下文；数值越高越严格。',
-    'settings_topic_gate_save': '保存',
-    'settings_topic_gate_clear_key': '清除 Key',
-    'settings_topic_gate_need_key': '请先填写 Jev Key',
-    'settings_system_one': 'System One',
-    'settings_system_two': 'System Two',
-    'settings_system_one_desc': '快速判定：Jev 为每句回复给出切题概率。',
-    'settings_system_two_desc': '生成模型：本条会话实际使用的服务商。',
-    'settings_system_two_shared': '与资产监控共用同一份 Key，改动即时生效。',
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     'settings_channel': '渠道',
-    'settings_channel_typesafe': 'Jev 官方',
+
     'settings_provider': '服务商',
     'settings_version': '版本 1.0.0',
     'settings_select_language': '选择语言',
     'common_cancel': '取消',
     'common_confirm': '确定',
     'common_not_implemented': '该功能暂未实现',
-    'settings_key_configured': '已配置',
     'settings_key_missing': '未配置',
     'settings_go_assets': '去资产监控配置',
   },
   'en-US': <String, String>{
+    'settings_section_tools': 'Tools',
+    'settings_web_provider': 'Web search',
+    'settings_web_provider_deepseek': 'DeepSeek built-in',
+    'settings_web_provider_baizhi': 'Baizhi',
+    'settings_web_key': 'Baizhi search key',
+    'settings_image_key': 'Baizhi image key',
+    'settings_key_configured': 'Configured',
+    'settings_key_not_configured': 'Not configured',
+    'settings_key_save': 'Save',
+    'settings_key_clear': 'Clear',
+    'settings_feature_title': 'Auto session titles',
+    'settings_feature_files': 'File & image parsing',
+    'settings_feature_asr': 'Voice input',
+    'settings_feature_tts': 'Read answers aloud',
+    'settings_feature_image': 'Image generation',
+    'settings_feature_safety': 'Model content safety',
     'settings_title': 'Settings',
     'settings_section_app': 'Application',
     'settings_language': 'Language',
@@ -88,39 +119,33 @@ const Map<String, Map<String, String>> _settingsDictionary =
     'settings_section_data': 'Data',
     'settings_assets': 'Assets & Balance',
     'settings_assets_desc': 'View provider balances',
-    'settings_section_chat': 'Conversation',
-    'settings_topic_gate': 'Context Cleanup',
-    'settings_topic_gate_desc':
-        'Scores each sentence for topicality; off-topic text stays visible but is dropped from later context.',
-    'settings_topic_gate_on': 'On',
-    'settings_topic_gate_off': 'Off',
-    'settings_topic_gate_title': 'Context Cleanup (Jev)',
-    'settings_topic_gate_key': 'Jev Key',
-    'settings_topic_gate_key_placeholder': 'Paste your Jev key',
-    'settings_topic_gate_key_saved': 'Configured; leave blank to keep it',
-    'settings_topic_gate_threshold': 'On-topic threshold',
-    'settings_topic_gate_threshold_hint':
-        'Sentences below this probability are left out of later context. Higher is stricter.',
-    'settings_topic_gate_save': 'Save',
-    'settings_topic_gate_clear_key': 'Clear key',
-    'settings_topic_gate_need_key': 'Enter a Jev key first',
-    'settings_system_one': 'System One',
-    'settings_system_two': 'System Two',
-    'settings_system_one_desc':
-        'Fast judgments: Jev scores how on-topic each sentence is.',
-    'settings_system_two_desc':
-        'Generation model: the provider this conversation actually uses.',
-    'settings_system_two_shared':
-        'Shares the same key as Assets & Balance; edits apply immediately.',
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     'settings_channel': 'Channel',
-    'settings_channel_typesafe': 'Jev Official',
+
     'settings_provider': 'Provider',
     'settings_version': 'Version 1.0.0',
     'settings_select_language': 'Select Language',
     'common_cancel': 'Cancel',
     'common_confirm': 'Confirm',
     'common_not_implemented': 'Feature not implemented yet',
-    'settings_key_configured': 'Configured',
     'settings_key_missing': 'Not configured',
     'settings_go_assets': 'Configure in Assets & Balance',
   },

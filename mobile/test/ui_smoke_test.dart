@@ -110,9 +110,9 @@ void main() {
     expect(find.text('设置'), findsOneWidget);
     expect(find.text('应用'), findsOneWidget);
     expect(find.text('语言'), findsOneWidget);
-    expect(find.text('应用锁'), findsOneWidget);
-    await tester.drag(find.byType(ListView), const Offset(0, -400));
+    await tester.drag(find.byType(ListView), const Offset(0, -1200));
     await tester.pumpAndSettle();
+    expect(find.text('关于'), findsOneWidget);
     expect(find.text('资产监控'), findsOneWidget);
   });
 

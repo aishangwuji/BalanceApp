@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/app_version.dart';
 import '../../core/i18n/settings_strings.dart';
 import '../../core/theme/app_colors.dart';
+import '../../data/services/preferences_service.dart';
 import '../../data/services/update_service.dart';
 import '../../state/settings_controller.dart';
 import 'assets_page.dart';
@@ -13,6 +14,100 @@ import 'assets_page.dart';
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
+  Future<void> _pickWebProvider(
+    BuildContext context,
+    SettingsController settings,
+    SettingsStrings s,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              title: Text(s.t('settings_web_provider_deepseek')),
+              trailing: settings.webSearchProvider == webSearchProviderDeepseek
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                settings.setWebSearchProvider(webSearchProviderDeepseek);
+              },
+            ),
+            ListTile(
+              title: Text(s.t('settings_web_provider_baizhi')),
+              trailing: settings.webSearchProvider == webSearchProviderBaizhi
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                settings.setWebSearchProvider(webSearchProviderBaizhi);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 百智云 Key 编辑：只写安全存储，不显示明文；留空 = 清除。
+  Future<void> _editBaizhiKey(
+    BuildContext context,
+    SettingsController settings,
+    SettingsStrings s,
+    bool isImage,
+  ) async {
+    final TextEditingController input = TextEditingController();
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: Text(
+          isImage ? s.t('settings_image_key') : s.t('settings_web_key'),
+        ),
+        content: TextField(
+          controller: input,
+          obscureText: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(hintText: 'API Key'),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () async {
+              if (isImage) {
+                await settings.writeBaizhiImageKey('');
+              } else {
+                await settings.writeBaizhiWebKey('');
+              }
+              if (ctx.mounted) {
+                Navigator.of(ctx).pop();
+              }
+            },
+            child: Text(s.t('settings_key_clear')),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final String value = input.text.trim();
+              if (isImage) {
+                await settings.writeBaizhiImageKey(value);
+              } else {
+                await settings.writeBaizhiWebKey(value);
+              }
+              if (ctx.mounted) {
+                Navigator.of(ctx).pop();
+              }
+            },
+            child: Text(s.t('settings_key_save')),
+          ),
+        ],
+      ),
+    );
+  }
   /// 手动检查更新：Gitee 优先、GitHub 兜底；只提示不强制。
   Future<void> _checkUpdate(BuildContext context) async {
     final UpdateInfo? info = await UpdateService.check();
@@ -110,7 +205,71 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ],
                   ),
-                  _SectionLabel(text: s.t('settings_section_security')),
+                  _SectionLabel(text: s.t('settings_section_tools')),
+                  _SettingsCard(
+                    children: <Widget>[
+                      _SettingsRow(
+                        title: s.t('settings_web_provider'),
+                        trailing: Text(
+                          settings.webSearchProvider == webSearchProviderBaizhi
+                              ? s.t('settings_web_provider_baizhi')
+                              : s.t('settings_web_provider_deepseek'),
+                          style: TextStyle(fontSize: 12, color: c.textMuted),
+                        ),
+                        onTap: () => _pickWebProvider(context, settings, s),
+                      ),
+                      _SettingsRow(
+                        title: s.t('settings_web_key'),
+                        trailing: Icon(Icons.key_rounded, size: 18, color: c.iconMuted),
+                        onTap: () => _editBaizhiKey(context, settings, s, false),
+                      ),
+                      _SettingsRow(
+                        title: s.t('settings_image_key'),
+                        trailing: Icon(Icons.key_rounded, size: 18, color: c.iconMuted),
+                        onTap: () => _editBaizhiKey(context, settings, s, true),
+                      ),
+                    ],
+                  ),
+                  _SettingsCard(
+                    children: <Widget>[
+                      _SwitchRow(
+                        title: s.t('settings_feature_title'),
+                        value: settings.featureTitle,
+                        onChanged: (bool v) =>
+                            settings.setFeatureBool(PreferencesService.keyFeatureTitle, v),
+                      ),
+                      _SwitchRow(
+                        title: s.t('settings_feature_files'),
+                        value: settings.featureFiles,
+                        onChanged: (bool v) =>
+                            settings.setFeatureBool(PreferencesService.keyFeatureFiles, v),
+                      ),
+                      _SwitchRow(
+                        title: s.t('settings_feature_asr'),
+                        value: settings.featureAsr,
+                        onChanged: (bool v) =>
+                            settings.setFeatureBool(PreferencesService.keyFeatureAsr, v),
+                      ),
+                      _SwitchRow(
+                        title: s.t('settings_feature_tts'),
+                        value: settings.featureTts,
+                        onChanged: (bool v) =>
+                            settings.setFeatureBool(PreferencesService.keyFeatureTts, v),
+                      ),
+                      _SwitchRow(
+                        title: s.t('settings_feature_image'),
+                        value: settings.featureImage,
+                        onChanged: (bool v) =>
+                            settings.setFeatureBool(PreferencesService.keyFeatureImage, v),
+                      ),
+                      _SwitchRow(
+                        title: s.t('settings_feature_safety'),
+                        value: settings.featureSafety,
+                        onChanged: (bool v) =>
+                            settings.setFeatureBool(PreferencesService.keyFeatureSafety, v),
+                      ),
+                    ],
+                  ),                  _SectionLabel(text: s.t('settings_section_security')),
                   _SettingsCard(
                     children: <Widget>[
                       _SettingsRow(
@@ -552,6 +711,37 @@ class _SettingsRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.title,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = context.colors;
+    return SwitchListTile.adaptive(
+      title: Text(
+        title,
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
+          color: c.textPrimary,
+        ),
+      ),
+      value: value,
+      onChanged: onChanged,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      activeThumbColor: c.accent,
     );
   }
 }
