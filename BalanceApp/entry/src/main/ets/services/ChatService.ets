@@ -131,7 +131,8 @@ export class ChatService {
     // 多轮拼接：/chat/completions 无状态，须每轮回传 system + 历史（见 buildApiMessages）。
     const formattedMessages: Record<string, ESObject>[] =
       ChatService.buildApiMessages(options.messages, options.systemPrompt,
-        options.providerId === 'deepseek' && options.enableFiles !== false);
+        options.providerId === 'deepseek' && options.enableFiles !== false,
+        options.providerId === 'kimi' || options.providerId === 'mimo');
 
     const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, true);
     const bodyStr: string = JSON.stringify(payloadObj);
@@ -314,7 +315,8 @@ export class ChatService {
     try {
       const formattedMessages: Record<string, ESObject>[] =
         ChatService.buildApiMessages(options.messages, options.systemPrompt,
-          options.providerId === 'deepseek');
+          options.providerId === 'deepseek',
+          options.providerId === 'kimi' || options.providerId === 'mimo');
 
       const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, false);
 
@@ -369,7 +371,7 @@ export class ChatService {
    *   ChatStorageService 按 session 存全量承担，此处只裁剪本次请求。
    */
   private static buildApiMessages(messages: ChatMessage[], systemPrompt: string | undefined,
-    enableFiles: boolean): Record<string, ESObject>[] {
+    enableFiles: boolean, preserveThinking: boolean): Record<string, ESObject>[] {
     const out: Record<string, ESObject>[] = [];
     if (systemPrompt !== undefined && systemPrompt.trim().length > 0) {
       const sysMsg: Record<string, ESObject> = {
@@ -387,11 +389,25 @@ export class ChatService {
       if (m.role !== 'user' && m.role !== 'assistant') {
         continue;
       }
-      const replayContent: string = m.content;
+      let replayContent: string = m.content;
       // 纯附件消息（只发文件不打字）也必须保留，否则追问会丢文档。
       const hasAtts: boolean = m.role === 'user' && enableFiles &&
         m.attachments !== undefined && m.attachments.length > 0;
-      const hasReasoning: boolean = m.reasoningContent !== undefined && m.reasoningContent.length > 0;
+      // Business Rule: 助手「空回合」（模型只调了客户端工具、没吐正文）不能原样回传——
+      //   一个 content 为空、只有 reasoning 的 assistant 回合会让模型以为上一问还没答完，
+      //   于是每轮都重复执行上一条生图指令（2026-11-20 实测：「我手里这是什么」「搜日照景点」
+      //   都被它当成还要再生一张头像）。带图的旧回合用一句占位结算，其它空回合直接丢弃。
+      if (m.role === 'assistant' && replayContent.length === 0) {
+        const hasImages: boolean = m.imageUrls !== undefined && m.imageUrls.length > 0;
+        if (!hasImages) {
+          continue;
+        }
+        replayContent = '（已为你生成图片）';
+      }
+      // Preserved Thinking 只对 Kimi / 小米 MiMo 回传。DeepSeek 各模型若回传 reasoning_content，
+      //   上一轮的「计划」会被带进新一轮（实测导致答题串味），必须丢弃。
+      const hasReasoning: boolean = preserveThinking && m.reasoningContent !== undefined &&
+        m.reasoningContent.length > 0;
       if (replayContent.length === 0 && !hasReasoning && !hasAtts) {
         continue;
       }
@@ -421,9 +437,8 @@ export class ChatService {
       } else {
         item['content'] = replayContent;
       }
-      // 保留式思考（Preserved Thinking）：Kimi/小米 MiMo 回传 reasoning_content 保多轮思维连贯；
-      // DeepSeek 等无 tools 场景传了也被忽略，统一回传无害。
-      if (m.role === 'assistant' && m.reasoningContent && m.reasoningContent.length > 0) {
+      // 保留式思考（Preserved Thinking）：只对 Kimi/小米 MiMo 回传 reasoning_content 保多轮思维连贯。
+      if (hasReasoning && m.reasoningContent !== undefined && m.reasoningContent.length > 0) {
         item['reasoning_content'] = m.reasoningContent;
         chars += m.reasoningContent.length;
       }
@@ -576,6 +591,10 @@ export class ChatService {
     if (tools.length > 0) {
       payloadObj['tools'] = tools as ESObject;
     }
+    // 诊断用：联网搜索「不生效」时先看这一行，确认 tools 是否真的进了请求体。
+    hilog.info(DOMAIN, TAG, 'request tools=%{public}d webSearch=%{public}s imageTool=%{public}s model=%{public}s',
+      tools.length, String(options.enableWebSearch === true),
+      String(options.enableImageTool === true), options.model);
     // 内容安全：官方 safety_check（high=基础风控，low 与不传等价）。
     if (options.enableSafety === true && options.providerId === 'deepseek') {
       const safety: Record<string, string> = { 'level': 'high' };
