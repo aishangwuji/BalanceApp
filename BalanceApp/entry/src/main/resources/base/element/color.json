@@ -169,6 +169,10 @@
       "value": "#F2F3F5"
     },
     {
+      "name": "sidebar_surface",
+      "value": "#F1F2F4"
+    },
+    {
       "name": "chat_user_bubble",
       "value": "#E8EEFC"
     },

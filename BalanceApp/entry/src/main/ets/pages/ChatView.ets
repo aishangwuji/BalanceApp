@@ -3574,7 +3574,7 @@ export struct ChatView {
             Column()
               .width('100%')
               .height('100%')
-              .backgroundColor($r('app.color.chat_surface'))
+              .backgroundColor($r('app.color.sidebar_surface'))
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
             Column() {
@@ -3638,10 +3638,10 @@ export struct ChatView {
                         .fontColor($r('app.color.icon_muted'))
                     }
                     .width('100%')
-                    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
-                    .backgroundColor(sess.id === this.currentSessionId ? $r('app.color.chat_accent_soft_selected') : $r('app.color.chat_surface'))
-                    .border({ width: sess.id === this.currentSessionId ? 1 : 0, color: $r('app.color.chat_accent_outline') })
-                    .borderRadius(16)
+                    .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+                    // Reason: 官方侧栏是「整屏浅灰 + 扁平行」，选中项用白底浮起，不再给每行描边卡片。
+                    .backgroundColor(sess.id === this.currentSessionId ? $r('app.color.chat_surface') : Color.Transparent)
+                    .borderRadius(14)
                     .onClick(() => {
                       this.openSessionWithPrivacy(sess);
                     })
@@ -3649,12 +3649,12 @@ export struct ChatView {
                       this.openSessActions(sess.id);
                     }))
                   }
-                  .margin({ bottom: 6 })
+                  .margin({ bottom: 2 })
                 }, (sess: ChatSession) => `${sess.id}_${sess.title}_${sess.updatedAt}_${sess.isPrivate ? 1 : 0}`)
               }
-              .width('94%')
+              .width('100%')
               .layoutWeight(1)
-              .margin({ top: 10 })
+              .margin({ top: 6 })
               .scrollBar(BarState.Off)
 
               // 底部：角色管理 + 设置入口
@@ -3668,7 +3668,7 @@ export struct ChatView {
                 .width(34)
                 .height(34)
                 .justifyContent(FlexAlign.Center)
-                .backgroundColor($r('app.color.chat_fill'))
+                .backgroundColor($r('app.color.chat_surface'))
                 .borderRadius(17)
                 Text('角色管理')
                   .fontSize(15)
@@ -3696,7 +3696,7 @@ export struct ChatView {
                 .width(34)
                 .height(34)
                 .justifyContent(FlexAlign.Center)
-                .backgroundColor($r('app.color.chat_fill'))
+                .backgroundColor($r('app.color.chat_surface'))
                 .borderRadius(17)
                 Text('设置')
                   .fontSize(15)
