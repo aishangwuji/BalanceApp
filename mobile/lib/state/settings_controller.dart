@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/services/key_store.dart';
-import '../data/services/jev_service.dart';
 import '../data/services/preferences_service.dart';
-import '../data/services/topic_gate_service.dart';
 
 const List<double> fontScaleLevels = <double>[
   0.85,
@@ -31,9 +29,6 @@ class SettingsController extends ChangeNotifier {
   String _language = 'zh-CN';
   bool _appLockEnabled = false;
   bool _appLocked = false;
-  bool _topicGateEnabled = false;
-  double _topicGateThreshold = 0.5;
-  String _topicGateChannel = 'typesafe';
 
   String get appearance => _appearance;
   int get fontLevel => _fontLevel;
@@ -43,9 +38,6 @@ class SettingsController extends ChangeNotifier {
   String get language => _language;
   bool get appLockEnabled => _appLockEnabled;
   bool get appLocked => _appLocked;
-  bool get topicGateEnabled => _topicGateEnabled;
-  double get topicGateThreshold => _topicGateThreshold;
-  String get topicGateChannel => _topicGateChannel;
 
   ThemeMode get themeMode {
     switch (_appearance) {
@@ -79,19 +71,6 @@ class SettingsController extends ChangeNotifier {
     c._appLockEnabled =
         prefs.getBool(PreferencesService.keyAppLockEnabled, fallback: false);
     c._appLocked = c._appLockEnabled;
-    c._topicGateEnabled =
-        prefs.getBool(PreferencesService.keyTopicGateEnabled, fallback: false);
-    final double threshold = prefs.getDouble(
-      PreferencesService.keyTopicGateThreshold,
-      fallback: 0.5,
-    );
-    c._topicGateThreshold = threshold.clamp(0.0, 1.0);
-    c._topicGateChannel = _validChannel(
-      prefs.getString(
-        PreferencesService.keyTopicGateChannel,
-        fallback: 'typesafe',
-      ),
-    );
     return c;
   }
 
@@ -101,9 +80,6 @@ class SettingsController extends ChangeNotifier {
     }
     return 'system';
   }
-
-  static String _validChannel(String value) =>
-      value == 'openrouter' ? 'openrouter' : 'typesafe';
 
   Future<void> setAppearance(String value) async {
     _appearance = _validAppearance(value);
@@ -156,30 +132,6 @@ class SettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setTopicGateEnabled(bool enabled) async {
-    _topicGateEnabled = enabled;
-    notifyListeners();
-    await _prefs.setBool(PreferencesService.keyTopicGateEnabled, enabled);
-  }
-
-  Future<void> setTopicGateThreshold(double threshold) async {
-    _topicGateThreshold = threshold.clamp(0.0, 1.0);
-    notifyListeners();
-    await _prefs.setDouble(
-      PreferencesService.keyTopicGateThreshold,
-      _topicGateThreshold,
-    );
-  }
-
-  Future<void> setTopicGateChannel(String channel) async {
-    _topicGateChannel = _validChannel(channel);
-    notifyListeners();
-    await _prefs.setString(
-      PreferencesService.keyTopicGateChannel,
-      _topicGateChannel,
-    );
-  }
-
   Future<String> readProviderKey(String providerId) =>
       _keyStore.read(KeyStore.providerKey(providerId));
 
@@ -188,28 +140,4 @@ class SettingsController extends ChangeNotifier {
 
   Future<void> deleteProviderKey(String providerId) =>
       _keyStore.delete(KeyStore.providerKey(providerId));
-
-  String get systemOneKeyName => _topicGateChannel == 'openrouter'
-      ? KeyStore.systemOneOpenRouter
-      : KeyStore.systemOneTypesafe;
-
-  Future<String> readSystemOneKey() => _keyStore.read(systemOneKeyName);
-
-  Future<void> writeSystemOneKey(String key) =>
-      _keyStore.write(systemOneKeyName, key);
-
-  Future<void> deleteSystemOneKey() => _keyStore.delete(systemOneKeyName);
-
-  Future<TopicGateConfig> buildTopicGateConfig() async {
-    final SystemOneChannel? channel =
-        findSystemOneChannel(_topicGateChannel);
-    return TopicGateConfig(
-      enabled: _topicGateEnabled,
-      channel: _topicGateChannel,
-      apiKey: await readSystemOneKey(),
-      threshold: _topicGateThreshold,
-      endpoint: channel?.endpoint ?? systemOneDefaultEndpoint,
-      model: channel?.model ?? systemOneDefaultModel,
-    );
-  }
 }

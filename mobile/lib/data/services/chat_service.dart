@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 
 import '../models/chat_models.dart';
 import '../models/provider.dart';
-import 'topic_gate_service.dart';
 
 class ChatException implements Exception {
   const ChatException(this.message);
@@ -187,9 +186,7 @@ class ChatService {
       if (!message.isUser && !message.isAssistant) {
         continue;
       }
-      final String replay = message.isAssistant
-          ? applyTopicMask(message.content, message.topicMask)
-          : message.content;
+      final String replay = message.content;
       final String reasoning = message.reasoningContent ?? '';
       if (replay.isEmpty && reasoning.isEmpty) {
         continue;

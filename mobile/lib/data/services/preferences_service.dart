@@ -14,9 +14,6 @@ class PreferencesService {
   static const String keyAutoCollapseThinking = 'auto_collapse_thinking';
   static const String keyAppLanguage = 'app_language';
   static const String keyAppLockEnabled = 'app_lock_enabled';
-  static const String keyTopicGateEnabled = 'topic_gate_enabled';
-  static const String keyTopicGateChannel = 'topic_gate_channel';
-  static const String keyTopicGateThreshold = 'topic_gate_threshold';
   static const String keyAddedProviderIds = 'added_provider_ids';
   static const String keyActiveSessionId = 'active_session_id';
 

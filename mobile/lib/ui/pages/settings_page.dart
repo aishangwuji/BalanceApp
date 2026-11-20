@@ -5,7 +5,6 @@ import '../../core/i18n/settings_strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../state/settings_controller.dart';
 import 'assets_page.dart';
-import 'topic_gate_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -86,32 +85,6 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ],
                   ),
-                  _SectionLabel(text: s.t('settings_section_chat')),
-                  _SettingsCard(
-                    children: <Widget>[
-                      _SettingsRow(
-                        title: s.t('settings_topic_gate'),
-                        subtitle: s.t('settings_topic_gate_desc'),
-                        trailingText: Text(
-                          settings.topicGateEnabled
-                              ? s.t('settings_topic_gate_on')
-                              : s.t('settings_topic_gate_off'),
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: settings.topicGateEnabled
-                                ? c.accent
-                                : c.textMuted,
-                          ),
-                        ),
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const TopicGatePage(),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
                   Center(
                     child: Text(
                       s.t('settings_version'),
@@ -451,16 +424,12 @@ class _SettingsRow extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.onTap,
-    this.trailing,
-    this.trailingText,
-  });
+    this.trailing,  });
 
   final String title;
   final String? subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
-  final Widget? trailingText;
-
   @override
   Widget build(BuildContext context) {
     final AppColors c = context.colors;
@@ -498,9 +467,7 @@ class _SettingsRow extends StatelessWidget {
                 ],
               ),
             ),
-            ?trailing,
-            ?trailingText,
-            if (onTap != null)
+            ?trailing,            if (onTap != null)
               Padding(
                 padding: const EdgeInsets.only(left: 6),
                 child: Icon(

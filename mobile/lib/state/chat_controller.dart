@@ -9,7 +9,6 @@ import '../data/services/chat_service.dart';
 import '../data/services/chat_storage_service.dart';
 import '../data/services/key_store.dart';
 import '../data/services/model_service.dart';
-import '../data/services/topic_gate_service.dart';
 import 'settings_controller.dart';
 
 CharacterCard emptyCharacter() => CharacterCard(
@@ -731,7 +730,6 @@ class ChatController extends ChangeNotifier {
           status: m.status,
           parentId: m.parentId,
           reasoningContent: m.reasoningContent,
-          topicMask: m.topicMask,
         );
       }
       return ChatMessage(
@@ -742,7 +740,6 @@ class ChatController extends ChangeNotifier {
         status: m.status,
         parentId: m.parentId,
         reasoningContent: m.reasoningContent,
-        topicMask: m.topicMask,
       );
     }).toList(growable: false);
 
@@ -779,7 +776,6 @@ class ChatController extends ChangeNotifier {
       unawaited(_saveState());
       notifyListeners();
       if (!stopped) {
-        unawaited(_gateTopic(assistant, parentMessage.content));
       }
     }
 
@@ -870,7 +866,6 @@ class ChatController extends ChangeNotifier {
         if (session != null) {
           final ChatMessage? parent = findMessage(session, last.parentId);
           if (parent != null) {
-            unawaited(_gateTopic(last, parent.content));
           }
         }
       }
@@ -891,26 +886,6 @@ class ChatController extends ChangeNotifier {
   void _stopTicker() {
     _ticker?.cancel();
     _ticker = null;
-  }
-
-  Future<void> _gateTopic(ChatMessage message, String topicText) async {
-    try {
-      final TopicGateConfig config = await _settings.buildTopicGateConfig();
-      if (!config.enabled) {
-        return;
-      }
-      final bool attached =
-          await TopicGateService.annotate(
-        message: message,
-        topicText: topicText,
-        config: config,
-      );
-      if (attached) {
-        await _saveState();
-      }
-    } catch (error) {
-      debugPrint('ChatController: topic gate failed: $error');
-    }
   }
 
   String _systemPromptFor(ChatSession session, CharacterCard speaker) {

@@ -114,7 +114,6 @@ void main() {
     await tester.drag(find.byType(ListView), const Offset(0, -400));
     await tester.pumpAndSettle();
     expect(find.text('资产监控'), findsOneWidget);
-    expect(find.text('上下文净化'), findsOneWidget);
   });
 
   testWidgets('assets page renders empty state', (WidgetTester tester) async {

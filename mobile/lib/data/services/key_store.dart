@@ -14,8 +14,6 @@ class KeyStore {
 
   static String providerKey(String providerId) => 'key_$providerId';
 
-  static const String systemOneTypesafe = 'key_jev_typesafe';
-  static const String systemOneOpenRouter = 'key_jev_openrouter';
 
   Future<String> read(String key) async {
     try {

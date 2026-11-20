@@ -4,37 +4,6 @@ enum MessageStatus { sending, streaming, success, error }
 
 enum SceneMode { single, group }
 
-/// Write-time context mask produced by the topic gate.
-///
-/// Business Rule: `keep` is positional and must match the segment count;
-/// mismatches are treated as "no mask" (fail-open) when replaying.
-class TopicGateMask {
-  const TopicGateMask({required this.topic, required this.keep});
-
-  final String topic;
-  final List<bool> keep;
-
-  Map<String, dynamic> toJson() => <String, dynamic>{
-        'topic': topic,
-        'keep': keep,
-      };
-
-  static TopicGateMask? tryParse(Object? raw) {
-    if (raw is! Map) {
-      return null;
-    }
-    final Object? topic = raw['topic'];
-    final Object? keepRaw = raw['keep'];
-    if (topic is! String || keepRaw is! List) {
-      return null;
-    }
-    return TopicGateMask(
-      topic: topic,
-      keep: keepRaw.map((Object? v) => v == true).toList(growable: false),
-    );
-  }
-}
-
 class ChatMessage {
   ChatMessage({
     required this.id,
@@ -50,7 +19,6 @@ class ChatMessage {
     this.activeChildId = '',
     this.speakerId = '',
     List<String>? mentionedIds,
-    this.topicMask,
   })  : childIds = childIds ?? <String>[],
         mentionedIds = mentionedIds ?? <String>[];
 
@@ -67,7 +35,6 @@ class ChatMessage {
   String activeChildId;
   String speakerId;
   List<String> mentionedIds;
-  TopicGateMask? topicMask;
 
   bool get isUser => role == MessageRole.user;
   bool get isAssistant => role == MessageRole.assistant;
@@ -133,7 +100,6 @@ class ChatMessage {
         'activeChildId': activeChildId,
         'speakerId': speakerId,
         'mentionedIds': mentionedIds,
-        if (topicMask != null) 'topicMask': topicMask!.toJson(),
       };
 
   /// Boundary parser: persisted data is untrusted, so every field is
@@ -182,7 +148,6 @@ class ChatMessage {
       activeChildId: raw['activeChildId'] is String ? raw['activeChildId'] as String : '',
       speakerId: raw['speakerId'] is String ? raw['speakerId'] as String : '',
       mentionedIds: mentioned,
-      topicMask: TopicGateMask.tryParse(raw['topicMask']),
     );
   }
 }
