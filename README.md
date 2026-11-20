@@ -12,6 +12,9 @@ Gitee 为主干（`origin`），GitHub 由 Actions 自动镜像（`.github/workf
 > 源码开源，但**不包含签名材料**。鸿蒙应用必须签名才能安装，签名与开发者账号绑定，
 > 每人用自己的账号生成——步骤在下面和 [docs/signing.md](docs/signing.md)。
 
+> **移动端说明**：`mobile/`（Flutter，Android/iOS）目前**滞后于鸿蒙端**——只同步了应用显示名，
+> 联网搜索、语音、生图、工具设置、检查更新等尚未移植，包名仍是 `com.example.balanceapp`。
+> 差距清单与对齐顺序见 [techdebt/TD-006](techdebt/TD-006-mobile-web-search-parity.md)。
 ## 特性
 
 - **资产**：密钥只存本机 Preferences；余额自动刷新，失败保留上次结果。
