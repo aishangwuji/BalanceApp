@@ -1,14 +1,66 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/app_version.dart';
 import '../../core/i18n/settings_strings.dart';
 import '../../core/theme/app_colors.dart';
+import '../../data/services/update_service.dart';
 import '../../state/settings_controller.dart';
 import 'assets_page.dart';
+
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
+  /// 手动检查更新：Gitee 优先、GitHub 兜底；只提示不强制。
+  Future<void> _checkUpdate(BuildContext context) async {
+    final UpdateInfo? info = await UpdateService.check();
+    if (!context.mounted) {
+      return;
+    }
+    if (info == null) {
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext ctx) => AlertDialog(
+          title: const Text('检查更新'),
+          content: Text('已是最新版本（v${UpdateService.currentVersion}）'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('好'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: Text('发现新版本 v${info.version}'),
+        content: SingleChildScrollView(
+          child: Text(info.notes.isEmpty ? 'v${info.version}' : info.notes),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('以后再说'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              launchUrl(
+                Uri.parse(info.downloadUrl),
+                mode: LaunchMode.externalApplication,
+              );
+            },
+            child: const Text('去下载'),
+          ),
+        ],
+      ),
+    );
+  }
   @override
   Widget build(BuildContext context) {
     final AppColors c = context.colors;
@@ -85,6 +137,27 @@ class SettingsPage extends StatelessWidget {
                       ),
                     ],
                   ),
+                  _SectionLabel(text: '关于'),
+                  _SettingsCard(
+                    children: <Widget>[
+                      _SettingsRow(
+                        title: '检查更新',
+                        trailing: Text(
+                          'v$appVersion',
+                          style: TextStyle(fontSize: 12, color: c.textMuted),
+                        ),
+                        onTap: () => _checkUpdate(context),
+                      ),
+                      _SettingsRow(
+                        title: '开源主页',
+                        onTap: () => launchUrl(
+                          Uri.parse('https://gitee.com/aishangwuji/openchat'),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
                   Center(
                     child: Text(
                       s.t('settings_version'),
