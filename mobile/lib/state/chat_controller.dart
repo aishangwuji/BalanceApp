@@ -851,7 +851,7 @@ class ChatController extends ChangeNotifier {
 
         enableWebSearch: _enableWebSearch &&
             _settings.webSearchProvider != webSearchProviderBaizhi,
-      ),
+        enableSafety: _settings.featureSafety,      ),
     );
 
     _subscription = stream.listen(
@@ -882,7 +882,15 @@ class ChatController extends ChangeNotifier {
             session.title == '新对话') {
           session.title = event.title;
         }
-        if (event.reasoning.isNotEmpty) {
+        if (event.refusal.isNotEmpty) {
+          assistant
+            ..content = ''
+            ..status = MessageStatus.error
+            ..errorMessage = '内容未通过安全审核；可在设置 > 工具中关闭「模型内容安全」后重试。';
+          assistant.searching = false;
+          notifyListeners();
+          return;
+        }        if (event.reasoning.isNotEmpty) {
           assistant.reasoningContent =
               (assistant.reasoningContent ?? '') + event.reasoning;
           _collapsedReasons.remove(assistant.id);

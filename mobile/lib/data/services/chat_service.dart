@@ -23,6 +23,7 @@ class ChatStreamEvent {
     this.sources = const <SearchSource>[],
     this.citations = const <CitationRange>[],
     this.title = '',
+    this.refusal = '',
   });
 
   final String content;
@@ -36,6 +37,8 @@ class ChatStreamEvent {
   final List<CitationRange> citations;
   /// 会话标题（仅首轮声明 title 时下发）。
   final String title;
+  /// 内容安全拒答原因（finish_reason=content_filter / delta.refusal）。
+  final String refusal;
 
   bool get hasPayload => content.isNotEmpty || reasoning.isNotEmpty;
 }
@@ -51,6 +54,7 @@ class ChatRequestOptions {
     this.enableThinking = false,
     this.reasoningEffort = 'high',
     this.enableWebSearch = false,
+    this.enableSafety = false,
   });
 
   final String providerId;
@@ -63,6 +67,8 @@ class ChatRequestOptions {
   final String reasoningEffort;
   /// 联网搜索：仅 DeepSeek 声明服务端工具 deepseek_web_search。
   final bool enableWebSearch;
+  /// 内容安全：声明 safety_check.level=high（仅 DeepSeek）。
+  final bool enableSafety;
 }
 
 /// OpenAI-compatible streaming engine.
@@ -180,6 +186,14 @@ class ChatService {
       }
       final Object? titleRaw = delta['title'];
       final String title = titleRaw is String ? titleRaw.trim() : '';
+      String refusal = '';
+      if (choice['finish_reason'] == 'content_filter') {
+        refusal = '内容未通过安全审核';
+      }
+      final Object? deltaRefusal = delta['refusal'];
+      if (deltaRefusal is String && deltaRefusal.isNotEmpty) {
+        refusal = deltaRefusal;
+      }
       return ChatStreamEvent(
         content: content is String ? content : '',
         reasoning: reasoning is String ? reasoning : '',
@@ -187,6 +201,7 @@ class ChatService {
         sources: sources,
         citations: citations,
         title: title,
+        refusal: refusal,
       );
     } catch (_) {
       // Ignore keep-alive or malformed single lines.
@@ -267,6 +282,11 @@ class ChatService {
         <String, String>{'type': 'deepseek_web_search'},
       ];
     }
+    // 内容安全：官方基础风控，输入输出都审核；拒答走 finish_reason/refusal。
+    if (options.enableSafety && options.providerId == 'deepseek') {
+      payload['safety_check'] = <String, String>{'level': 'high'};
+    }
+
     final bool thinkingOn =
         options.enableThinking && def.supportsThinking;
     final String model = options.model.toLowerCase();
