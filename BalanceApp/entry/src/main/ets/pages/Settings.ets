@@ -19,7 +19,8 @@ import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
   KEY_APP_LOCK_ENABLED, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
   KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY,
-  KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI
+  KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI,
+  KEY_BAIZHI_IMAGE_READY, KEY_BAIZHI_WEB_READY
 } from '../services/SettingsService';
 
 const DOMAIN = 0x0000;
@@ -70,11 +71,14 @@ struct Settings {
   @State showImageSheet: boolean = false;
   @State showWebKeySheet: boolean = false;
   @State showToolProviderSheet: boolean = false;
-  /** 百智云生图 Key：只用于「设置 > 图像生成」，与对话服务商 Key 分开。 */
-  @State imageHasKey: boolean = false;
+  /**
+   * 百智云 Key 状态：各模块 Key 互不通用，订阅 SettingsService 写入的 AppStorage 布尔值，
+   * 保存/清除后本页与聊天页同时立刻刷新。
+   */
+  @StorageProp(KEY_BAIZHI_IMAGE_READY) imageHasKey: boolean = false;
   @State imageKeyInput: string = '';
-  /** 百智云联网搜索 Key。 */
-  @State webKeyHasKey: boolean = false;
+  /** 百智云联网搜索 Key（与生图 Key 分开）。 */
+  @StorageProp(KEY_BAIZHI_WEB_READY) webKeyHasKey: boolean = false;
   @State webKeyInput: string = '';
   @StorageProp(KEY_WEB_SEARCH_PROVIDER) webSearchProvider: string = WEB_SEARCH_PROVIDER_DEEPSEEK;
   @StorageProp(KEY_FEATURE_TITLE) featureTitle: boolean = true;
@@ -94,8 +98,6 @@ struct Settings {
     I18nService.init(hostCtx);
     SettingsService.init(hostCtx);
     this.tempFontLevel = this.currentFontLevel;
-    this.loadImageKeyState();
-    this.loadWebKeyState();
   }
 
   private t(key: string): string {
@@ -271,17 +273,6 @@ struct Settings {
     this.openExternal('https://gitee.com/aishangwuji/openchat');
   }
 
-  /** 读取百智云生图 Key 是否已配置（只关心有/无，不回显明文）。 */
-  private async loadImageKeyState(): Promise<void> {
-    try {
-      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const key: string = await SettingsService.getImageKey(hostCtx);
-      this.imageHasKey = key.trim().length > 0;
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'loadImageKeyState failed: %{public}s', String(err));
-    }
-  }
-
   private async saveImageKey(): Promise<void> {
     const text: string = this.imageKeyInput.trim();
     if (text.length === 0) {
@@ -289,7 +280,6 @@ struct Settings {
     }
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     await SettingsService.setImageKey(hostCtx, text);
-    this.imageHasKey = true;
     this.imageKeyInput = '';
     this.showImageSheet = false;
   }
@@ -297,7 +287,6 @@ struct Settings {
   private async clearImageKey(): Promise<void> {
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     await SettingsService.setImageKey(hostCtx, '');
-    this.imageHasKey = false;
     this.imageKeyInput = '';
     this.showImageSheet = false;
   }
@@ -1391,24 +1380,11 @@ struct Settings {
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     await SettingsService.setWebSearchProvider(hostCtx, provider);
     this.showToolProviderSheet = false;
-    if (provider === WEB_SEARCH_PROVIDER_BAIZHI) {
-      await this.loadWebKeyState();
-    }
   }
 
   private webProviderDisplay(): string {
     return this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI
       ? this.t('settings_web_provider_baizhi') : this.t('settings_web_provider_deepseek');
-  }
-
-  private async loadWebKeyState(): Promise<void> {
-    try {
-      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      const key: string = await SettingsService.getBaizhiWebKey(hostCtx);
-      this.webKeyHasKey = key.trim().length > 0;
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'loadWebKeyState failed: %{public}s', String(err));
-    }
   }
 
   private async saveWebKey(): Promise<void> {
@@ -1418,7 +1394,6 @@ struct Settings {
     }
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     await SettingsService.setBaizhiWebKey(hostCtx, text);
-    this.webKeyHasKey = true;
     this.webKeyInput = '';
     this.showWebKeySheet = false;
   }
@@ -1426,7 +1401,6 @@ struct Settings {
   private async clearWebKey(): Promise<void> {
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     await SettingsService.setBaizhiWebKey(hostCtx, '');
-    this.webKeyHasKey = false;
     this.webKeyInput = '';
     this.showWebKeySheet = false;
   }

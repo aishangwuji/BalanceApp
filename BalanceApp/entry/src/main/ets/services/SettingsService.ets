@@ -23,6 +23,13 @@ export const KEY_TTS_VOICE = 'tts_voice_id'; // string
 export const KEY_BAIZHI_IMAGE = 'key_baizhi_image'; // string
 /** 百智云联网搜索 API Key（与生图 Key 分开，可分别授权）。 */
 export const KEY_BAIZHI_WEB = 'key_baizhi_web'; // string
+/**
+ * 百智云各模块 Key 是否已配置（AppStorage，boolean）。
+ * Business Rule: 百智云的 Key 按功能模块签发、互不通用，所以状态也按模块分开；
+ *   聊天页用 @StorageProp 订阅，保存/清除后立即生效，不必重启应用。
+ */
+export const KEY_BAIZHI_IMAGE_READY = 'baizhi_image_configured'; // boolean
+export const KEY_BAIZHI_WEB_READY = 'baizhi_web_configured'; // boolean
 /** 联网搜索能力来源：'deepseek'（服务端内置工具）| 'baizhi'（百智云 OpenAPI）。 */
 export const KEY_WEB_SEARCH_PROVIDER = 'web_search_provider'; // string
 export const WEB_SEARCH_PROVIDER_DEEPSEEK = 'deepseek';
@@ -98,6 +105,8 @@ export class SettingsService {
 
       // 4.5 工具开关与服务商：全部进 AppStorage，页面用 @StorageProp 直接响应。
       await SettingsService.loadToolsConfig();
+      // 4.6 百智云各模块 Key 的「已配置」状态：聊天页据此决定是否声明生图工具。
+      await SettingsService.loadBaizhiKeyState();
 
       // 4. 应用锁：仅在首次初始化时决定是否直接锁定，避免页面再次 init 时把已解锁状态重置。
       const lockVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_APP_LOCK_ENABLED, false);
@@ -334,15 +343,19 @@ export class SettingsService {
 
   /** 保存百智云 Key；传空字符串表示清除。 */
   public static async setImageKey(context: common.UIAbilityContext, apiKey: string): Promise<void> {
+    const trimmed: string = apiKey.trim();
     try {
       if (SettingsService.prefsInstance === undefined) {
         SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
       }
-      await SettingsService.prefsInstance.put(KEY_BAIZHI_IMAGE, apiKey.trim());
+      await SettingsService.prefsInstance.put(KEY_BAIZHI_IMAGE, trimmed);
       await SettingsService.prefsInstance.flush();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'setImageKey save failed: %{public}s', String(err));
+      return;
     }
+    // 落盘成功才翻转状态，聊天页订阅此值，保存即生效（无需重启）。
+    AppStorage.setOrCreate<boolean>(KEY_BAIZHI_IMAGE_READY, trimmed.length > 0);
   }
   /** 读取工具开关与服务商到 AppStorage（init 与设置页刷新共用）。 */
   public static async loadToolsConfig(): Promise<void> {
@@ -417,14 +430,38 @@ export class SettingsService {
   }
 
   public static async setBaizhiWebKey(context: common.UIAbilityContext, apiKey: string): Promise<void> {
+    const trimmed: string = apiKey.trim();
     try {
       if (SettingsService.prefsInstance === undefined) {
         SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
       }
-      await SettingsService.prefsInstance.put(KEY_BAIZHI_WEB, apiKey.trim());
+      await SettingsService.prefsInstance.put(KEY_BAIZHI_WEB, trimmed);
       await SettingsService.prefsInstance.flush();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'setBaizhiWebKey failed: %{public}s', String(err));
+      return;
+    }
+    AppStorage.setOrCreate<boolean>(KEY_BAIZHI_WEB_READY, trimmed.length > 0);
+  }
+
+  /** 读百智云各模块 Key 的配置状态进 AppStorage（只看有无，不回显明文）。 */
+  public static async loadBaizhiKeyState(): Promise<void> {
+    const prefs: preferences.Preferences | undefined = SettingsService.prefsInstance;
+    if (prefs === undefined) {
+      return;
+    }
+    try {
+      const imgVal: preferences.ValueType = await prefs.get(KEY_BAIZHI_IMAGE, '');
+      const webVal: preferences.ValueType = await prefs.get(KEY_BAIZHI_WEB, '');
+      const imgReady: boolean = typeof imgVal === 'string' && (imgVal as string).trim().length > 0;
+      const webReady: boolean = typeof webVal === 'string' && (webVal as string).trim().length > 0;
+      AppStorage.setOrCreate<boolean>(KEY_BAIZHI_IMAGE_READY, imgReady);
+      AppStorage.setOrCreate<boolean>(KEY_BAIZHI_WEB_READY, webReady);
+      // 只打印「有没有配」，不打印 Key 本身。
+      hilog.info(DOMAIN, TAG, 'baizhi key state: imageReady=%{public}s webReady=%{public}s',
+        String(imgReady), String(webReady));
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'loadBaizhiKeyState failed: %{public}s', String(err));
     }
   }
 }

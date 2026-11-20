@@ -27,7 +27,8 @@ import { BaizhiWebSearchService } from '../services/BaizhiWebSearchService';
 import { TtsCallbacks, TtsService } from '../services/TtsService';
 import {
   SettingsService, KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS,
-  KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY, KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_BAIZHI
+  KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY, KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_BAIZHI,
+  KEY_BAIZHI_IMAGE_READY
 } from '../services/SettingsService';
 import { FileUploadService, UploadedFile } from '../services/FileUploadService';
 import { VoiceRecorder } from '../services/VoiceRecorder';
@@ -111,7 +112,12 @@ export struct ChatView {
    */
   @State enableWebSearch: boolean = false;
   /** 百智云生图 Key 是否已配置：决定本轮是否向模型声明 generate_image 工具。 */
-  @State imageKeyConfigured: boolean = false;
+  /**
+   * 生图工具是否可用：订阅百智云生图 Key 的「已配置」状态（AppStorage）。
+   * Business Rule: 百智云按模块签 Key，生图 Key 与联网搜索 Key 互不通用；
+   *   这里必须订阅而不是在 aboutToAppear 里读一次，否则设置里存完 Key 回聊天页仍不生效。
+   */
+  @StorageProp(KEY_BAIZHI_IMAGE_READY) imageKeyConfigured: boolean = false;
   /** 工具开关（设置 > 工具）：页面用 @StorageProp 跟随设置实时生效。 */
   @StorageProp(KEY_FEATURE_TITLE) featureTitle: boolean = true;
   @StorageProp(KEY_FEATURE_FILES) featureFiles: boolean = true;
@@ -215,8 +221,7 @@ export struct ChatView {
       // 联网搜索偏好随 balance_prefs 持久化（与 API Key 同库，不额外引入新 Preferences 存储）。
       const webSearchPref: preferences.ValueType = await this.balancePrefs.get('web_search_enabled', false);
       this.enableWebSearch = webSearchPref === true;
-      // 生图工具是否可用：只看百智云 Key 是否配置（避免向模型声明一个必然失败的工具）。
-      this.imageKeyConfigured = (await SettingsService.getImageKey(hostCtx)).trim().length > 0;
+      // 生图工具是否可用：只看百智云生图 Key 是否配置（AppStorage 订阅，见字段声明）。
 
       // 加载角色卡
       this.characters = await ChatStorageService.loadCharacters();
@@ -284,7 +289,7 @@ export struct ChatView {
     try {
       const key: string = await SettingsService.getImageKey(hostCtx);
       if (key.trim().length === 0) {
-        throw new Error('未配置百智云 API Key（设置 > 图像生成）');
+        throw new Error('未配置百智云「生图」Key（设置 > 工具）');
       }
       let prompt: string = '';
       let ratio: string = 'auto';
