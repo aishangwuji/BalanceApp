@@ -151,6 +151,8 @@ export struct ChatView {
 
   // 弹窗与抽屉控制
   @State showDrawer: boolean = false;
+  /** 历史抽屉的会话搜索关键词（按标题过滤，抽屉每次打开时清空）。 */
+  @State sessionQuery: string = '';
   @State showModelPicker: boolean = false;
   @State showCharacterSheet: boolean = false;
   @State showCharEditDialog: boolean = false;
@@ -1049,7 +1051,27 @@ export struct ChatView {
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'clearFocus before drawer failed: %{public}s', String(err));
     }
+    this.sessionQuery = '';
     this.showDrawer = true;
+  }
+
+  /**
+   * 历史抽屉的关键词过滤：只按会话标题匹配（大小写不敏感）。
+   * 关键词为空时直接返回全量引用，避免每次输入都复制一遍会话数组。
+   */
+  private filteredSessions(): ChatSession[] {
+    const keyword: string = this.sessionQuery.trim().toLowerCase();
+    if (keyword.length === 0) {
+      return this.sessions;
+    }
+    const matched: ChatSession[] = [];
+    for (let i = 0; i < this.sessions.length; i++) {
+      const sess: ChatSession = this.sessions[i];
+      if (sess.title.toLowerCase().includes(keyword)) {
+        matched.push(sess);
+      }
+    }
+    return matched;
   }
 
   private toast(text: string): void {
@@ -3578,15 +3600,34 @@ export struct ChatView {
               .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
             Column() {
-              // 抽屉头部
+              // 抽屉头部：搜索会话 + 新会话（对齐官方：顶部是搜索框，不再是标题行）
               Row() {
-                Text('历史会话')
-                  .fontSize(18)
-                  .fontWeight(FontWeight.Bold)
-                Blank()
+                Row() {
+                  Image($r('app.media.ic_search'))
+                    .width(15)
+                    .height(15)
+                    .margin({ left: 12, right: 6 })
+                  TextInput({ placeholder: '搜索会话内容' })
+                    .layoutWeight(1)
+                    .height(36)
+                    .padding({ left: 0, right: 8 })
+                    .backgroundColor(Color.Transparent)
+                    .placeholderColor($r('app.color.text_muted'))
+                    .placeholderFont({ size: 13 })
+                    .fontSize(13)
+                    .onChange((value: string) => {
+                      this.sessionQuery = value;
+                    })
+                }
+                .layoutWeight(1)
+                .height(38)
+                .backgroundColor($r('app.color.chat_surface'))
+                .borderRadius(19)
+
                 Button('+ 新会话')
                   .fontSize(12)
                   .height(36)
+                  .margin({ left: 8 })
                   .backgroundColor($r('app.color.chat_accent_solid'))
                   .fontColor($r('app.color.chat_accent_contrast'))
                   .borderRadius(18)
@@ -3599,63 +3640,72 @@ export struct ChatView {
                   })
               }
               .width('90%')
-              .margin({ top: 20, bottom: 14 })
+              .margin({ top: 14, bottom: 10 })
 
-              Divider().color($r('app.color.chat_border')).width('100%')
-
-              // 会话列表
-              List() {
-                ForEach(this.sessions, (sess: ChatSession) => {
-                  ListItem() {
-                    Row() {
-                      Column() {
-                        Row() {
-                          if (sess.isPrivate) {
-                            Image($r('app.media.ic_lock'))
-                              .width(13)
-                              .height(13)
-                              .margin({ right: 4 })
+              // 会话列表（过滤后为空时给明确空态，避免只剩一条分割线）
+              if (this.filteredSessions().length === 0) {
+                Column() {
+                  Text(this.sessionQuery.trim().length > 0 ? '没有匹配的会话' : '还没有历史会话')
+                    .fontSize(13)
+                    .fontColor($r('app.color.text_muted'))
+                }
+                .width('100%')
+                .layoutWeight(1)
+                .justifyContent(FlexAlign.Center)
+              } else {
+                List() {
+                  ForEach(this.filteredSessions(), (sess: ChatSession) => {
+                    ListItem() {
+                      Row() {
+                        Column() {
+                          Row() {
+                            if (sess.isPrivate) {
+                              Image($r('app.media.ic_lock'))
+                                .width(13)
+                                .height(13)
+                                .margin({ right: 4 })
+                            }
+                            Text(sess.title)
+                              .fontSize(15)
+                              .fontWeight(sess.id === this.currentSessionId ? FontWeight.Bold : FontWeight.Normal)
+                              .fontColor(sess.id === this.currentSessionId ? $r('app.color.chat_accent') : $r('app.color.text_primary'))
+                              .maxLines(1)
+                              .textOverflow({ overflow: TextOverflow.Ellipsis })
+                              .layoutWeight(1)
                           }
-                          Text(sess.title)
-                            .fontSize(15)
-                            .fontWeight(sess.id === this.currentSessionId ? FontWeight.Bold : FontWeight.Normal)
-                            .fontColor(sess.id === this.currentSessionId ? $r('app.color.chat_accent') : $r('app.color.text_primary'))
-                            .maxLines(1)
-                            .textOverflow({ overflow: TextOverflow.Ellipsis })
-                            .layoutWeight(1)
+                          .width('100%')
+                          Text(`${this.getProviderName(sess.providerId)} · ${sess.messages.length} 条消息`)
+                            .fontSize(11)
+                            .fontColor($r('app.color.text_muted'))
+                            .margin({ top: 4 })
                         }
-                        .width('100%')
-                        Text(`${this.getProviderName(sess.providerId)} · ${sess.messages.length} 条消息`)
-                          .fontSize(11)
-                          .fontColor($r('app.color.text_muted'))
-                          .margin({ top: 4 })
-                      }
-                      .alignItems(HorizontalAlign.Start)
-                      .layoutWeight(1)
+                        .alignItems(HorizontalAlign.Start)
+                        .layoutWeight(1)
 
-                      Text('›')
-                        .fontSize(20)
-                        .fontColor($r('app.color.icon_muted'))
+                        Text('›')
+                          .fontSize(20)
+                          .fontColor($r('app.color.icon_muted'))
+                      }
+                      .width('100%')
+                      .padding({ left: 18, right: 18, top: 12, bottom: 12 })
+                      // Reason: 官方侧栏是「整屏浅灰 + 扁平行」，选中项用白底浮起，不再给每行描边卡片。
+                      .backgroundColor(sess.id === this.currentSessionId ? $r('app.color.chat_surface') : Color.Transparent)
+                      .borderRadius(14)
+                      .onClick(() => {
+                        this.openSessionWithPrivacy(sess);
+                      })
+                      .gesture(LongPressGesture({ repeat: false }).onAction(() => {
+                        this.openSessActions(sess.id);
+                      }))
                     }
-                    .width('100%')
-                    .padding({ left: 18, right: 18, top: 12, bottom: 12 })
-                    // Reason: 官方侧栏是「整屏浅灰 + 扁平行」，选中项用白底浮起，不再给每行描边卡片。
-                    .backgroundColor(sess.id === this.currentSessionId ? $r('app.color.chat_surface') : Color.Transparent)
-                    .borderRadius(14)
-                    .onClick(() => {
-                      this.openSessionWithPrivacy(sess);
-                    })
-                    .gesture(LongPressGesture({ repeat: false }).onAction(() => {
-                      this.openSessActions(sess.id);
-                    }))
-                  }
-                  .margin({ bottom: 2 })
-                }, (sess: ChatSession) => `${sess.id}_${sess.title}_${sess.updatedAt}_${sess.isPrivate ? 1 : 0}`)
+                    .margin({ bottom: 2 })
+                  }, (sess: ChatSession) => `${sess.id}_${sess.title}_${sess.updatedAt}_${sess.isPrivate ? 1 : 0}`)
+                }
+                .width('100%')
+                .layoutWeight(1)
+                .margin({ top: 6 })
+                .scrollBar(BarState.Off)
               }
-              .width('100%')
-              .layoutWeight(1)
-              .margin({ top: 6 })
-              .scrollBar(BarState.Off)
 
               // 底部：角色管理 + 设置入口
               Divider().color($r('app.color.chat_border')).width('100%')
